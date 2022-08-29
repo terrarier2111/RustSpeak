@@ -1,0 +1,25 @@
+[package]
+name = "RustSpeakServer"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# config de-/serialization
+serde = "1.0.144"
+serde_derive = "1.0.144"
+# networking
+tokio = "1.20.1"
+quinn = "0.8.5"
+rustls = { version = "0.20.6", features = [ "dangerous_configuration", "quic" ] }
+rcgen = "0.9.3"
+rustls-pemfile = "1.0.1"
+# other utils
+uuid = { version = "1.1.2", features = [ "v4" ] }
+ripemd = "0.1.1"
+sha2 = "0.10.2"
+bytes = "1.2.1"
+# byteorder = "1.4.3"
+anyhow = "1.0.62"
+# FIXME: add uuid crate

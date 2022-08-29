@@ -1,0 +1,31 @@
+[package]
+name = "RustSpeakClient"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# config de-/serialization
+serde = "1.0.144"
+serde_derive = "1.0.144"
+# networking
+tokio = "1.20.1"
+quinn = "0.8.5"
+rustls = { version = "0.20.6", features = [ "dangerous_configuration", "quic" ] }
+
+# rendering/graphics
+wgpu = "0.13.1"
+wgpu-biolerless = { version = "0.1.2", features = [ "winit" ] }
+winit = "0.27.2"
+
+# other utils
+uuid = { version = "1.1.2", features = [ "v4" ] }
+ripemd = "0.1.1"
+sha2 = "0.10.2"
+rand = "0.8.5"
+# byteorder = "1.4.3"
+bytemuck = "1.12.1"
+bytemuck_derive = "1.2.1"
+bytes = "1.2.1"
+anyhow = "1.0.62"
