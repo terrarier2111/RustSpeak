@@ -1,5 +1,5 @@
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use quinn::{Endpoint, Incoming, ServerConfig};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 pub struct NetworkServer {
     endpoint: Endpoint,
@@ -7,7 +7,6 @@ pub struct NetworkServer {
 }
 
 impl NetworkServer {
-
     pub fn new(port: u16, address_mode: AddressMode, config: ServerConfig) -> anyhow::Result<Self> {
         let endpoint = Endpoint::server(config, address_mode.local(port))?;
 
@@ -16,7 +15,6 @@ impl NetworkServer {
             incoming: endpoint.1,
         })
     }
-
 }
 
 #[derive(Copy, Clone, Debug)]

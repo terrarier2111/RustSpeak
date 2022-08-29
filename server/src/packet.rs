@@ -1,9 +1,10 @@
-use std::fmt::Write;
+use crate::profile::Profile;
+use bytes::{Buf, BufMut, Bytes, BytesMut};
+use std::error::Error;
+use std::fmt::{Debug, Display, Formatter, Write};
 use std::mem::{discriminant, transmute};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use bytes::{Buf, BufMut, Bytes, BytesMut};
 use uuid::Uuid;
-use crate::profile::Profile;
 
 /// packets the server sends to the client
 pub enum ServerPacket {
@@ -38,51 +39,116 @@ pub enum ClientPacket {
         client: Uuid,
         update: ClientUpdateServerGroups,
     },
-
 }
 
-impl ClientPacket {
-
-    pub fn from_bytes(src: &mut Bytes) -> anhow::Result<Self> {
+impl RWBytes for ServerPacket {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self> {
         let id = src.get_u8();
+
         match id {
-            
-            _ => Err(()),
+            0 => Ok(Self::AuthResponse(AuthResponse::read(src)?)),
+            1 => Ok(Self::ChannelUpdate(ChannelUpdate::read(src)?)),
+            2 => Ok(Self::ClientConnected(RemoteProfile::read(src)?)),
+            3 => Ok(Self::ClientDisconnected(RemoteProfile::read(src)?)),
+            4 => {
+                let client = Uuid::read(src)?;
+                let update = ClientUpdateServerGroups::read(src)?;
+                Ok(Self::ClientUpdateServerGroups { client, update })
+            }
+            5 => {
+                let id = u64::read(src)?;
+                let send_time = Duration::read(src)?;
+                Ok(Self::KeepAlive { id, send_time })
+            }
+            _ => Err(Error::from(ErrorEnumVariantNotFound("ServerPacket", id))),
         }
     }
 
-}
-
-impl ServerPacket {
-
-    pub fn to_bytes(&self) -> anhow::Result<BytesMut> {
-        let mut output = BytesMut::new();
-        output.put_u8(discriminant(&self).into());
+    fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
+        dst.put_u8(discriminant(&self).into());
         match self {
             ServerPacket::AuthResponse(response) => {
-                response.write(&mut output)?;
+                response.write(dst)?;
             }
             ServerPacket::ChannelUpdate(update) => {
-                update.write(&mut output)?;
+                update.write(dst)?;
             }
             ServerPacket::ClientConnected(connected) => {
-                connected.write(&mut output)?;
+                connected.write(dst)?;
             }
             ServerPacket::ClientDisconnected(disconnected) => {
-                disconnected.write(&mut output)?;
+                disconnected.write(dst)?;
             }
             ServerPacket::ClientUpdateServerGroups { client, update } => {
-                client.write(&mut output)?;
-                update.write(&mut output)?;
+                client.write(dst)?;
+                update.write(dst)?;
             }
             ServerPacket::KeepAlive { id, send_time } => {
-                output.put_u64_le(*id);
-                send_time.write(&mut output)?;
+                dst.put_u64_le(*id);
+                send_time.write(dst)?;
             }
         }
-        Ok(output)
+        Ok(())
+    }
+}
+
+impl RWBytes for ClientPacket {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self> {
+        let id = src.get_u8();
+        match id {
+            0 => {
+                let protocol_version = u64::read(src)?;
+                let profile = RemoteProfile::read(src)?;
+                let security_proofs = Vec::<u128>::read(src)?;
+                let auth_id = Uuid::read(src)?;
+                Ok(Self::AuthRequest {
+                    protocol_version,
+                    profile,
+                    security_proofs,
+                    auth_id,
+                })
+            }
+            1 => Ok(Self::Disconnect),
+            2 => {
+                let id = src.get_u64_le();
+                let send_time = Duration::read(src)?;
+                Ok(Self::KeepAlive { id, send_time })
+            }
+            3 => {
+                let client = Uuid::read(src)?;
+                let update = ClientUpdateServerGroups::read(src)?;
+                Ok(Self::UpdateClientServerGroups { client, update })
+            }
+            _ => Err(Error::from(ErrorEnumVariantNotFound("ClientPacket", id))),
+        }
     }
 
+    fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
+        dst.put_u8(discriminant(&self).into());
+        match self {
+            ClientPacket::AuthRequest {
+                protocol_version,
+                profile,
+                security_proofs,
+                auth_id,
+            } => {
+                dst.put_u64_le(*protocol_version);
+                profile.write(dst)?;
+                security_proofs.write(dst)?;
+                auth_id.write(dst)?;
+            }
+            ClientPacket::Disconnect => {}
+            ClientPacket::KeepAlive { id, send_time } => {
+                dst.put_u64_le(*id);
+                send_time.write(dst)?;
+            }
+            ClientPacket::UpdateClientServerGroups { client, update } => {
+                client.write(dst)?;
+                update.write(dst)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 pub enum ChannelUpdate {
@@ -102,17 +168,17 @@ impl RWBytes for ChannelUpdate {
             0 => {
                 let channel = Channel::read(src)?;
                 Ok(Self::Create(channel))
-            },
+            }
             1 => {
                 let channel = Uuid::read(src)?;
                 let update = ChannelSubUpdate::read(src)?;
                 Ok(Self::SubUpdate { channel, update })
-            },
+            }
             2 => {
                 let uuid = Uuid::read(src)?;
                 Ok(Self::Delete(uuid))
-            },
-            _ => Err(()),
+            }
+            _ => Err(Error::from(ErrorEnumVariantNotFound("ChannelUpdate", disc))),
         }
     }
 
@@ -125,7 +191,6 @@ impl RWBytes for ChannelUpdate {
             }
             ChannelUpdate::SubUpdate { channel, update } => {
                 channel.write(dst)?;
-
             }
             ChannelUpdate::Delete(channel_id) => {
                 channel_id.write(dst)?;
@@ -150,20 +215,23 @@ impl RWBytes for ChannelSubUpdate {
             0 => {
                 let name = String::read(src)?;
                 Ok(Self::Name(name))
-            },
+            }
             1 => {
                 let desc = String::read(src)?;
                 Ok(Self::Desc(desc))
-            },
+            }
             2 => {
                 let channel_perms = ChannelPerms::read(src)?;
                 Ok(Self::Perms(channel_perms))
-            },
+            }
             3 => {
                 let update = ChannelSubClientUpdate::read(src)?;
                 Ok(Self::Client(update))
-            },
-            _ => Err(()),
+            }
+            _ => Err(Error::from(ErrorEnumVariantNotFound(
+                "ChannelSubUpdate",
+                disc,
+            ))),
         }
     }
 
@@ -202,12 +270,15 @@ impl RWBytes for ChannelSubClientUpdate {
             0 => {
                 let uuid = Uuid::read(src)?;
                 Ok(Self::Add(uuid))
-            },
+            }
             1 => {
                 let uuid = Uuid::read(src)?;
                 Ok(Self::Remove(uuid))
-            },
-            _ => Err(()),
+            }
+            _ => Err(Error::from(ErrorEnumVariantNotFound(
+                "ChannelSubClientUpdate",
+                disc,
+            ))),
         }
     }
 
@@ -237,13 +308,16 @@ impl RWBytes for ClientUpdateServerGroups {
         match disc {
             0 => {
                 let uuid = Uuid::read(src)?;
-                ClientUpdateServerGroups::Add(uuid)
-            },
+                Ok(ClientUpdateServerGroups::Add(uuid))
+            }
             1 => {
                 let uuid = Uuid::read(src)?;
-                ClientUpdateServerGroups::Remove(uuid)
-            },
-            _ => Err(()),
+                Ok(ClientUpdateServerGroups::Remove(uuid))
+            }
+            _ => Err(Error::from(ErrorEnumVariantNotFound(
+                "ClientUpdateServerGroups",
+                disc,
+            ))),
         }
     }
 
@@ -338,7 +412,7 @@ pub struct ChannelPerms {
     talk: u64,
     assign_talk: u64,
     delete: u64, // this might be useful for regulating bots for example
-    // kicking is handled simply as a move into the default channel
+                 // kicking is handled simply as a move into the default channel
 }
 
 impl RWBytes for ChannelPerms {
@@ -514,24 +588,28 @@ impl RWBytes for AuthResponse {
                 let server_groups = Vec::<ServerGroup>::read(src)?;
                 let own_groups = Vec::<Uuid>::read(src)?;
                 let channels = Vec::<Channel>::read(src)?;
-                Self::Success {
+                Ok(Self::Success {
                     server_groups,
                     own_groups,
                     channels,
-                }
-            },
+                })
+            }
             1 => {
                 let failure = AuthFailure::read(src)?;
-                Self::Failure(failure)
-            },
-            _ => Err(()),
+                Ok(Self::Failure(failure))
+            }
+            _ => Err(Error::from(ErrorEnumVariantNotFound("AuthResponse", disc))),
         }
     }
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
         dst.put_u8(discriminant(self).into());
         match self {
-            AuthResponse::Success { server_groups, own_groups, channels } => {
+            AuthResponse::Success {
+                server_groups,
+                own_groups,
+                channels,
+            } => {
                 server_groups.write(dst)?;
                 own_groups.write(dst)?;
                 channels.write(dst)?;
@@ -562,21 +640,21 @@ impl RWBytes for AuthFailure {
             0 => {
                 let reason = String::read(src)?;
                 let duration = BanDuration::read(src)?;
-                Self::Banned { reason, duration }
-            },
+                Ok(Self::Banned { reason, duration })
+            }
             1 => {
                 let req_ver = src.get_u8();
                 Ok(Self::ReqSec(req_ver))
-            },
+            }
             2 => {
                 let req_ver = src.get_u64_le();
                 Ok(Self::OutOfDate(req_ver))
-            },
+            }
             3 => {
                 let reason = String::read(src)?;
                 Ok(Self::Invalid(reason))
-            },
-            _ => Err(()),
+            }
+            _ => Err(Error::from(ErrorEnumVariantNotFound("AuthFailure", disc))),
         }
     }
 
@@ -615,8 +693,8 @@ impl RWBytes for BanDuration {
             1 => {
                 let dur = Duration::read(src)?;
                 Ok(BanDuration::Temporary(dur))
-            },
-            _ => Err(()),
+            }
+            _ => Err(Error::from(ErrorEnumVariantNotFound("BanDuration", disc))),
         }
     }
 
@@ -788,3 +866,27 @@ impl<T: RWBytes> RWBytes for Vec<T> {
         Ok(())
     }
 }
+
+pub struct ErrorEnumVariantNotFound(&'static str, u8);
+
+impl Debug for ErrorEnumVariantNotFound {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("enum type ")?;
+        f.write_str(self.0)?;
+        f.write_str(" has no variant with ordinal")?;
+        let num = self.1.to_string();
+        f.write_str(num.as_str())
+    }
+}
+
+impl Display for ErrorEnumVariantNotFound {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("enum type ")?;
+        f.write_str(self.0)?;
+        f.write_str(" has no variant with ordinal")?;
+        let num = self.1.to_string();
+        f.write_str(num.as_str())
+    }
+}
+
+impl Error for ErrorEnumVariantNotFound {}

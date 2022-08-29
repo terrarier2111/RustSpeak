@@ -8,7 +8,6 @@ pub struct Profile {
 }
 
 impl Profile {
-
     pub fn new(name: String) -> Self {
         Self {
             name,
@@ -18,7 +17,12 @@ impl Profile {
         }
     }
 
-    pub fn from_existing(name: String, uuid: Uuid, private_key: Uuid, security_proofs: Vec<u128>) -> Self {
+    pub fn from_existing(
+        name: String,
+        uuid: Uuid,
+        private_key: Uuid,
+        security_proofs: Vec<u128>,
+    ) -> Self {
         Self {
             name,
             uuid,
@@ -36,5 +40,4 @@ impl Profile {
     pub fn private_key(&self) -> &Uuid {
         &self.private_key
     }
-
 }

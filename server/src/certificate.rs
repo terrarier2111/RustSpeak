@@ -2,12 +2,14 @@ use quinn::crypto::rustls;
 use quinn::ServerConfig;
 
 mod secure_authority {
+    use quinn::crypto::rustls;
     use std::error::Error;
     use std::fs::File;
     use std::io::BufReader;
-    use quinn::crypto::rustls;
 
-    pub fn read_certs_from_file(cert_file: File, priv_key_file: File,
+    pub fn read_certs_from_file(
+        cert_file: File,
+        priv_key_file: File,
     ) -> Result<(Vec<rustls::Certificate>, rustls::PrivateKey), Box<dyn Error>> {
         let mut cert_chain_reader = BufReader::new(cert_file);
         let certs = rustls_pemfile::certs(&mut cert_chain_reader)?
@@ -29,16 +31,20 @@ mod secure_authority {
 }
 
 mod insecure_local {
-    use std::error::Error;
     use quinn::crypto::rustls;
+    use std::error::Error;
 
-    pub fn generate_self_signed_cert() -> Result<(rustls::Certificate, rustls::PrivateKey), Box<dyn Error>> {
+    pub fn generate_self_signed_cert(
+    ) -> Result<(rustls::Certificate, rustls::PrivateKey), Box<dyn Error>> {
         let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])?;
         let key = rustls::PrivateKey(cert.serialize_private_key_der());
         Ok((rustls::Certificate(cert.serialize_der()?), key))
     }
 }
 
-pub fn create_config(certs: rustls::Certificate, key: rustls::PrivateKey) -> Result<ServerConfig, rustls::Error> {
+pub fn create_config(
+    certs: rustls::Certificate,
+    key: rustls::PrivateKey,
+) -> Result<ServerConfig, rustls::Error> {
     ServerConfig::with_single_cert(certs, key)
 }

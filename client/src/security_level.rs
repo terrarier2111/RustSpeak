@@ -8,12 +8,12 @@
 // FIXME: we can fix this by sending a list of following values that added to the previous hash
 // FIXME: have one 0 more at the start than the previous hash
 
-use std::borrow::Cow;
-use std::mem::transmute;
 use byteorder::ReadBytesExt;
 use rand::{random, Rng};
-use ripemd::{Ripemd160, Ripemd320, Digest};
+use ripemd::{Digest, Ripemd160, Ripemd320};
 use sha2::Sha256;
+use std::borrow::Cow;
+use std::mem::transmute;
 
 // this is a hashcash implementation based on the ripemd-160 hashing algorithm
 

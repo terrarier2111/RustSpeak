@@ -1,10 +1,10 @@
+use crate::packet::ClientPacket;
+use quinn::{ClientConfig, Endpoint, NewConnection, RecvStream, SendStream};
 use std::error::Error;
 use std::fs::File;
 use std::io::BufReader;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::{Arc, Mutex, RwLock};
-use quinn::{ClientConfig, Endpoint, NewConnection, RecvStream, SendStream};
-use crate::packet::ClientPacket;
 
 pub struct NetworkClient {
     endpoint: Endpoint,
@@ -13,17 +13,19 @@ pub struct NetworkClient {
 }
 
 impl NetworkClient {
-
-    pub async fn new(address_mode: AddressMode, config: Option<ClientConfig>, server: SocketAddr, server_name: &str) -> anyhow::Result<Self> {
+    pub async fn new(
+        address_mode: AddressMode,
+        config: Option<ClientConfig>,
+        server: SocketAddr,
+        server_name: &str,
+    ) -> anyhow::Result<Self> {
         let endpoint = Endpoint::client(address_mode.local())?;
         let conn = if let Some(config) = config {
             endpoint.connect_with(config, server, server_name)?.await?
         } else {
             endpoint.connect(server, server_name)?.await?
         };
-        let (send, recv) = conn.connection
-            .open_bi()
-            .await?;
+        let (send, recv) = conn.connection.open_bi().await?;
 
         Ok(Self {
             endpoint,
@@ -43,7 +45,6 @@ impl NetworkClient {
         let mut recv = self.bi_conn.1.lock().unwrap();
         recv.read_to_end(size_limit).await?
     }
-
 }
 
 #[derive(Copy, Clone, Debug)]

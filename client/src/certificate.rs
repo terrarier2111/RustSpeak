@@ -7,10 +7,10 @@ mod secure_authority {
 }
 
 mod insecure_local {
-    use std::sync::Arc;
     use quinn::ClientConfig;
-    use rustls::{Certificate, ServerName};
     use rustls::client::{ServerCertVerified, ServerCertVerifier};
+    use rustls::{Certificate, ServerName};
+    use std::sync::Arc;
 
     pub fn config() -> ClientConfig {
         let crypto = rustls::ClientConfig::builder()

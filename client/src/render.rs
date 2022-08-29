@@ -6,18 +6,16 @@ pub struct Renderer {
 }
 
 impl Renderer {
-
     pub fn new(state: State) -> Self {
-        Self {
-            state,
-        }
+        Self { state }
     }
 
     pub fn render(&mut self) {
-        self.state.render(|view, encoder, state| {
-
-            encoder
-        }, &TextureViewDescriptor::default()).unwrap();
+        self.state
+            .render(
+                |view, encoder, state| encoder,
+                &TextureViewDescriptor::default(),
+            )
+            .unwrap();
     }
-
 }
