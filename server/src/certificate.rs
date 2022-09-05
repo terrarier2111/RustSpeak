@@ -1,20 +1,19 @@
-use quinn::crypto::rustls;
 use quinn::ServerConfig;
+use rustls::{Certificate, Error, PrivateKey};
 
-mod secure_authority {
-    use quinn::crypto::rustls;
-    use std::error::Error;
+pub(crate) mod secure_authority {
     use std::fs::File;
     use std::io::BufReader;
+    use rustls::{Certificate, PrivateKey};
 
     pub fn read_certs_from_file(
         cert_file: File,
         priv_key_file: File,
-    ) -> Result<(Vec<rustls::Certificate>, rustls::PrivateKey), Box<dyn Error>> {
+    ) -> anyhow::Result<(Vec<Certificate>, PrivateKey)> {
         let mut cert_chain_reader = BufReader::new(cert_file);
         let certs = rustls_pemfile::certs(&mut cert_chain_reader)?
             .into_iter()
-            .map(rustls::Certificate)
+            .map(Certificate)
             .collect();
 
         let mut key_reader = BufReader::new(priv_key_file);
@@ -23,28 +22,27 @@ mod secure_authority {
         // if the file starts with "BEGIN PRIVATE KEY"
         let mut keys = rustls_pemfile::pkcs8_private_keys(&mut key_reader)?;
 
-        assert_eq!(key_vec.len(), 1);
-        let key = rustls::PrivateKey(keys.remove(0));
+        assert_eq!(keys.len(), 1);
+        let key = PrivateKey(keys.remove(0));
 
         Ok((certs, key))
     }
 }
 
-mod insecure_local {
-    use quinn::crypto::rustls;
-    use std::error::Error;
+pub(crate) mod insecure_local {
+    use rustls::{Certificate, PrivateKey};
 
     pub fn generate_self_signed_cert(
-    ) -> Result<(rustls::Certificate, rustls::PrivateKey), Box<dyn Error>> {
+    ) -> anyhow::Result<(Certificate, PrivateKey)> {
         let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])?;
-        let key = rustls::PrivateKey(cert.serialize_private_key_der());
-        Ok((rustls::Certificate(cert.serialize_der()?), key))
+        let key = PrivateKey(cert.serialize_private_key_der());
+        Ok((Certificate(cert.serialize_der()?), key))
     }
 }
 
-pub fn create_config(
-    certs: rustls::Certificate,
-    key: rustls::PrivateKey,
-) -> Result<ServerConfig, rustls::Error> {
-    ServerConfig::with_single_cert(certs, key)
+pub(crate) fn create_config(
+    certs: Certificate,
+    key: PrivateKey,
+) -> Result<ServerConfig, Error> {
+    ServerConfig::with_single_cert(vec![certs], key)
 }

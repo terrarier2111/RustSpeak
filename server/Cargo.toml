@@ -5,12 +5,16 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[toolchain]
+channel = "nightly"
+
 [dependencies]
 # config de-/serialization
 serde = "1.0.144"
 serde_derive = "1.0.144"
+serde_json = "1.0.85"
 # networking
-tokio = "1.20.1"
+tokio = { version = "1.20.1", features = ["full"] }
 quinn = "0.8.5"
 rustls = { version = "0.20.6", features = [ "dangerous_configuration", "quic" ] }
 rcgen = "0.9.3"
@@ -22,4 +26,13 @@ sha2 = "0.10.2"
 bytes = "1.2.1"
 # byteorder = "1.4.3"
 anyhow = "1.0.62"
-# FIXME: add uuid crate
+dirs = "4.0.0"
+dashmap = "5.3.4"
+futures = "0.3.24"
+arc-swap = "1.5.1"
+num_enum = "0.5.7"
+ordinalizer = { git = "https://github.com/terrarier2111/ordinalize" }
+# sqlx = "0.6.1"
+sled = "0.34.7"
+openssl = { version = "0.10.41", features = ["vendored"] }
+# rocksdb = "0.19.0"

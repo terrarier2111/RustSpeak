@@ -1,10 +1,11 @@
-use crate::packet::ClientPacket;
+use crate::packet::{ClientPacket, RWBytes};
 use quinn::{ClientConfig, Endpoint, NewConnection, RecvStream, SendStream};
 use std::error::Error;
 use std::fs::File;
 use std::io::BufReader;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::{Arc, Mutex, RwLock};
+use bytes::{Bytes, BytesMut};
 
 pub struct NetworkClient {
     endpoint: Endpoint,
@@ -34,17 +35,29 @@ impl NetworkClient {
         })
     }
 
-    pub async fn send_reliable(&self, data: &ClientPacket) -> anyhow::Result<()> {
+    pub async fn send_reliable(&self, buf: &BytesMut) -> anyhow::Result<()> {
         let mut send = self.bi_conn.0.lock().unwrap();
-        send.write_all(data).await?;
+        send.write_all(buf).await?;
 
         Ok(())
     }
 
-    pub async fn read_reliable(&self, size_limit: usize) -> () {
+    pub async fn read_reliable(&self, size_limit: usize) -> anyhow::Result<Bytes> {
         let mut recv = self.bi_conn.1.lock().unwrap();
-        recv.read_to_end(size_limit).await?
+        Ok(Bytes::from(recv.read_to_end(size_limit).await?))
     }
+
+    pub async fn send_unreliable(&self, buf: Bytes) -> anyhow::Result<()> {
+       self.conn.write().unwrap().connection.send_datagram(buf)?;
+
+        Ok(())
+    }
+
+    pub async fn read_unreliable(&self) -> anyhow::Result<Bytes> {
+        // self.conn.write().unwrap().connection.
+        todo!()
+    }
+
 }
 
 #[derive(Copy, Clone, Debug)]

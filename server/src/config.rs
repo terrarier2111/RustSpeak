@@ -1,15 +1,14 @@
 use std::fs::File;
-use std::io;
 use std::io::{Read, Write};
-use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
 use std::path::PathBuf;
-use serde::*;
+use crate::network::AddressMode;
+use serde_derive::{Serialize, Deserialize};
 
-#[derive(Serialize, Deserialize, Debug, Default)]
-pub struct Config<'a> {
-    pub fav_servers: Vec<ServerEntry<'a>>,
-    pub last_server: SocketAddr,
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Config {
+    pub address_mode: AddressMode,
+    pub port: u16,
+    pub req_security_level: u8,
 }
 
 impl Config {
@@ -29,8 +28,12 @@ impl Config {
 
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ServerEntry<'a> {
-    pub name: &'a str, // FIXME: should we use Cow?
-    pub addr: SocketAddr,
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            address_mode: AddressMode::V4,
+            port: 20354,
+            req_security_level: 12,
+        }
+    }
 }
