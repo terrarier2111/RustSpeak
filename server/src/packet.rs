@@ -479,7 +479,7 @@ impl RWBytes for Channel<'_> {
     }
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
-        self.id.write(dst)?;
+        self.uuid.write(dst)?;
         self.password.write(dst)?;
         RWBytes::write(&self.name, dst)?;
         RWBytes::write(&self.desc, dst)?;
@@ -492,14 +492,14 @@ impl RWBytes for Channel<'_> {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ChannelPerms {
-    see: u64, // every channel one can see is automatically subscribed to
-    // subscribe: u64,
-    join: u64,
-    send: u64,
-    modify: u64,
-    talk: u64,
-    assign_talk: u64,
-    delete: u64, // this might be useful for regulating bots for example
+    pub(crate) see: u64, // every channel one can see is automatically subscribed to
+    // pub(crate) subscribe: u64,
+    pub(crate) join: u64,
+    pub(crate) send: u64,
+    pub(crate) modify: u64,
+    pub(crate) talk: u64,
+    pub(crate) assign_talk: u64,
+    pub(crate) delete: u64, // this might be useful for regulating bots for example
     // kicking is handled simply as a move into the default channel
 }
 
@@ -544,7 +544,7 @@ pub struct ServerGroup<'a> {
     pub uuid: Uuid,
     pub name: Cow<'a, String>,
     pub priority: u64,
-    pub perms: GroupPerms,
+    pub perms: ServerGroupPerms,
 }
 
 impl RWBytes for ServerGroup<'_> {
@@ -554,7 +554,7 @@ impl RWBytes for ServerGroup<'_> {
         let uuid = Uuid::read(src)?;
         let name = Cow::<String>::read(src)?;
         let priority = u64::read(src)?;
-        let perms = GroupPerms::read(src)?;
+        let perms = ServerGroupPerms::read(src)?;
 
         Ok(Self {
             uuid,
@@ -574,8 +574,8 @@ impl RWBytes for ServerGroup<'_> {
     }
 }
 
-#[derive(Clone)]
-pub struct GroupPerms {
+#[derive(Serialize, Deserialize, Clone)]
+pub struct ServerGroupPerms {
     pub server_group_assign: u64,
     pub server_group_unassign: u64,
     pub channel_see: u64,
@@ -589,7 +589,7 @@ pub struct GroupPerms {
     pub channel_create: ChannelCreatePerms,
 }
 
-impl RWBytes for GroupPerms {
+impl RWBytes for ServerGroupPerms {
     type Ty = Self;
 
     fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
@@ -637,7 +637,7 @@ impl RWBytes for GroupPerms {
     }
 }
 
-#[derive(Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct ChannelCreatePerms {
     pub power: u64,
     pub set_desc: bool,

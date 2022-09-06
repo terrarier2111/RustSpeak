@@ -14,13 +14,13 @@ use arc_swap::ArcSwap;
 use bytes::Buf;
 use dashmap::DashMap;
 use sled::Db;
-use rocksdb::DBPath;
 use uuid::Uuid;
-use crate::channel_db::ChannelDb;
+use crate::channel_db::{ChannelDb, ChannelDbEntry};
 use crate::config::Config;
 use crate::network::NetworkServer;
-use crate::packet::{AuthFailure, AuthResponse, Channel, ChannelPerms, ClientPacket, RemoteProfile, ServerGroup, ServerPacket};
+use crate::packet::{AuthFailure, AuthResponse, Channel, ChannelCreatePerms, ChannelPerms, ClientPacket, RemoteProfile, ServerGroup, ServerGroupPerms, ServerPacket};
 use crate::protocol::{PROTOCOL_VERSION, RWBytes};
+use crate::server_group_db::{ServerGroupDb, ServerGroupEntry};
 
 mod certificate;
 mod network;
@@ -29,33 +29,155 @@ mod config;
 mod security_level;
 mod protocol;
 mod channel_db;
+mod server_group_db;
 
-const RELATIVE_DB_PATH: &str = "database";
+const RELATIVE_USER_DB_PATH: &str = "user_db";
+const RELATIVE_CHANNEL_DB_PATH: &str = "channel_db.json";
+const RELATIVE_SERVER_GROUP_DB_PATH: &str = "server_group_db.json";
+const ADMIN_GROUP_UUID: Uuid = Uuid::from_u128(0x1);
+const DEFAULT_GROUP_UUID: Uuid = Uuid::from_u128(0x0);
+const DEFAULT_CHANNEL_UUID: Uuid = Uuid::from_u128(0x0);
+
+// FIXME: add CLI
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // FIXME: use logger!
     let data_dir = dirs::config_dir().unwrap().join("RustSpeakServer/");
-    let user_db = sled::open(data_dir.clone().join(RELATIVE_DB_PATH))?;
+    let user_db = sled::open(data_dir.clone().join(RELATIVE_USER_DB_PATH))?;
     // let db_path = DBPath::new(data_dir.clone().join(RELATIVE_DB_PATH), 0)?;
+    let channel_db = ChannelDb::new(data_dir.clone().join(RELATIVE_CHANNEL_DB_PATH).to_string_lossy().to_string());
+    let channels = channel_db.read_or_create(|| Ok(vec![ChannelDbEntry {
+        id: DEFAULT_CHANNEL_UUID.as_u128(),
+        name: Cow::Borrowed("Lobby"),
+        desc: Default::default(),
+        password: false,
+        user_groups: vec![],
+        perms: ChannelPerms {
+            see: 0,
+            join: 0,
+            send: 0,
+            modify: 100,
+            talk: 0,
+            assign_talk: 100,
+            delete: 100,
+        }
+    }]))?.into_iter().map(|entry| Channel {
+        uuid: Uuid::from_u128(entry.id),
+        password: AtomicBool::new(entry.password),
+        name: Arc::new(RwLock::new(entry.name)),
+        desc: Arc::new(RwLock::new(entry.desc)),
+        perms: Arc::new(RwLock::new(entry.perms)),
+        clients: Arc::new(Default::default()),
+        proto_clients: Arc::new(Default::default()),
+    }).collect::<Vec<_>>();
+    let channels = {
+        let mut result = HashMap::new();
+
+        for channel in channels {
+            result.insert(channel.uuid.clone(), channel);
+        }
+
+        result
+    };
+    let server_group_db = ServerGroupDb::new(data_dir.clone().join(RELATIVE_SERVER_GROUP_DB_PATH).to_string_lossy().to_string());
+    let server_groups = server_group_db.read_or_create(|| Ok(vec![
+        ServerGroupEntry {
+            uuid: ADMIN_GROUP_UUID.as_u128(),
+            name: Cow::Borrowed("admin"),
+            perms: ServerGroupPerms {
+                server_group_assign: 0,
+                server_group_unassign: 0,
+                channel_see: 0,
+                channel_join: 0,
+                channel_send: 0,
+                channel_modify: 0,
+                channel_talk: 0,
+                channel_assign_talk: 0,
+                channel_delete: 0,
+                channel_kick: 0,
+                channel_create: ChannelCreatePerms {
+                    power: 0,
+                    set_desc: false,
+                    set_password: false
+                }
+            }
+        },
+        ServerGroupEntry {
+            uuid: DEFAULT_GROUP_UUID.as_u128(),
+            name: Cow::Borrowed("default"),
+            perms: ServerGroupPerms {
+                server_group_assign: 0,
+                server_group_unassign: 0,
+                channel_see: 0,
+                channel_join: 0,
+                channel_send: 0,
+                channel_modify: 0,
+                channel_talk: 0,
+                channel_assign_talk: 0,
+                channel_delete: 0,
+                channel_kick: 0,
+                channel_create: ChannelCreatePerms {
+                    power: 0,
+                    set_desc: false,
+                    set_password: false
+                }
+            }
+        }
+    ]))?;
+    let server_groups = server_groups.into_iter().map(|server_group| ServerGroup {
+        uuid: Uuid::from_u128(server_group.uuid),
+        name: Cow::Owned(server_group.name.to_string()),
+        priority: 0,
+        perms: ServerGroupPerms {
+            server_group_assign: 0,
+            server_group_unassign: 0,
+            channel_see: 0,
+            channel_join: 0,
+            channel_send: 0,
+            channel_modify: 0,
+            channel_talk: 0,
+            channel_assign_talk: 0,
+            channel_delete: 0,
+            channel_kick: 0,
+            channel_create: ChannelCreatePerms {
+                power: 0,
+                set_desc: false,
+                set_password: false
+            }
+        }
+    }).collect::<Vec<_>>();
+    let server_groups = {
+        let mut result = HashMap::new();
+
+        for server_group in server_groups.into_iter() {
+            result.insert(server_group.uuid.clone(), Arc::new(server_group));
+        }
+
+        result
+    };
     println!("Starting up server...");
     fs::create_dir_all(data_dir.clone())?;
     let config = Config::load_or_create(data_dir.join("config.json"))?;
     let network_server = setup_network_server(&config)?;
 
     let server = Arc::new(Server {
-        server_groups: Default::default(), // FIXME: load groups from database
-        channels: Default::default(), // FIXME: load channels from database
+        server_groups: ArcSwap::new(Arc::new(server_groups)), // FIXME: load groups from database
+        channels: ArcSwap::new(Arc::new(channels)),
         online_users: Default::default(),
         network_server: Arc::new(network_server),
         config: Arc::new(config),
+        user_db: Arc::new(user_db),
+        channel_db: Arc::new(channel_db),
+        server_group_db: Arc::new(server_group_db),
     });
 
     start_server(server, |err| {
         println!("An error occurred while establishing a client connection: {}", err);
-    });
+    }).await;
     println!("Server started up successfully, waiting for inbound connections...!");
-    loop {}
+    // loop {}
+    Ok(())
 }
 
 fn setup_network_server(config: &Config) -> anyhow::Result<NetworkServer> {
@@ -80,7 +202,7 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server<'_>>, error_handl
                 if protocol_version != PROTOCOL_VERSION {
                     let failure = ServerPacket::AuthResponse(AuthResponse::Failure(AuthFailure::OutOfDate(PROTOCOL_VERSION)));
                     let encoded = failure.encode()?;
-                    new_conn.send_reliable(&encoded);
+                    new_conn.send_reliable(&encoded).await?;
                     new_conn.close().await?;
                     return Err(anyhow::Error::from(ErrorAuthProtoVer {
                         ip: new_conn.conn.read().unwrap().connection.remote_address().ip(),
@@ -93,7 +215,7 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server<'_>>, error_handl
                 } else {
                     let failure = ServerPacket::AuthResponse(AuthResponse::Failure(AuthFailure::Invalid(Cow::from("Invalid security proofs!"))));
                     let encoded = failure.encode()?;
-                    new_conn.send_reliable(&encoded);
+                    new_conn.send_reliable(&encoded).await?;
                     new_conn.close().await?;
                     return Err(anyhow::Error::from(ErrorAuthSecProof {
                         ip: new_conn.conn.read().unwrap().connection.remote_address().ip(),
@@ -114,17 +236,17 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server<'_>>, error_handl
                     channels,
                 });
                 let encoded = auth.encode()?;
-                new_conn.send_reliable(&encoded);
+                new_conn.send_reliable(&encoded).await?;
             } else {
                 let failure = ServerPacket::AuthResponse(AuthResponse::Failure(AuthFailure::Invalid(Cow::from("The first packet sent has to be a `AuthRequest` packet!"))));
                 let encoded = failure.encode()?;
-                new_conn.send_reliable(&encoded);
+                new_conn.send_reliable(&encoded).await?;
                 new_conn.close().await?;
             }
 
             Ok(())
         }
-    }, error_handler);
+    }, error_handler).await;
 }
 
 pub struct Server<'a> {
@@ -135,7 +257,8 @@ pub struct Server<'a> {
     pub network_server: Arc<NetworkServer>,
     pub config: Arc<Config>, // FIXME: make this mutable somehow
     pub user_db: Arc<Db>,
-    pub channel_db: Arc<ChannelDb<'a>>,
+    pub channel_db: Arc<ChannelDb>,
+    pub server_group_db: Arc<ServerGroupDb>,
 }
 
 pub struct User<'a> {

@@ -17,19 +17,19 @@ pub struct ChannelDbEntry<'a> {
     pub perms: ChannelPerms,
 }
 
-pub struct ChannelDb<'a> {
-    path: Cow<'a, str>,
+pub struct ChannelDb {
+    path: String,
 }
 
-impl<'a> ChannelDb<'a> {
+impl ChannelDb {
 
-    pub fn new(path: Cow<'a, str>) -> Self {
+    pub fn new(path: String) -> Self {
         Self {
             path,
         }
     }
 
-    pub fn read_or_create<F: FnOnce() -> anyhow::Result<Vec<ChannelDbEntry>>>(&self, default: F) -> anyhow::Result<Vec<ChannelDbEntry>> {
+    pub fn read_or_create<'db, F: FnOnce() -> anyhow::Result<Vec<ChannelDbEntry<'db>>>>(&self, default: F) -> anyhow::Result<Vec<ChannelDbEntry<'db>>> {
         match File::open(self.path.clone()) {
             Ok(mut db_file) => {
                 let mut content = String::new();

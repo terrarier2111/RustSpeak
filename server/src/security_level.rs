@@ -95,9 +95,6 @@ fn hash_sha(val: u128) -> u128 {
     data.0 ^ data.1
 }
 
-// wgpu-biolerless
-// wgpu-boilerless
-
 fn hash(val: u128) -> [u8; 20] {
     let mut hasher = Ripemd160::new();
     hasher.update(val.to_le_bytes());
