@@ -32,9 +32,7 @@ impl NetworkServer {
     }
 
     pub async fn accept_connections<F: Fn(Arc<ClientConnection>) -> B, B: Future<Output = anyhow::Result<()>>, E: Fn(anyhow::Error)>(&self, handler: F, error_handler: E) {
-    // pub async fn try_accept_connections<F: Future<Output = anyhow::Result<()>>/*Fn(&mut NewConnection)*/>(&self, handler: F) -> anyhow::Result<usize> {
-        // let mut new_cons = 0;
-        'server: while let Some(conn) = self.incoming.lock().unwrap().next().await {
+        'server: while let Some(conn) = self.incoming.lock().unwrap().next().await { // FIXME: here we are holding on a mutex across await boundaries
             let mut connection = match conn.await {
                 Ok(val) => val,
                 Err(err) => {
@@ -56,9 +54,7 @@ impl NetworkServer {
             }
 
             self.connections.insert(id, client_conn);
-            // new_cons += 1;
         }
-        // Ok(()/*new_cons*/)
     }
 }
 
@@ -78,23 +74,19 @@ impl ClientConnection {
     }
 
     pub async fn send_reliable(&self, buf: &BytesMut) -> anyhow::Result<()> {
-        let mut send = self.bi_conn.0.lock().unwrap();
-        send.write_all(buf).await?;
-
+        self.bi_conn.0.lock().unwrap().write_all(buf).await?;
         Ok(())
     }
 
     pub async fn read_reliable(&self, size: usize) -> anyhow::Result<Bytes> {
-        let mut recv = self.bi_conn.1.lock().unwrap();
         // SAFETY: This is safe because 0 is a valid value for u8
         let mut buf = unsafe { Box::new_zeroed_slice(size).assume_init() };
-        recv.read_exact(&mut buf).await?;
+        self.bi_conn.1.lock().unwrap().read_exact(&mut buf).await?;
         Ok(Bytes::from(buf))
     }
 
     pub async fn read_reliable_into(&self, buf: &mut BytesMut) -> anyhow::Result<()> {
-        let mut recv = self.bi_conn.1.lock().unwrap();
-        recv.read_exact(buf).await?;
+        self.bi_conn.1.lock().unwrap().read_exact(buf).await?;
         Ok(())
     }
 

@@ -30,6 +30,7 @@ mod security_level;
 mod protocol;
 mod channel_db;
 mod server_group_db;
+mod cli;
 
 const RELATIVE_USER_DB_PATH: &str = "user_db";
 const RELATIVE_CHANNEL_DB_PATH: &str = "channel_db.json";
@@ -43,9 +44,10 @@ const DEFAULT_CHANNEL_UUID: Uuid = Uuid::from_u128(0x0);
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // FIXME: use logger!
+    println!("Starting up server...");
     let data_dir = dirs::config_dir().unwrap().join("RustSpeakServer/");
+    fs::create_dir_all(data_dir.clone())?;
     let user_db = sled::open(data_dir.clone().join(RELATIVE_USER_DB_PATH))?;
-    // let db_path = DBPath::new(data_dir.clone().join(RELATIVE_DB_PATH), 0)?;
     let channel_db = ChannelDb::new(data_dir.clone().join(RELATIVE_CHANNEL_DB_PATH).to_string_lossy().to_string());
     let channels = channel_db.read_or_create(|| Ok(vec![ChannelDbEntry {
         id: DEFAULT_CHANNEL_UUID.as_u128(),
@@ -156,8 +158,6 @@ async fn main() -> anyhow::Result<()> {
 
         result
     };
-    println!("Starting up server...");
-    fs::create_dir_all(data_dir.clone())?;
     let config = Config::load_or_create(data_dir.join("config.json"))?;
     let network_server = setup_network_server(&config)?;
 
@@ -172,11 +172,10 @@ async fn main() -> anyhow::Result<()> {
         server_group_db: Arc::new(server_group_db),
     });
 
+    println!("Server started up successfully, waiting for inbound connections...");
     start_server(server, |err| {
         println!("An error occurred while establishing a client connection: {}", err);
     }).await;
-    println!("Server started up successfully, waiting for inbound connections...!");
-    // loop {}
     Ok(())
 }
 
