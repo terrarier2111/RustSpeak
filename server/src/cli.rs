@@ -1,11 +1,12 @@
 use std::collections::HashMap;
+use std::ops::Range;
 use colored::ColoredString;
 use crate::utils::input;
 
 // FIXME: maybe add tab completion
 
-pub struct CommandLineInterface {
-    cmds: HashMap<String, Command>,
+pub struct CommandLineInterface<'a> {
+    cmds: HashMap<String, Command<'a>>,
     prompt: Option<ColoredString>,
 }
 
@@ -53,12 +54,12 @@ impl CommandLineInterface {
 
 }
 
-pub struct CLIBuilder {
-    cmds: Vec<Command>,
+pub struct CLIBuilder<'a> {
+    cmds: Vec<Command<'a>>,
     prompt: Option<ColoredString>,
 }
 
-impl CLIBuilder {
+impl CLIBuilder<'_> {
 
     pub fn new() -> Self {
         Self {
@@ -79,15 +80,16 @@ impl CLIBuilder {
 
 }
 
-struct Command {
+struct Command<'a> {
     name: String,
     desc: Option<String>,
     // FIXME: add usage
+    params: &'a [UsageTy],
     aliases: Vec<String>,
     cmd_impl: Box<dyn CommandImpl>,
 }
 
-impl Command {
+impl Command<'_> {
 
     #[inline(always)]
     pub fn name(&self) -> &String {
@@ -160,6 +162,53 @@ impl CommandBuilder {
 
 }
 
-pub enum UsageTy {
+pub enum CommandParam<'a> {
+    Int(CmdParamNumConstraints<'a, usize>),
+    Float(CmdParamNumConstraints<'a, f64>),
+    String(CmdParamStrConstraints<'a>),
+}
+
+pub enum CmdParamNumConstraints<'a, T> {
+    Range(Range<T>),
+    Variants(&'a [T]),
+    None,
+}
+
+pub enum CmdParamStrConstraints<'a> {
+    Variants(&'a [&'a str]),
+    None,
+}
+
+pub struct UsageBuilder<'a> {
+    prefix: &'a str,
+    req: Vec<CommandParam<'a>>,
+    opt: Vec<CommandParam<'a>>,
+    opt_prefixed: Vec<CommandParam<'a>>,
+}
+
+impl UsageBuilder {
+
+    pub fn optional_prefixed_prefix(mut self, prefix: &str) -> Self {
+        self.prefix = prefix;
+        self
+    }
+
+    pub fn required(mut self, param: CommandParam) -> Self {
+        if !self.opt.is_empty() {
+            panic!("");
+        }
+        self.req.push(param);
+        self
+    }
+
+    pub fn optional(mut self, param: CommandParam) -> Self {
+        self.opt.push(param);
+        self
+    }
+
+    pub fn optional_prefixed(mut self, param: CommandParam) -> Self {
+        self.opt_prefixed.push(param);
+        self
+    }
 
 }
