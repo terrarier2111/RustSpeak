@@ -16,6 +16,7 @@ use dashmap::DashMap;
 use sled::Db;
 use uuid::Uuid;
 use crate::channel_db::{ChannelDb, ChannelDbEntry};
+use crate::cli::{CLIBuilder, CommandBuilder, CommandImpl, CommandLineInterface};
 use crate::config::Config;
 use crate::network::NetworkServer;
 use crate::packet::{AuthFailure, AuthResponse, Channel, ChannelCreatePerms, ChannelPerms, ClientPacket, RemoteProfile, ServerGroup, ServerGroupPerms, ServerPacket};
@@ -31,6 +32,7 @@ mod protocol;
 mod channel_db;
 mod server_group_db;
 mod cli;
+mod utils;
 
 const RELATIVE_USER_DB_PATH: &str = "user_db";
 const RELATIVE_CHANNEL_DB_PATH: &str = "channel_db.json";
@@ -161,6 +163,9 @@ async fn main() -> anyhow::Result<()> {
     let config = Config::load_or_create(data_dir.join("config.json"))?;
     let network_server = setup_network_server(&config)?;
 
+    let cli = CLIBuilder::new().command(CommandBuilder::new().name("help")
+        .desc("returns a list of available commands").add_aliases(&["?", "h"]).cmd_impl());
+
     let server = Arc::new(Server {
         server_groups: ArcSwap::new(Arc::new(server_groups)), // FIXME: load groups from database
         channels: ArcSwap::new(Arc::new(channels)),
@@ -170,6 +175,7 @@ async fn main() -> anyhow::Result<()> {
         user_db: Arc::new(user_db),
         channel_db: Arc::new(channel_db),
         server_group_db: Arc::new(server_group_db),
+        cli: Arc::new()
     });
 
     println!("Server started up successfully, waiting for inbound connections...");
@@ -258,6 +264,7 @@ pub struct Server<'a> {
     pub user_db: Arc<Db>,
     pub channel_db: Arc<ChannelDb>,
     pub server_group_db: Arc<ServerGroupDb>,
+    pub cli: Arc<CommandLineInterface>,
 }
 
 pub struct User<'a> {
@@ -325,3 +332,21 @@ impl Display for ErrorAuthSecProof {
 }
 
 impl Error for ErrorAuthSecProof {}
+
+struct CommandHelp();
+
+impl CommandImpl for CommandHelp {
+    fn execute(&self, cli: &CommandLineInterface, _input: &[&str]) -> anyhow::Result<()> {
+        let cmds = cli.cmds();
+        println!("Commands: ({})", cmds.len());
+        for cmd in cmds {
+            if let Some(desc) = cmd.1.desc() {
+                println!("{}: {}", cmd.1.name(), desc);
+            } else {
+                println!("{}", cmd.1.name());
+            }
+        }
+
+        Ok(())
+    }
+}
