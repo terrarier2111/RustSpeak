@@ -1,14 +1,17 @@
-use std::collections::HashMap;
-use std::future::Future;
-use std::mem::MaybeUninit;
-use quinn::{ConnectionError, Endpoint, IdleTimeout, Incoming, NewConnection, RecvStream, SendStream, ServerConfig, TransportConfig, VarInt};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::sync::{Arc, Mutex, RwLock};
+use crate::packet::ServerPacket;
 use bytes::{Bytes, BytesMut};
 use dashmap::DashMap;
 use futures::StreamExt;
-use crate::packet::ServerPacket;
-use serde_derive::{Serialize, Deserialize};
+use quinn::{
+    ConnectionError, Endpoint, IdleTimeout, Incoming, NewConnection, RecvStream, SendStream,
+    ServerConfig, TransportConfig, VarInt,
+};
+use serde_derive::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::future::Future;
+use std::mem::MaybeUninit;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::sync::{Arc, Mutex, RwLock};
 
 pub struct NetworkServer {
     pub endpoint: Endpoint,
@@ -17,10 +20,16 @@ pub struct NetworkServer {
 }
 
 impl NetworkServer {
-    pub fn new(port: u16, idle_timeout_millis: u32, address_mode: AddressMode, mut config: ServerConfig) -> anyhow::Result<Self> {
+    pub fn new(
+        port: u16,
+        idle_timeout_millis: u32,
+        address_mode: AddressMode,
+        mut config: ServerConfig,
+    ) -> anyhow::Result<Self> {
         let mut transport_cfg = TransportConfig::default();
-        transport_cfg
-            .max_idle_timeout(Some(IdleTimeout::from(VarInt::from_u32(idle_timeout_millis))));
+        transport_cfg.max_idle_timeout(Some(IdleTimeout::from(VarInt::from_u32(
+            idle_timeout_millis,
+        ))));
         config.transport = Arc::new(transport_cfg);
         let endpoint = Endpoint::server(config, address_mode.local(port))?;
 
@@ -31,23 +40,32 @@ impl NetworkServer {
         })
     }
 
-    pub async fn accept_connections<F: Fn(Arc<ClientConnection>) -> B, B: Future<Output = anyhow::Result<()>>, E: Fn(anyhow::Error)>(&self, handler: F, error_handler: E) {
-        'server: while let Some(conn) = self.incoming.lock().unwrap().next().await { // FIXME: here we are holding on a mutex across await boundaries
+    pub async fn accept_connections<
+        F: Fn(Arc<ClientConnection>) -> B,
+        B: Future<Output = anyhow::Result<()>>,
+        E: Fn(anyhow::Error),
+    >(
+        &self,
+        handler: F,
+        error_handler: E,
+    ) {
+        'server: while let Some(conn) = self.incoming.lock().unwrap().next().await {
+            // FIXME: here we are holding on a mutex across await boundaries
             let mut connection = match conn.await {
                 Ok(val) => val,
                 Err(err) => {
                     error_handler(anyhow::Error::from(err));
                     continue 'server;
-                },
+                }
             };
             let id = connection.connection.stable_id();
             let client_conn = match ClientConnection::new(connection).await {
-                    Ok(val) => Arc::new(val),
-                    Err(err) => {
-                        error_handler(anyhow::Error::from(err));
-                        continue 'server;
-                    },
-                };
+                Ok(val) => Arc::new(val),
+                Err(err) => {
+                    error_handler(anyhow::Error::from(err));
+                    continue 'server;
+                }
+            };
             if let Err(err) = handler(client_conn.clone()).await {
                 error_handler(anyhow::Error::from(err));
                 continue 'server;
@@ -64,7 +82,6 @@ pub struct ClientConnection {
 }
 
 impl ClientConnection {
-
     async fn new(conn: NewConnection) -> anyhow::Result<Self> {
         let (send, recv) = conn.connection.open_bi().await?;
         Ok(Self {
@@ -97,10 +114,13 @@ impl ClientConnection {
 
     pub async fn close(&self) -> anyhow::Result<()> {
         self.bi_conn.0.lock().unwrap().finish().await?;
-        self.conn.write().unwrap().connection.close(VarInt::from_u32(0), &[]);
+        self.conn
+            .write()
+            .unwrap()
+            .connection
+            .close(VarInt::from_u32(0), &[]);
         Ok(())
     }
-
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone, Debug)]

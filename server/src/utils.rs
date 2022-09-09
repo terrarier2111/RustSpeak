@@ -1,5 +1,12 @@
+use colored::Color;
 use std::fmt::{Debug, Display};
 use std::io::{Error, ErrorKind, Write};
+
+pub const LIGHT_GRAY: Color = Color::TrueColor {
+    r: 153,
+    g: 153,
+    b: 153,
+};
 
 /// prompts for input in the console with a specific message
 pub fn input(text: &Option<impl Display>) -> std::io::Result<String> {

@@ -1,11 +1,11 @@
+use crate::ChannelPerms;
+use serde_derive::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 use uuid::Uuid;
-use crate::ChannelPerms;
-use serde_derive::{Serialize, Deserialize};
 
 #[derive(Serialize, Deserialize)]
 pub struct ChannelDbEntry<'a> {
@@ -22,14 +22,14 @@ pub struct ChannelDb {
 }
 
 impl ChannelDb {
-
     pub fn new(path: String) -> Self {
-        Self {
-            path,
-        }
+        Self { path }
     }
 
-    pub fn read_or_create<'db, F: FnOnce() -> anyhow::Result<Vec<ChannelDbEntry<'db>>>>(&self, default: F) -> anyhow::Result<Vec<ChannelDbEntry<'db>>> {
+    pub fn read_or_create<'db, F: FnOnce() -> anyhow::Result<Vec<ChannelDbEntry<'db>>>>(
+        &self,
+        default: F,
+    ) -> anyhow::Result<Vec<ChannelDbEntry<'db>>> {
         match File::open(self.path.clone()) {
             Ok(mut db_file) => {
                 let mut content = String::new();
@@ -52,5 +52,4 @@ impl ChannelDb {
 
         Ok(())
     }
-
 }

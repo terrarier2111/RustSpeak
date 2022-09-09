@@ -1,8 +1,8 @@
+use crate::packet::ServerGroupPerms;
+use serde_derive::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::fs::File;
 use std::io::{Read, Write};
-use crate::packet::ServerGroupPerms;
-use serde_derive::{Serialize, Deserialize};
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize)]
@@ -17,14 +17,14 @@ pub struct ServerGroupDb {
 }
 
 impl ServerGroupDb {
-
     pub fn new(path: String) -> Self {
-        Self {
-            path,
-        }
+        Self { path }
     }
 
-    pub fn read_or_create<'db, F: FnOnce() -> anyhow::Result<Vec<ServerGroupEntry<'db>>>>(&self, default: F) -> anyhow::Result<Vec<ServerGroupEntry<'db>>> {
+    pub fn read_or_create<'db, F: FnOnce() -> anyhow::Result<Vec<ServerGroupEntry<'db>>>>(
+        &self,
+        default: F,
+    ) -> anyhow::Result<Vec<ServerGroupEntry<'db>>> {
         match File::open(self.path.clone()) {
             Ok(mut db_file) => {
                 let mut content = String::new();
@@ -47,5 +47,4 @@ impl ServerGroupDb {
 
         Ok(())
     }
-
 }

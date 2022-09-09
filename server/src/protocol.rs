@@ -1,19 +1,18 @@
-use std::borrow::Cow;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
+use futures::AsyncWriteExt;
+use std::borrow::Cow;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter, Write};
 use std::mem::{discriminant, transmute};
 use std::ops::Deref;
-use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use futures::AsyncWriteExt;
 use uuid::Uuid;
 
 pub const PROTOCOL_VERSION: u64 = 1;
 
-pub(crate) trait RWBytes/*: Sized*/ {
-
+pub(crate) trait RWBytes /*: Sized*/ {
     type Ty;
 
     fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty>;
@@ -21,8 +20,7 @@ pub(crate) trait RWBytes/*: Sized*/ {
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()>;
 }
 
-pub(crate) trait RWBytesMut/*: Sized*/ {
-
+pub(crate) trait RWBytesMut /*: Sized*/ {
     type Ty;
 
     fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty>;

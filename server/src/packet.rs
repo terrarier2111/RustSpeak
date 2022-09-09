@@ -1,18 +1,18 @@
+use crate::protocol::{ErrorEnumVariantNotFound, RWBytes, RWBytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
+use futures::AsyncWriteExt;
+use ordinalizer::Ordinal;
+use serde_derive::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::cell::RefCell;
-use bytes::{Buf, BufMut, Bytes, BytesMut};
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter, Write};
 use std::mem::{discriminant, transmute};
 use std::ops::{Deref, DerefMut};
-use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use futures::AsyncWriteExt;
 use uuid::Uuid;
-use crate::protocol::{ErrorEnumVariantNotFound, RWBytes, RWBytesMut};
-use ordinalizer::Ordinal;
-use serde_derive::{Serialize, Deserialize};
 
 /// packets the server sends to the client
 /// size: u64
@@ -99,11 +99,12 @@ impl RWBytes for ServerPacket<'_> {
             }
             6 => {
                 let challenge = Uuid::read(src)?;
-                Ok(Self::AuthSecurityRequest(AuthSecurityRequest {
-                    challenge,
-                }))
+                Ok(Self::AuthSecurityRequest(AuthSecurityRequest { challenge }))
             }
-            _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound("ServerPacket", id))),
+            _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(
+                "ServerPacket",
+                id,
+            ))),
         }
     }
 
@@ -169,7 +170,10 @@ impl RWBytes for ClientPacket {
                 let update = ClientUpdateServerGroups::read(src)?;
                 Ok(Self::UpdateClientServerGroups { client, update })
             }
-            _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound("ClientPacket", id))),
+            _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(
+                "ClientPacket",
+                id,
+            ))),
         }
     }
 
@@ -233,7 +237,10 @@ impl RWBytes for ChannelUpdate<'_> {
                 let uuid = Uuid::read(src)?;
                 Ok(Self::Delete(uuid))
             }
-            _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound("ChannelUpdate", disc))),
+            _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(
+                "ChannelUpdate",
+                disc,
+            ))),
         }
     }
 
@@ -500,7 +507,7 @@ pub struct ChannelPerms {
     pub(crate) talk: u64,
     pub(crate) assign_talk: u64,
     pub(crate) delete: u64, // this might be useful for regulating bots for example
-    // kicking is handled simply as a move into the default channel
+                            // kicking is handled simply as a move into the default channel
 }
 
 impl RWBytes for ChannelPerms {
@@ -725,7 +732,10 @@ impl RWBytes for AuthResponse<'_> {
                 let failure = AuthFailure::read(src)?;
                 Ok(Self::Failure(failure))
             }
-            _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound("AuthResponse", disc))),
+            _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(
+                "AuthResponse",
+                disc,
+            ))),
         }
     }
 
@@ -786,7 +796,10 @@ impl RWBytes for AuthFailure<'_> {
                 let reason = String::read(src)?;
                 Ok(Self::Invalid(Cow::from(reason)))
             }
-            _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound("AuthFailure", disc))),
+            _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(
+                "AuthFailure",
+                disc,
+            ))),
         }
     }
 
@@ -829,7 +842,10 @@ impl RWBytes for BanDuration {
                 let dur = Duration::read(src)?;
                 Ok(BanDuration::Temporary(dur))
             }
-            _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound("BanDuration", disc))),
+            _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(
+                "BanDuration",
+                disc,
+            ))),
         }
     }
 
@@ -856,9 +872,7 @@ impl RWBytes for AuthSecurityRequest {
 
     fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         let challenge = Uuid::read(src)?;
-        Ok(Self {
-            challenge,
-        })
+        Ok(Self { challenge })
     }
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {

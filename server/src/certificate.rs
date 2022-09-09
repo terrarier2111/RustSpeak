@@ -2,9 +2,9 @@ use quinn::ServerConfig;
 use rustls::{Certificate, Error, PrivateKey};
 
 pub(crate) mod secure_authority {
+    use rustls::{Certificate, PrivateKey};
     use std::fs::File;
     use std::io::BufReader;
-    use rustls::{Certificate, PrivateKey};
 
     pub fn read_certs_from_file(
         cert_file: File,
@@ -32,17 +32,13 @@ pub(crate) mod secure_authority {
 pub(crate) mod insecure_local {
     use rustls::{Certificate, PrivateKey};
 
-    pub fn generate_self_signed_cert(
-    ) -> anyhow::Result<(Certificate, PrivateKey)> {
+    pub fn generate_self_signed_cert() -> anyhow::Result<(Certificate, PrivateKey)> {
         let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])?;
         let key = PrivateKey(cert.serialize_private_key_der());
         Ok((Certificate(cert.serialize_der()?), key))
     }
 }
 
-pub(crate) fn create_config(
-    certs: Certificate,
-    key: PrivateKey,
-) -> Result<ServerConfig, Error> {
+pub(crate) fn create_config(certs: Certificate, key: PrivateKey) -> Result<ServerConfig, Error> {
     ServerConfig::with_single_cert(vec![certs], key)
 }
