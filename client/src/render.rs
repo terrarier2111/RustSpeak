@@ -1,4 +1,4 @@
-use wgpu::TextureViewDescriptor;
+use wgpu::{RenderPass, TextureViewDescriptor};
 use wgpu_biolerless::State;
 
 pub struct Renderer {
@@ -19,3 +19,8 @@ impl Renderer {
             .unwrap();
     }
 }
+
+/*
+fn color_render_pass() -> RenderPass {
+
+}*/

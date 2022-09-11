@@ -1,14 +1,14 @@
-use std::mem::transmute;
 use openssl::hash::MessageDigest;
 use openssl::pkey::PKey;
 use openssl::sha::sha256;
 use openssl::sign::Signer;
+use serde_derive::{Deserialize, Serialize};
+use std::mem::transmute;
 use uuid::Uuid;
-use serde_derive::{Serialize, Deserialize};
 
 const PRIVATE_KEY_LEN_BITS: u32 = 4096;
 
-#[derive(Serialize, Deserialize)]
+// #[derive(Serialize, Deserialize)]
 pub struct Profile {
     pub name: String,
     uuid: Uuid,
@@ -29,7 +29,7 @@ impl Profile {
         Ok(Self {
             name,
             uuid,
-            private_key: priv_key_key.private_key_to_der()?,
+            private_key: priv_key.private_key_to_der()?,
             security_proofs: vec![],
         })
     }

@@ -1,11 +1,11 @@
-use crate::packet::{ClientPacket, RWBytes};
-use quinn::{ClientConfig, Endpoint, NewConnection, RecvStream, SendStream};
+use crate::packet::ClientPacket;
+use bytes::{Bytes, BytesMut};
+use quinn::{ClientConfig, Endpoint, NewConnection, RecvStream, SendStream, VarInt};
 use std::error::Error;
 use std::fs::File;
 use std::io::BufReader;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::{Arc, Mutex, RwLock};
-use bytes::{Bytes, BytesMut};
 
 pub struct NetworkClient {
     endpoint: Endpoint,
@@ -36,20 +36,34 @@ impl NetworkClient {
     }
 
     pub async fn send_reliable(&self, buf: &BytesMut) -> anyhow::Result<()> {
-        let mut send = self.bi_conn.0.lock().unwrap();
-        send.write_all(buf).await?;
-
+        self.bi_conn.0.lock().unwrap().write_all(buf).await?;
         Ok(())
     }
 
-    pub async fn read_reliable(&self, size_limit: usize) -> anyhow::Result<Bytes> {
-        let mut recv = self.bi_conn.1.lock().unwrap();
-        Ok(Bytes::from(recv.read_to_end(size_limit).await?))
+    pub async fn read_reliable(&self, size: usize) -> anyhow::Result<Bytes> {
+        // SAFETY: This is safe because 0 is a valid value for u8
+        let mut buf = unsafe { Box::new_zeroed_slice(size).assume_init() };
+        self.bi_conn.1.lock().unwrap().read_exact(&mut buf).await?;
+        Ok(Bytes::from(buf))
     }
 
-    pub async fn send_unreliable(&self, buf: Bytes) -> anyhow::Result<()> {
-       self.conn.write().unwrap().connection.send_datagram(buf)?;
+    pub async fn read_reliable_into(&self, buf: &mut BytesMut) -> anyhow::Result<()> {
+        self.bi_conn.1.lock().unwrap().read_exact(buf).await?;
+        Ok(())
+    }
 
+    pub fn send_unreliable(&self, buf: Bytes) -> anyhow::Result<()> {
+        self.conn.write().unwrap().connection.send_datagram(buf)?;
+        Ok(())
+    }
+
+    pub async fn close(&self) -> anyhow::Result<()> {
+        self.bi_conn.0.lock().unwrap().finish().await?;
+        self.conn
+            .write()
+            .unwrap()
+            .connection
+            .close(VarInt::from_u32(0), &[]);
         Ok(())
     }
 
@@ -57,7 +71,6 @@ impl NetworkClient {
         // self.conn.write().unwrap().connection.
         todo!()
     }
-
 }
 
 #[derive(Copy, Clone, Debug)]

@@ -223,12 +223,12 @@ async fn main() -> anyhow::Result<()> {
         server_groups: ArcSwap::new(Arc::new(server_groups)), // FIXME: load groups from database
         channels: ArcSwap::new(Arc::new(channels)),
         online_users: Default::default(),
-        network_server: Arc::new(network_server),
-        config: Arc::new(config),
-        user_db: Arc::new(user_db),
-        channel_db: Arc::new(channel_db),
-        server_group_db: Arc::new(server_group_db),
-        cli: Arc::new(cli.build()),
+        network_server,
+        config,
+        user_db,
+        channel_db,
+        server_group_db,
+        cli: cli.build(),
     });
     let tmp = server.clone();
     thread::spawn(move || {
@@ -363,12 +363,12 @@ pub struct Server<'a> {
     pub server_groups: ArcSwap<HashMap<Uuid, Arc<ServerGroup<'a>>>>,
     pub channels: ArcSwap<HashMap<Uuid, Channel<'a>>>,
     pub online_users: DashMap<Uuid, User<'a>>,
-    pub network_server: Arc<NetworkServer>,
-    pub config: Arc<Config>, // FIXME: make this mutable somehow
-    pub user_db: Arc<Db>,
-    pub channel_db: Arc<ChannelDb>,
-    pub server_group_db: Arc<ServerGroupDb>,
-    pub cli: Arc<CommandLineInterface<'a>>,
+    pub network_server: NetworkServer,
+    pub config: Config, // FIXME: make this mutable somehow
+    pub user_db: Db,
+    pub channel_db: ChannelDb,
+    pub server_group_db: ServerGroupDb,
+    pub cli: CommandLineInterface<'a>,
 }
 
 pub struct User<'a> {

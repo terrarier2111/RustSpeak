@@ -8,7 +8,6 @@
 // FIXME: we can fix this by sending a list of following values that added to the previous hash
 // FIXME: have one 0 more at the start than the previous hash
 
-use byteorder::ReadBytesExt;
 use rand::{random, Rng};
 use ripemd::{Digest, Ripemd160, Ripemd320};
 use sha2::Sha256;
@@ -59,6 +58,8 @@ pub fn verified_security_level(uuid: u128, hashes: Vec<u128>) -> Option<u8> {
         return None;
     }
 
+    let hashes_len = hashes.len();
+
     let mut curr = initial_hash;
     for x in hashes.into_iter().skip(1).enumerate() {
         curr = hash_sha(curr ^ x.1);
@@ -68,7 +69,7 @@ pub fn verified_security_level(uuid: u128, hashes: Vec<u128>) -> Option<u8> {
         }
     }
 
-    Some(hashes.len() as u8)
+    Some(hashes_len as u8)
 }
 
 pub fn generate_token_num(req_level: u8, uuid: u128) -> u128 {
@@ -87,7 +88,7 @@ pub fn generate_token_num(req_level: u8, uuid: u128) -> u128 {
 
 fn hash_sha(val: u128) -> u128 {
     let mut hasher = Sha256::new();
-    hasher.update(val.as_bytes());
+    hasher.update(val.to_le_bytes());
     let bytes: [u8; 32] = hasher.finalize().into();
     // SAFETY: It's safe to reinterpret 32 bytes as two consecutive 16 byte values
     let data: (u128, u128) = unsafe { transmute(bytes) };
@@ -99,7 +100,7 @@ fn hash_sha(val: u128) -> u128 {
 
 fn hash(val: u128) -> [u8; 20] {
     let mut hasher = Ripemd160::new();
-    hasher.update(val.as_bytes());
+    hasher.update(val.to_le_bytes());
     hasher.finalize().into()
 }
 

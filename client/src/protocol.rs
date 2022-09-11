@@ -1,24 +1,30 @@
-use std::borrow::Cow;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
+use std::borrow::Cow;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter, Write};
 use std::mem::{discriminant, transmute};
 use std::ops::Deref;
-use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use futures::AsyncWriteExt;
 use uuid::Uuid;
 
 pub const PROTOCOL_VERSION: u64 = 1;
 
-pub(crate) trait RWBytes/*: Sized*/ {
-
+pub(crate) trait RWBytes /*: Sized*/ {
     type Ty;
 
     fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty>;
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()>;
+}
+
+pub(crate) trait RWBytesMut /*: Sized*/ {
+    type Ty;
+
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty>;
+
+    fn write(&mut self, dst: &mut BytesMut) -> anyhow::Result<()>;
 }
 
 /*
@@ -211,7 +217,7 @@ impl<T: RWBytes<Ty = V>, V> RWBytes for Vec<T> {
     }
 }
 
-impl<'a, T: Clone + RWBytes<Ty = V>, V> RWBytes for Cow<'a, T> {
+impl<'a, T: Clone + RWBytes<Ty = V>, V: Clone + 'a> RWBytes for Cow<'a, T> {
     type Ty = Cow<'a, V>;
 
     fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
@@ -230,7 +236,7 @@ impl<'a> RWBytes for Cow<'a, str> {
     fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         let len = src.get_u64_le();
         let result = src.slice((src.len() - src.remaining())..(len as usize));
-        Ok(String::from_utf8_lossy(result.deref()))
+        Ok(Cow::Owned(String::from_utf8(result.to_vec())?))
     }
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
@@ -280,7 +286,49 @@ impl<T: RWBytes<Ty = V>, V> RWBytes for RwLock<T> {
     }
 }
 
-pub struct ErrorEnumVariantNotFound(&'static str, u8);
+impl<T: ?Sized + RWBytes<Ty = V>, V> RWBytes for Box<T> {
+    type Ty = Box<V>;
+
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        let val = T::read(src)?;
+        Ok(Box::new(val))
+    }
+
+    fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
+        self.as_ref().write(dst)
+    }
+}
+
+impl<I: RWBytes<Ty = V>, V> RWBytesMut for Box<dyn ExactSizeIterator<Item = I>> {
+    type Ty = Vec<V>;
+
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        Vec::<I>::read(src)
+    }
+
+    fn write(&mut self, dst: &mut BytesMut) -> anyhow::Result<()> {
+        dst.put_u64_le(self.len() as u64);
+
+        for _ in 0..self.len() {
+            self.next().unwrap().write(dst)?;
+        }
+        Ok(())
+    }
+}
+
+impl<T: RWBytes<Ty = V>, V> RWBytes for &T {
+    type Ty = V;
+
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        T::read(src)
+    }
+
+    fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
+        T::write(self, dst)
+    }
+}
+
+pub struct ErrorEnumVariantNotFound(pub &'static str, pub u8);
 
 impl Debug for ErrorEnumVariantNotFound {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

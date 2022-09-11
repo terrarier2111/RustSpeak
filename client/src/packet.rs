@@ -1,19 +1,20 @@
-use std::borrow::Cow;
+use crate::protocol::{ErrorEnumVariantNotFound, RWBytes};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
+use ordinalizer::Ordinal;
+use std::borrow::Cow;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter, Write};
-use std::mem::{discriminant, transmute};
+use std::mem::transmute;
 use std::ops::Deref;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use futures::AsyncWriteExt;
 use uuid::Uuid;
-use crate::protocol::{ErrorEnumVariantNotFound, RWBytes};
 
 /// packets the server sends to the client
 /// size: u64
 /// id: u8
+#[derive(Ordinal)]
 pub enum ServerPacket<'a> {
     AuthResponse(AuthResponse<'a>),
     ChannelUpdate(ChannelUpdate<'a>),
@@ -33,6 +34,7 @@ pub enum ServerPacket<'a> {
 /// currently this packet's header is:
 /// size: u16
 /// id: u8
+#[derive(Ordinal)]
 pub enum ClientPacket {
     AuthRequest {
         protocol_version: u64,
@@ -89,12 +91,15 @@ impl RWBytes for ServerPacket<'_> {
                 let send_time = Duration::read(src)?;
                 Ok(Self::KeepAlive { id, send_time })
             }
-            _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound("ServerPacket", id))),
+            _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(
+                "ServerPacket",
+                id,
+            ))),
         }
     }
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
-        dst.put_u8(discriminant(&self).into());
+        dst.put_u8(self.ordinal() as u8);
         match self {
             ServerPacket::AuthResponse(response) => {
                 response.write(dst)?;
@@ -152,12 +157,15 @@ impl RWBytes for ClientPacket {
                 let update = ClientUpdateServerGroups::read(src)?;
                 Ok(Self::UpdateClientServerGroups { client, update })
             }
-            _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound("ClientPacket", id))),
+            _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(
+                "ClientPacket",
+                id,
+            ))),
         }
     }
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
-        dst.put_u8(discriminant(&self).into());
+        dst.put_u8(self.ordinal() as u8);
         match self {
             ClientPacket::AuthRequest {
                 protocol_version,
@@ -186,6 +194,7 @@ impl RWBytes for ClientPacket {
     }
 }
 
+#[derive(Ordinal)]
 pub enum ChannelUpdate<'a> {
     Create(Channel<'a>),
     SubUpdate {
@@ -215,12 +224,15 @@ impl RWBytes for ChannelUpdate<'_> {
                 let uuid = Uuid::read(src)?;
                 Ok(Self::Delete(uuid))
             }
-            _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound("ChannelUpdate", disc))),
+            _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(
+                "ChannelUpdate",
+                disc,
+            ))),
         }
     }
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
-        dst.put_u8(discriminant(self).into());
+        dst.put_u8(self.ordinal() as u8);
 
         match self {
             ChannelUpdate::Create(channel) => {
@@ -238,6 +250,7 @@ impl RWBytes for ChannelUpdate<'_> {
     }
 }
 
+#[derive(Ordinal)]
 pub enum ChannelSubUpdate<'a> {
     Name(Cow<'a, String>),
     Desc(Cow<'a, String>),
@@ -276,7 +289,7 @@ impl RWBytes for ChannelSubUpdate<'_> {
     }
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
-        dst.put_u8(discriminant(self).into());
+        dst.put_u8(self.ordinal() as u8);
 
         match self {
             ChannelSubUpdate::Name(name) => {
@@ -296,7 +309,7 @@ impl RWBytes for ChannelSubUpdate<'_> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Ordinal)]
 pub enum ChannelSubClientUpdate {
     Add(Uuid), // FIXME: we have to ensure that all updates get flushed if there is any way the receiving client
     // FIXME: could not have a (up-to-date) client with the passed uuid in their database
@@ -326,7 +339,7 @@ impl RWBytes for ChannelSubClientUpdate {
     }
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
-        dst.put_u8(discriminant(self).into());
+        dst.put_u8(self.ordinal() as u8);
 
         match self {
             ChannelSubClientUpdate::Add(uuid) => {
@@ -340,7 +353,7 @@ impl RWBytes for ChannelSubClientUpdate {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Ordinal)]
 pub enum ClientUpdateServerGroups {
     Add(Uuid),
     Remove(Uuid),
@@ -368,7 +381,7 @@ impl RWBytes for ClientUpdateServerGroups {
     }
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
-        dst.put_u8(discriminant(self).into());
+        dst.put_u8(self.ordinal() as u8);
         match self {
             ClientUpdateServerGroups::Add(uuid) => {
                 uuid.write(dst)?;
@@ -463,7 +476,7 @@ pub struct ChannelPerms {
     talk: u64,
     assign_talk: u64,
     delete: u64, // this might be useful for regulating bots for example
-    // kicking is handled simply as a move into the default channel
+                 // kicking is handled simply as a move into the default channel
 }
 
 impl RWBytes for ChannelPerms {
@@ -632,6 +645,7 @@ impl RWBytes for ChannelCreatePerms {
     }
 }
 
+#[derive(Ordinal)]
 pub enum AuthResponse<'a> {
     Success {
         // server_groups: Cow<'a, dyn Into<dyn ExactSizeIterator<Item = &'a ServerGroup>>>,
@@ -664,12 +678,15 @@ impl RWBytes for AuthResponse<'_> {
                 let failure = AuthFailure::read(src)?;
                 Ok(Self::Failure(failure))
             }
-            _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound("AuthResponse", disc))),
+            _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(
+                "AuthResponse",
+                disc,
+            ))),
         }
     }
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
-        dst.put_u8(discriminant(self) as u8);
+        dst.put_u8(self.ordinal() as u8);
         match self {
             AuthResponse::Success {
                 server_groups,
@@ -688,6 +705,7 @@ impl RWBytes for AuthResponse<'_> {
     }
 }
 
+#[derive(Ordinal)]
 pub enum AuthFailure<'a> {
     Banned {
         reason: String,
@@ -722,12 +740,15 @@ impl RWBytes for AuthFailure<'_> {
                 let reason = String::read(src)?;
                 Ok(Self::Invalid(Cow::from(reason)))
             }
-            _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound("AuthFailure", disc))),
+            _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(
+                "AuthFailure",
+                disc,
+            ))),
         }
     }
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
-        dst.put_u8(discriminant(self) as u8);
+        dst.put_u8(self.ordinal() as u8);
         match self {
             AuthFailure::Banned { reason, duration } => {
                 reason.write(dst)?;
@@ -747,6 +768,7 @@ impl RWBytes for AuthFailure<'_> {
     }
 }
 
+#[derive(Ordinal)]
 pub enum BanDuration {
     Permanent,
     Temporary(Duration),
@@ -764,12 +786,15 @@ impl RWBytes for BanDuration {
                 let dur = Duration::read(src)?;
                 Ok(BanDuration::Temporary(dur))
             }
-            _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound("BanDuration", disc))),
+            _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(
+                "BanDuration",
+                disc,
+            ))),
         }
     }
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
-        dst.put_u8(discriminant(self).into());
+        dst.put_u8(self.ordinal() as u8);
 
         match self {
             BanDuration::Permanent => {}
@@ -780,5 +805,3 @@ impl RWBytes for BanDuration {
         Ok(())
     }
 }
-
-
