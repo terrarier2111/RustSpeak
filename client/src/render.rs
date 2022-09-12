@@ -1,5 +1,5 @@
-use wgpu::{RenderPass, TextureViewDescriptor};
-use wgpu_biolerless::State;
+use wgpu::{RenderPass, RenderPipeline, TextureViewDescriptor};
+use wgpu_biolerless::{PipelineBuilder, State, VertexShaderState};
 
 pub struct Renderer {
     pub state: State,
@@ -20,7 +20,9 @@ impl Renderer {
     }
 }
 
-/*
-fn color_render_pass() -> RenderPass {
-
-}*/
+fn color_render_pipeline(state: &State) -> RenderPipeline {
+    PipelineBuilder::new().vertex(VertexShaderState {
+        entry_point: "main_vs",
+        buffers: &[],
+    }).build(state)
+}

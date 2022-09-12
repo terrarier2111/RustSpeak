@@ -118,7 +118,7 @@ pub async fn start_connect_to(
         name: profile.name.clone(),
         uuid: profile.uuid().clone(),
         security_proofs: vec![],
-        auth_id: Default::default(),
+        signed_data: Default::default()
     };
     // client.send_reliable((auth_packet as dyn RWBytes).encode());
     let mut buf = BytesMut::new();

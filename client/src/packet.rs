@@ -1,4 +1,4 @@
-use crate::protocol::{ErrorEnumVariantNotFound, RWBytes};
+use crate::protocol::{ErrorEnumVariantNotFound, RWBytes, UserUuid};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use ordinalizer::Ordinal;
 use std::borrow::Cow;
@@ -21,7 +21,7 @@ pub enum ServerPacket<'a> {
     ClientConnected(RemoteProfile<'a>),
     ClientDisconnected(RemoteProfile<'a>),
     ClientUpdateServerGroups {
-        client: Uuid,
+        client: UserUuid,
         update: ClientUpdateServerGroups,
     },
     KeepAlive {
@@ -38,10 +38,10 @@ pub enum ServerPacket<'a> {
 pub enum ClientPacket {
     AuthRequest {
         protocol_version: u64,
-        uuid: Uuid,
+        uuid: UserUuid,
         name: String,
         security_proofs: Vec<u128>,
-        auth_id: Uuid, // a uuid that is generated from hashing the `private_ley ^ hash(server_address)`
+        signed_data: Uuid, // a signed sent time and send ip
     },
     Disconnect,
     KeepAlive {
@@ -49,7 +49,7 @@ pub enum ClientPacket {
         send_time: Duration,
     },
     UpdateClientServerGroups {
-        client: Uuid,
+        client: UserUuid,
         update: ClientUpdateServerGroups,
     },
 }
@@ -82,7 +82,7 @@ impl RWBytes for ServerPacket<'_> {
             2 => Ok(Self::ClientConnected(RemoteProfile::read(src)?)),
             3 => Ok(Self::ClientDisconnected(RemoteProfile::read(src)?)),
             4 => {
-                let client = Uuid::read(src)?;
+                let client = UserUuid::read(src)?;
                 let update = ClientUpdateServerGroups::read(src)?;
                 Ok(Self::ClientUpdateServerGroups { client, update })
             }
@@ -135,15 +135,15 @@ impl RWBytes for ClientPacket {
             0 => {
                 let protocol_version = u64::read(src)?;
                 let name = String::read(src)?;
-                let uuid = Uuid::read(src)?;
+                let uuid = UserUuid::read(src)?;
                 let security_proofs = Vec::<u128>::read(src)?;
-                let auth_id = Uuid::read(src)?;
+                let signed_data = Uuid::read(src)?;
                 Ok(Self::AuthRequest {
                     protocol_version,
                     uuid,
                     name,
                     security_proofs,
-                    auth_id,
+                    signed_data,
                 })
             }
             1 => Ok(Self::Disconnect),
@@ -153,7 +153,7 @@ impl RWBytes for ClientPacket {
                 Ok(Self::KeepAlive { id, send_time })
             }
             3 => {
-                let client = Uuid::read(src)?;
+                let client = UserUuid::read(src)?;
                 let update = ClientUpdateServerGroups::read(src)?;
                 Ok(Self::UpdateClientServerGroups { client, update })
             }
@@ -172,13 +172,13 @@ impl RWBytes for ClientPacket {
                 name,
                 uuid,
                 security_proofs,
-                auth_id,
+                signed_data,
             } => {
                 dst.put_u64_le(*protocol_version);
                 name.write(dst)?;
                 uuid.write(dst)?;
                 security_proofs.write(dst)?;
-                auth_id.write(dst)?;
+                signed_data.write(dst)?;
             }
             ClientPacket::Disconnect => {}
             ClientPacket::KeepAlive { id, send_time } => {

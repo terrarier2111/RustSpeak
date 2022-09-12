@@ -35,3 +35,5 @@ dirs = "4.0.0"
 openssl = { version = "0.10.41", features = ["vendored"] }
 # druid = "0.7.0" # we can't use druid as it's not ready for any real ui work
 ordinalizer = { git = "https://github.com/terrarier2111/ordinalize" }
+num-bigint = "0.4.3"
+ruint = "1.3.0"

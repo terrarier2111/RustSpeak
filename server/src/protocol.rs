@@ -1,5 +1,4 @@
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use futures::AsyncWriteExt;
 use std::borrow::Cow;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter, Write};
@@ -8,9 +7,14 @@ use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use ruint::aliases::U256;
 use uuid::Uuid;
 
 pub const PROTOCOL_VERSION: u64 = 1;
+
+#[derive(Copy, Clone, Hash, Ord, PartialOrd, Eq, PartialEq)]
+#[repr(transparent)]
+pub struct UserUuid(U256);
 
 pub(crate) trait RWBytes /*: Sized*/ {
     type Ty;
@@ -193,6 +197,24 @@ impl RWBytes for Uuid {
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
         dst.put_u128_le(self.as_u128());
+        Ok(())
+    }
+}
+
+impl RWBytes for UserUuid {
+    type Ty = Self;
+
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        let uuid = [src.get_u128_le(), src.get_u128_le()];
+        // SAFETY: This is safe as u8 allows all possible bit patterns
+        Ok(unsafe { transmute(uuid) })
+    }
+
+    fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
+        // SAFETY: This is safe as u128 allows all possible bit patterns
+        let data: [u128; 2] = unsafe { transmute(self) };
+        dst.put_u128_le(data[0]);
+        dst.put_u128_le(data[1]);
         Ok(())
     }
 }

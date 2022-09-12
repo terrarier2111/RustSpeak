@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/*
 use crate::render::Renderer;
 use crate::screen::ScreenType::Other;
 use crate::screen_sys::ScreenType::Other;
@@ -397,4 +396,3 @@ impl ScreenSystem {
         }
     }
 }
-*/

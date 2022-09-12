@@ -8,6 +8,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::{Arc, Mutex, RwLock};
 
 pub struct NetworkClient {
+    // FIXME: Add keep alive stream
     endpoint: Endpoint,
     conn: RwLock<NewConnection>,
     bi_conn: (Mutex<SendStream>, Mutex<RecvStream>),
