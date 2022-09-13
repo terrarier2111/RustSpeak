@@ -119,17 +119,6 @@ struct ScreenInfo {
     last_height: i32,
 }
 
-// SAFETY:
-// This is safe because the only non-Send, non-Sync types in ScreenSystem
-// are boxed Screen types in pre_computed_screens which won't ever be modified
-// they will only be cloned once and then put inside an Arc<Mutex<>>
-// which means the Screen won't ever race
-// FIXME: this SHOULD be safe but we can get rid of it by
-// FIXME: making all the UI elements thread safe.
-/*
-unsafe impl Send for ScreenSystem {}
-unsafe impl Sync for ScreenSystem {}*/
-
 #[derive(Default)]
 pub struct ScreenSystem {
     screens: Arc<RwLock<Vec<ScreenInfo>>>,

@@ -52,8 +52,10 @@ impl Profile {
         &self.uuid
     }
 
-    #[inline(always)]
-    pub fn private_key(&self) -> &Vec<u8> {
-        &self.private_key
+    pub fn sign_data(&self, data: &mut [u8]) -> anyhow::Result<()> {
+        let pkey = PKey::private_key_from_der(&self.private_key)?;
+        let signer = Signer::new(MessageDigest::sha256(), &pkey)?;
+        signer.sign(data)?;
+        Ok(())
     }
 }

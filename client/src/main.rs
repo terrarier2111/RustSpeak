@@ -13,6 +13,7 @@ use wgpu_biolerless::{StateBuilder, WindowSize};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoopBuilder};
 use winit::window::{Window, WindowBuilder};
+use crate::utils::current_time_millis;
 
 mod certificate;
 mod config;
@@ -23,6 +24,7 @@ mod protocol;
 mod render;
 mod screen_sys;
 mod security_level;
+mod utils;
 
 // FIXME: can we even let tokio do this right here? do we have to run our event_loop on the main thread?
 
@@ -113,6 +115,9 @@ pub async fn start_connect_to(
     let client = NetworkClient::new(AddressMode::V4, None, server_addr, server_name)
         .await
         .unwrap();
+    let ctm = current_time_millis();
+    let mut data = (ctm.as_secs(), ctm.subsec_nanos(), ); // FIXME: is it possible to get the used ip address? even when smth like a vpn is involved?
+    let signed = profile.sign_data(data);
     let auth_packet = ClientPacket::AuthRequest {
         protocol_version: PROTOCOL_VERSION,
         name: profile.name.clone(),
