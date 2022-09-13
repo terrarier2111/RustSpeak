@@ -9,6 +9,7 @@ use bytes::BytesMut;
 use std::fs::File;
 use std::net::SocketAddr;
 use std::{fs, io, thread};
+use std::mem::transmute;
 use wgpu_biolerless::{StateBuilder, WindowSize};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoopBuilder};
@@ -116,14 +117,15 @@ pub async fn start_connect_to(
         .await
         .unwrap();
     let ctm = current_time_millis();
-    let mut data = (ctm.as_secs(), ctm.subsec_nanos(), ); // FIXME: is it possible to get the used ip address? even when smth like a vpn is involved?
-    let signed = profile.sign_data(data);
+    let data = (ctm.as_secs(), ctm.subsec_nanos(), ); // FIXME: is it possible to get the used ip address? even when smth like a vpn is involved?
+    let data = bytemuck::bytes_of(&data);
+    let signed_data = profile.sign_data(data)?;
     let auth_packet = ClientPacket::AuthRequest {
         protocol_version: PROTOCOL_VERSION,
+        pub_key: profile.private_key()?.public_key_to_der()?,
         name: profile.name.clone(),
-        uuid: profile.uuid().clone(),
         security_proofs: vec![],
-        signed_data: Default::default()
+        signed_data,
     };
     // client.send_reliable((auth_packet as dyn RWBytes).encode());
     let mut buf = BytesMut::new();

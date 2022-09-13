@@ -29,6 +29,7 @@ pub(crate) mod secure_authority {
     }
 }
 
+// FIXME: we should probably remove this once we are out of the testing stage
 pub(crate) mod insecure_local {
     use rustls::{Certificate, PrivateKey};
 

@@ -39,3 +39,5 @@ openssl = { version = "0.10.41", features = ["vendored"] }
 # clap = "3.2.20" # FIXME: could we use clap? sadly we probably can't as it can only read cmd args not CLI args
 # owo-colors = "3.5.0"
 colored = "2.0.0"
+bytemuck = "1.12.1"
+bytemuck_derive = "1.2.1"

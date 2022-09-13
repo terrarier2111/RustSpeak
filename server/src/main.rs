@@ -1,4 +1,5 @@
 #![feature(new_uninit)]
+#![feature(int_roundings)]
 
 use crate::channel_db::{ChannelDb, ChannelDbEntry};
 use crate::cli::{
@@ -49,6 +50,8 @@ const RELATIVE_SERVER_GROUP_DB_PATH: &str = "server_group_db.json";
 const ADMIN_GROUP_UUID: Uuid = Uuid::from_u128(0x1);
 const DEFAULT_GROUP_UUID: Uuid = Uuid::from_u128(0x0);
 const DEFAULT_CHANNEL_UUID: Uuid = Uuid::from_u128(0x0);
+
+// FIXME: take a look at: https://www.nist.gov/news-events/news/2022/07/nist-announces-first-four-quantum-resistant-cryptographic-algorithms
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

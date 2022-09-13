@@ -9,6 +9,7 @@ use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use ruint::aliases::U256;
 use uuid::Uuid;
 
 /// packets the server sends to the client
@@ -28,6 +29,9 @@ pub enum ServerPacket<'a> {
         id: u64,
         send_time: Duration,
     },
+    ChallengeRequest {
+        signed_data: Vec<u8>, // contains the public server key and a random challenge and all of that encrypted with the client's public key
+    },
 }
 
 /// packets the client sends to the server
@@ -38,10 +42,10 @@ pub enum ServerPacket<'a> {
 pub enum ClientPacket {
     AuthRequest {
         protocol_version: u64,
-        uuid: UserUuid,
+        pub_key: Vec<u8>, // the public key of the client which gets later hashed to get it's id
         name: String,
-        security_proofs: Vec<u128>,
-        signed_data: Uuid, // a signed sent time and send ip
+        security_proofs: Vec<u128>, // TODO: add comment
+        signed_data: Vec<u8>, // contains a signed send time
     },
     Disconnect,
     KeepAlive {
@@ -51,6 +55,9 @@ pub enum ClientPacket {
     UpdateClientServerGroups {
         client: UserUuid,
         update: ClientUpdateServerGroups,
+    },
+    ChallengeResponse {
+        signed_data: Vec<u8>, // contains a signed copy of server's public key
     },
 }
 
@@ -91,6 +98,10 @@ impl RWBytes for ServerPacket<'_> {
                 let send_time = Duration::read(src)?;
                 Ok(Self::KeepAlive { id, send_time })
             }
+            6 => {
+                let signed_data = Vec::<_>::read(src)?;
+                Ok(Self::ChallengeRequest { signed_data })
+            }
             _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(
                 "ServerPacket",
                 id,
@@ -121,6 +132,9 @@ impl RWBytes for ServerPacket<'_> {
                 dst.put_u64_le(*id);
                 send_time.write(dst)?;
             }
+            ServerPacket::ChallengeRequest { signed_data } => {
+                signed_data.write(dst)?;
+            }
         }
         Ok(())
     }
@@ -134,13 +148,13 @@ impl RWBytes for ClientPacket {
         match id {
             0 => {
                 let protocol_version = u64::read(src)?;
+                let pub_key = Vec::<_>::read(src)?;
                 let name = String::read(src)?;
-                let uuid = UserUuid::read(src)?;
                 let security_proofs = Vec::<u128>::read(src)?;
-                let signed_data = Uuid::read(src)?;
+                let signed_data = Vec::<_>::read(src)?;
                 Ok(Self::AuthRequest {
                     protocol_version,
-                    uuid,
+                    pub_key,
                     name,
                     security_proofs,
                     signed_data,
@@ -169,14 +183,14 @@ impl RWBytes for ClientPacket {
         match self {
             ClientPacket::AuthRequest {
                 protocol_version,
+                pub_key,
                 name,
-                uuid,
                 security_proofs,
                 signed_data,
             } => {
                 dst.put_u64_le(*protocol_version);
+                pub_key.write(dst)?;
                 name.write(dst)?;
-                uuid.write(dst)?;
                 security_proofs.write(dst)?;
                 signed_data.write(dst)?;
             }
@@ -188,6 +202,9 @@ impl RWBytes for ClientPacket {
             ClientPacket::UpdateClientServerGroups { client, update } => {
                 client.write(dst)?;
                 update.write(dst)?;
+            }
+            ClientPacket::ChallengeResponse { signed_data } => {
+                signed_data.write(dst)?;
             }
         }
         Ok(())

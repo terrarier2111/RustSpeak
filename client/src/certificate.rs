@@ -6,6 +6,7 @@ mod secure_authority {
     }
 }
 
+// FIXME: we should probably remove this once we are out of the testing stage
 mod insecure_local {
     use quinn::ClientConfig;
     use rustls::client::{ServerCertVerified, ServerCertVerifier};

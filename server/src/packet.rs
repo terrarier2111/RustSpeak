@@ -7,12 +7,20 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter, Write};
+use std::io::Write;
 use std::mem::{discriminant, transmute};
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use bytemuck::Pod;
+use openssl::hash::MessageDigest;
+use openssl::pkey::Public;
+use openssl::rsa::{Padding, Rsa};
+use openssl::sign::Verifier;
 use uuid::Uuid;
+
+const PRIVATE_KEY_LEN_BITS: u32 = 4096;
 
 /// packets the server sends to the client
 /// size: u64
@@ -78,7 +86,7 @@ impl ServerPacket<'_> {
 impl RWBytes for ServerPacket<'_> {
     type Ty = Self;
 
-    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes, _client_key: &Rsa<Public>) -> anyhow::Result<Self::Ty> {
         let id = src.get_u8();
 
         match id {
@@ -141,7 +149,7 @@ impl RWBytes for ServerPacket<'_> {
 impl RWBytes for ClientPacket {
     type Ty = Self;
 
-    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes, _client_key: &Rsa<Public>) -> anyhow::Result<Self::Ty> {
         let id = src.get_u8();
         match id {
             0 => {
@@ -206,6 +214,56 @@ impl RWBytes for ClientPacket {
     }
 }
 
+pub struct Encrypted<T: RWBytes + Pod> {
+    pub data: T,
+    pub pub_key: Rsa<Public>,
+}
+
+impl<T: RWBytes + Pod> RWBytes for Encrypted<T> {
+    type Ty = T;
+
+    fn read(_src: &mut Bytes, _client_key: &Rsa<Public>) -> anyhow::Result<Self::Ty> {
+        todo!()
+    }
+
+    fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
+        // SAFETY: This is safe because all bit patterns are valid for u8
+        let mut buf = unsafe { Box::new_zeroed_slice(PRIVATE_KEY_LEN_BITS.div_ceil(8) as usize).assume_init() };
+        self.pub_key.public_encrypt(bytemuck::bytes_of(&self.data), &mut buf, Padding::PKCS1_OAEP)?;
+        buf.into_vec().write(dst)?; // FIXME: optimize writing u8 arrays to the network
+        Ok(())
+    }
+}
+
+pub struct Signed<T: RWBytes> {
+    pub data: T,
+    pub pub_key: Rsa<Public>,
+}
+
+impl<T: RWBytes> RWBytes for Signed<T> {
+    type Ty = Result<T, WrongSignatureError>;
+
+    fn read(src: &mut Bytes, client_key: &Rsa<Public>) -> anyhow::Result<Self::Ty> {
+        let signature = Vec::<_>::read(src)?;
+        let data = T::read(src, client_key)?;
+        let mut verifier = Verifier::new(MessageDigest::sha256(), client_key)?;
+        verifier.verify_oneshot(&signature, &data)?;
+        Ok(data)
+    }
+
+    fn write(&self, _dst: &mut BytesMut) -> anyhow::Result<()> {
+        // we don't ever need to write Signed data, we only need to read signed data on the server side
+        unimplemented!()
+    }
+}
+
+// An error indicating that the received signature is not the one we expected
+// this means that there was a man in the middle attack which should have been
+// prevented by the use of certificates, but wasn't
+pub struct WrongSignatureError {
+
+}
+
 #[derive(Ordinal)]
 pub enum ChannelUpdate<'a> {
     Create(Channel<'a>),
@@ -219,7 +277,7 @@ pub enum ChannelUpdate<'a> {
 impl RWBytes for ChannelUpdate<'_> {
     type Ty = Self;
 
-    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes, _client_key: &Rsa<Public>) -> anyhow::Result<Self::Ty> {
         let disc = src.get_u8();
 
         match disc {
@@ -273,7 +331,7 @@ pub enum ChannelSubUpdate<'a> {
 impl RWBytes for ChannelSubUpdate<'_> {
     type Ty = Self;
 
-    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes, _client_key: &Rsa<Public>) -> anyhow::Result<Self::Ty> {
         let disc = src.get_u8();
 
         match disc {
@@ -331,7 +389,7 @@ pub enum ChannelSubClientUpdate {
 impl RWBytes for ChannelSubClientUpdate {
     type Ty = Self;
 
-    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes, _client_key: &Rsa<Public>) -> anyhow::Result<Self::Ty> {
         let disc = src.get_u8();
 
         match disc {
@@ -374,7 +432,7 @@ pub enum ClientUpdateServerGroups {
 impl RWBytes for ClientUpdateServerGroups {
     type Ty = Self;
 
-    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes, _client_key: &Rsa<Public>) -> anyhow::Result<Self::Ty> {
         let disc = src.get_u8();
         match disc {
             0 => {
@@ -415,7 +473,7 @@ pub struct RemoteProfile<'a> {
 impl RWBytes for RemoteProfile<'_> {
     type Ty = Self;
 
-    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes, _client_key: &Rsa<Public>) -> anyhow::Result<Self::Ty> {
         let name = Cow::<String>::read(src)?;
         let uuid = UserUuid::read(src)?;
         let server_groups = Vec::<Uuid>::read(src)?;
@@ -465,7 +523,7 @@ impl Clone for Channel<'_> {
 impl RWBytes for Channel<'_> {
     type Ty = Self;
 
-    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes, _client_key: &Rsa<Public>) -> anyhow::Result<Self::Ty> {
         let uuid = Uuid::read(src)?;
         let password = AtomicBool::new(bool::read(src)?);
         let name = Arc::new(RwLock::new(Cow::<str>::read(src)?));
@@ -512,7 +570,7 @@ pub struct ChannelPerms {
 impl RWBytes for ChannelPerms {
     type Ty = Self;
 
-    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes, _client_key: &Rsa<Public>) -> anyhow::Result<Self::Ty> {
         let see = u64::read(src)?;
         let join = u64::read(src)?;
         let send = u64::read(src)?;
@@ -556,7 +614,7 @@ pub struct ServerGroup<'a> {
 impl RWBytes for ServerGroup<'_> {
     type Ty = Self;
 
-    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes, _client_key: &Rsa<Public>) -> anyhow::Result<Self::Ty> {
         let uuid = Uuid::read(src)?;
         let name = Cow::<String>::read(src)?;
         let priority = u64::read(src)?;
@@ -598,7 +656,7 @@ pub struct ServerGroupPerms {
 impl RWBytes for ServerGroupPerms {
     type Ty = Self;
 
-    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes, _client_key: &Rsa<Public>) -> anyhow::Result<Self::Ty> {
         let server_group_assign = u64::read(src)?;
         let server_group_unassign = u64::read(src)?;
         let channel_see = u64::read(src)?;
@@ -654,7 +712,7 @@ pub struct ChannelCreatePerms {
 impl RWBytes for ChannelCreatePerms {
     type Ty = Self;
 
-    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes, _client_key: &Rsa<Public>) -> anyhow::Result<Self::Ty> {
         let power = u64::read(src)?;
         let set_desc = bool::read(src)?;
         let set_password = bool::read(src)?;
@@ -691,7 +749,7 @@ pub enum AuthResponse<'a> {
 impl RWBytes for AuthResponse<'_> {
     type Ty = Self;
 
-    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes, _client_key: &Rsa<Public>) -> anyhow::Result<Self::Ty> {
         /*
         /*let disc = src.get_u8();
 
@@ -774,7 +832,7 @@ pub enum AuthFailure<'a> {
 impl RWBytes for AuthFailure<'_> {
     type Ty = Self;
 
-    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes, _client_key: &Rsa<Public>) -> anyhow::Result<Self::Ty> {
         let disc = src.get_u8();
 
         match disc {
@@ -832,7 +890,7 @@ pub enum BanDuration {
 impl RWBytes for BanDuration {
     type Ty = Self;
 
-    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes, _client_key: &Rsa<Public>) -> anyhow::Result<Self::Ty> {
         let disc = src.get_u8();
 
         match disc {
