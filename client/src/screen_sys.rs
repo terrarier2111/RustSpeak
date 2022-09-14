@@ -13,11 +13,7 @@
 // limitations under the License.
 
 use crate::render::Renderer;
-use crate::screen::ScreenType::Other;
 use crate::screen_sys::ScreenType::Other;
-use crate::ui;
-use crate::ui::Container;
-use crate::{render, Game};
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use winit::dpi::{PhysicalPosition, Position};
@@ -81,7 +77,7 @@ pub trait Screen: Send + Sync {
         }
     }
 
-    fn on_char_receive(&mut self, _received: char, _game: &mut Game) {}
+    fn on_char_receive(&mut self, _received: char) {}
 
     fn is_closable(&self) -> bool {
         false
@@ -214,14 +210,14 @@ impl ScreenSystem {
         Other(String::new())
     }
 
-    pub fn receive_char(&self, received: char, game: &mut Game) {
+    pub fn receive_char(&self, received: char) {
         if let Some(screen) = self.screens.clone().read().unwrap().last() {
             screen
                 .screen
                 .clone()
                 .lock()
                 .unwrap()
-                .on_char_receive(received, game);
+                .on_char_receive(received);
         }
     }
 
@@ -313,10 +309,10 @@ impl ScreenSystem {
             }
             self.lowest_offset.store(-1, Ordering::Release);
             if !was_closable {
-                let (safe_width, safe_height) = renderer.screen_data.read().unwrap().safe_dims();
+                let (width, height) = renderer.dimensions.get();
                 window.set_cursor_position(Position::Physical(PhysicalPosition::new(
-                    (safe_width / 2) as i32,
-                    (safe_height / 2) as i32,
+                    (width / 2) as i32,
+                    (height / 2) as i32,
                 )));
             }
         }
@@ -338,8 +334,8 @@ impl ScreenSystem {
                     ui_container,
                 );
             }
-            let (safe_width, safe_height) = renderer.screen_data.read().unwrap().safe_dims();
-            if current.last_width != safe_width as i32 || current.last_height != safe_height as i32
+            let (width, height) = renderer.dimensions.get();
+            if current.last_width != width as i32 || current.last_height != height as i32
             {
                 if current.last_width != -1 && current.last_height != -1 {
                     for screen in tmp.iter_mut().enumerate() {
@@ -348,17 +344,16 @@ impl ScreenSystem {
                         if inner_screen.is_tick_always() || screen.0 == len - 1 {
                             inner_screen.on_resize(self.clone(), renderer.clone(), ui_container);
                             drop(inner_screen);
-                            let (safe_width, safe_height) =
-                                renderer.screen_data.read().unwrap().safe_dims();
-                            screen.1.last_width = safe_width as i32;
-                            screen.1.last_height = safe_height as i32;
+                            let (width, height) = renderer.dimensions.get();
+                            screen.1.last_width = width as i32;
+                            screen.1.last_height = height as i32;
                         }
                     }
                 } else {
-                    let (safe_width, safe_height) =
-                        renderer.screen_data.read().unwrap().safe_dims();
-                    current.last_width = safe_width as i32;
-                    current.last_height = safe_height as i32;
+                    let (width, height) =
+                        renderer.dimensions.get();
+                    current.last_width = width as i32;
+                    current.last_height = height as i32;
                 }
             }
             for screen in tmp.iter_mut().enumerate() {

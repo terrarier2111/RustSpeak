@@ -41,14 +41,14 @@ impl Profile {
     }
 
     pub fn uuid(&self) -> UserUuid {
-        let pub_key = Rsa::private_key_from_der(&self.private_key)?.public_key_to_der()?;
+        let pub_key = Rsa::private_key_from_der(&self.private_key).unwrap().public_key_to_der().unwrap();
         let pub_hash = sha256(&pub_key);
         // SAFETY: This is safe because UserUuid can represent any 16 byte value
         unsafe { transmute(pub_hash) }
     }
 
-    pub fn private_key(&self) -> anyhow::Result<Rsa<Private>> {
-        Ok(Rsa::private_key_from_der(&self.private_key)??)
+    pub fn private_key(&self) -> Rsa<Private> {
+        Rsa::private_key_from_der(&self.private_key).unwrap()
     }
 
     pub fn sign_data(&self, data: &[u8]) -> anyhow::Result<Vec<u8>> {

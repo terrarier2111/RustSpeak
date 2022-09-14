@@ -212,7 +212,7 @@ impl RWBytes for UserUuid {
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
         // SAFETY: This is safe as u128 allows all possible bit patterns
-        let data: [u128; 2] = unsafe { transmute(self) };
+        let data: [u128; 2] = unsafe { transmute(self.clone()) };
         dst.put_u128_le(data[0]);
         dst.put_u128_le(data[1]);
         Ok(())

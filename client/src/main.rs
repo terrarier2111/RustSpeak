@@ -26,6 +26,8 @@ mod render;
 mod screen_sys;
 mod security_level;
 mod utils;
+mod ui;
+mod atlas;
 
 // FIXME: can we even let tokio do this right here? do we have to run our event_loop on the main thread?
 
@@ -117,12 +119,13 @@ pub async fn start_connect_to(
         .await
         .unwrap();
     let ctm = current_time_millis();
-    let data = (ctm.as_secs(), ctm.subsec_nanos(), ); // FIXME: is it possible to get the used ip address? even when smth like a vpn is involved?
-    let data = bytemuck::bytes_of(&data);
-    let signed_data = profile.sign_data(data)?;
+    let mut data = vec![];
+    data.extend_from_slice(&ctm.as_secs().to_le_bytes());
+    data.extend_from_slice(&ctm.subsec_nanos().to_le_bytes());
+    let signed_data = profile.sign_data(&data)?;
     let auth_packet = ClientPacket::AuthRequest {
         protocol_version: PROTOCOL_VERSION,
-        pub_key: profile.private_key()?.public_key_to_der()?,
+        pub_key: profile.private_key().public_key_to_der()?,
         name: profile.name.clone(),
         security_proofs: vec![],
         signed_data,

@@ -99,7 +99,7 @@ impl RWBytes for ServerPacket<'_> {
                 Ok(Self::KeepAlive { id, send_time })
             }
             6 => {
-                let signed_data = Vec::<_>::read(src)?;
+                let signed_data = Vec::<u8>::read(src)?;
                 Ok(Self::ChallengeRequest { signed_data })
             }
             _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(
@@ -148,10 +148,10 @@ impl RWBytes for ClientPacket {
         match id {
             0 => {
                 let protocol_version = u64::read(src)?;
-                let pub_key = Vec::<_>::read(src)?;
+                let pub_key = Vec::<u8>::read(src)?;
                 let name = String::read(src)?;
                 let security_proofs = Vec::<u128>::read(src)?;
-                let signed_data = Vec::<_>::read(src)?;
+                let signed_data = Vec::<u8>::read(src)?;
                 Ok(Self::AuthRequest {
                     protocol_version,
                     pub_key,

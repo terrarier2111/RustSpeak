@@ -6,8 +6,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::error::Error;
-use std::fmt::{Debug, Display, Formatter, Write};
-use std::io::Write;
+use std::fmt::{Debug, Display, Formatter};
 use std::mem::{discriminant, transmute};
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -241,7 +240,7 @@ pub struct Signed<T: RWBytes> {
 }
 
 impl<T: RWBytes> RWBytes for Signed<T> {
-    type Ty = Result<T, WrongSignatureError>;
+    type Ty = T::Ty;
 
     fn read(src: &mut Bytes, client_key: &Rsa<Public>) -> anyhow::Result<Self::Ty> {
         let signature = Vec::<_>::read(src)?;
@@ -255,13 +254,6 @@ impl<T: RWBytes> RWBytes for Signed<T> {
         // we don't ever need to write Signed data, we only need to read signed data on the server side
         unimplemented!()
     }
-}
-
-// An error indicating that the received signature is not the one we expected
-// this means that there was a man in the middle attack which should have been
-// prevented by the use of certificates, but wasn't
-pub struct WrongSignatureError {
-
 }
 
 #[derive(Ordinal)]
