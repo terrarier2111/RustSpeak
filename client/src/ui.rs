@@ -1,4 +1,5 @@
 use wgpu::{Sampler, Texture, TextureView};
+use crate::atlas::UV;
 use crate::render::TexTriple;
 
 pub struct Button {
@@ -16,11 +17,6 @@ pub struct Color {
 pub struct Tex {
     pub alpha: f32,
     pub ty: TexTy,
-}
-
-pub enum TexTy {
-    Atlas(),
-    Simple(TexTriple),
 }
 
 pub enum Coloring {

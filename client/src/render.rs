@@ -1,9 +1,11 @@
 use std::borrow::Cow;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use flume::Sender;
 use wgpu::{BindGroupLayoutEntry, BindingType, RenderPass, RenderPipeline, Sampler, SamplerBindingType, ShaderSource, ShaderStages, Texture, TextureSampleType, TextureView, TextureViewDescriptor, TextureViewDimension};
 use wgpu_biolerless::{FragmentShaderState, ModuleSrc, PipelineBuilder, ShaderModuleSources, State, VertexShaderState, WindowSize};
 use winit::window::Window;
+use crate::atlas::AtlasAlloc;
 
 pub struct Renderer {
     pub state: State,
@@ -69,6 +71,11 @@ impl Renderer {
             }, ])], &[])).build(state)
     }
 
+}
+
+pub enum TexTy {
+    Atlas(Arc<AtlasAlloc>),
+    Simple(TexTriple),
 }
 
 pub enum Vertex {
