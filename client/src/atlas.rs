@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::{Arc, Mutex, RwLock};
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicU64, Ordering};
 use arc_swap::ArcSwap;
 use guillotiere::{Allocation, AllocId, AtlasAllocator, size2};
 use wgpu::{CommandEncoder, Extent3d, FilterMode, ImageCopyTexture, ImageDataLayout, Origin3d, Sampler, SamplerDescriptor, Texture, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureViewDescriptor, TextureViewDimension};
@@ -15,8 +15,10 @@ pub struct Atlas {
     alloc: Mutex<AtlasAllocator>,
     alloc_map: RwLock<HashMap<String, Arc<AtlasAlloc>>>,
     gpu_buffer: ArcSwap<TexTriple>,
+    buffer_size: AtomicU64,
     state: Arc<State>,
     write_queue: Mutex<Vec<QueuedWrite>>,
+    texture_format: TextureFormat,
 }
 
 impl Atlas {
@@ -25,13 +27,15 @@ impl Atlas {
         if size.0 >= (1 << 31) || size.1 >= (1 << 31) {
             panic!("The size passed was too big!");
         }
-        let tex = Self::create_tex(&state, size.clone());
+        let tex = Self::create_tex(&state, size.clone(), texture_format);
         Self {
             alloc: Mutex::new(AtlasAllocator::new(size2(size.0 as i32, size.1 as i32))),
             alloc_map: Default::default(),
             gpu_buffer: ArcSwap::new(Arc::new(tex)),
+            buffer_size: ,
             state,
             write_queue: Mutex::new(vec![]),
+            texture_format,
         }
     }
 
@@ -76,14 +80,21 @@ impl Atlas {
         if !write_queue.is_empty() {
             let new_size = self.alloc.lock().unwrap().size().to_tuple();
             let new_size = (new_size.0 as u32, new_size.1 as u32);
-            self.gpu_buffer.store(Arc::new(Self::create_tex(&self.state, new_size)));
+            let new_tex = Arc::new(Self::create_tex(&self.state, new_size, self.texture_format));
+            self.gpu_buffer.load()
+            cmd_encoder.copy_texture_to_texture(self.gpu_buffer.load().tex.as_image_copy(), new_tex.tex.as_image_copy(), Extent3d {
+                width: 0,
+                height: 0,
+                depth_or_array_layers: 0
+            });
+            self.gpu_buffer.store(new_tex);
             while let Some(write) = write_queue.pop() {
                 self.write_tex(&self.gpu_buffer.load().tex, write.pos, write.size, write.data.deref());
             }
         }
     }
 
-    fn create_tex(state: &Arc<State>, size: (u32, u32)) -> TexTriple {
+    fn create_tex(state: &Arc<State>, size: (u32, u32), texture_format: TextureFormat) -> TexTriple {
         let tex = state.create_raw_texture(RawTextureBuilder::new()
             .usages(TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST).dimensions(size)
             .texture_dimension(TextureDimension::D2).format(texture_format));
@@ -163,4 +174,25 @@ struct QueuedWrite {
     data: Arc<Box<dyn AsRef<[u8]>>>,
     pos: (u32, u32),
     size: (u32, u32),
+}
+
+struct Size(AtomicU64);
+
+impl Size {
+
+    fn new(x: u32, y: u32) -> Self {
+        let val = AtomicU64::new((x as u64) | ((y as u64) << 32));
+        Self(val)
+    }
+
+    fn get(&self) -> (u32, u32) {
+        let val = self.0.load(Ordering::Acquire);
+
+        ((val | (u32::MAX)) as u32, (val >> 32) as u32)
+    }
+
+    fn set(&self, x: u32, y: u32) {
+        self.0.store((x as u64) | ((y as u64) << 32), Ordering::Release);
+    }
+
 }
