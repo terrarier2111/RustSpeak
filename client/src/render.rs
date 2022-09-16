@@ -5,7 +5,7 @@ use flume::Sender;
 use wgpu::{BindGroupLayoutEntry, BindingType, RenderPass, RenderPipeline, Sampler, SamplerBindingType, ShaderSource, ShaderStages, Texture, TextureSampleType, TextureView, TextureViewDescriptor, TextureViewDimension};
 use wgpu_biolerless::{FragmentShaderState, ModuleSrc, PipelineBuilder, ShaderModuleSources, State, VertexShaderState, WindowSize};
 use winit::window::Window;
-use crate::atlas::AtlasAlloc;
+use crate::atlas::{Atlas, AtlasAlloc};
 
 pub struct Renderer {
     pub state: State,
@@ -17,10 +17,10 @@ pub struct Renderer {
 impl Renderer {
     pub fn new(state: State, window: &Window) -> Self {
         let (width, height) = window.window_size();
-        Self { tex_pipeline: Self::tex_pipeline(&state), color_pipeline: Self::color_pipeline(&state), state, dimensions: Dimensions::new(width, height) }
+        Self { tex_pipeline: Self::atlas_pipeline(&state), color_pipeline: Self::color_pipeline(&state), state, dimensions: Dimensions::new(width, height) }
     }
 
-    pub fn render(&mut self) {
+    pub fn render(&mut self, models: Vec<Model>) {
         self.state
             .render(
                 |view, encoder, state| {
@@ -43,62 +43,76 @@ impl Renderer {
             .layout(&state.create_pipeline_layout(&[], &[])).build(state)
     }
 
-    fn tex_pipeline(state: &State) -> RenderPipeline {
+    fn atlas_pipeline(state: &State) -> RenderPipeline {
         PipelineBuilder::new().vertex(VertexShaderState {
             entry_point: "main_vert",
             buffers: &[],
         }).fragment(FragmentShaderState {
             entry_point: "main_frag",
             targets: &[]
-        }).shader_src(ShaderModuleSources::Single(ModuleSrc::Source(ShaderSource::Wgsl(include_str!("ui_tex.wgsl").into()))))
+        }).shader_src(ShaderModuleSources::Single(ModuleSrc::Source(ShaderSource::Wgsl(include_str!("ui_atlas.wgsl").into()))))
             .layout(&state.create_pipeline_layout(&[&state.create_bind_group_layout(&[BindGroupLayoutEntry {
-            binding: 0,
-            visibility: ShaderStages::FRAGMENT,
-            ty: BindingType::Texture {
-                multisampled: false,
-                view_dimension: TextureViewDimension::D2,
-                sample_type: TextureSampleType::Float { filterable: true },
-            },
-            count: None,
-        },
-            BindGroupLayoutEntry {
-                binding: 1,
+                binding: 0,
                 visibility: ShaderStages::FRAGMENT,
-                // This should match the filterable field of the
-                // corresponding Texture entry above.
-                ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                ty: BindingType::Texture {
+                    multisampled: false,
+                    view_dimension: TextureViewDimension::D2,
+                    sample_type: TextureSampleType::Float { filterable: true },
+                },
                 count: None,
-            }, ])], &[])).build(state)
+            },
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStages::FRAGMENT,
+                    // This should match the filterable field of the
+                    // corresponding Texture entry above.
+                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                    count: None,
+                }, ])], &[])).build(state)
     }
 
 }
 
-pub enum TexTy {
-    Atlas(Arc<AtlasAlloc>),
-    Simple(TexTriple),
+#[derive(Clone)]
+pub struct Model {
+    pub vertices: Vec<Vertex>,
+    pub color_src: ColorSource,
 }
 
+#[derive(Clone)]
+pub enum ColorSource {
+    PerVert,
+    Atlas(Arc<Atlas>),
+    // FIXME: add single tex
+}
+
+pub enum TexTy {
+    Atlas(Arc<AtlasAlloc>),
+    // Simple(TexTriple), // FIXME: implement this!
+}
+
+#[derive(Copy, Clone)]
 pub enum Vertex {
     Color {
         pos: [f32; 2],
         color: [f32; 4],
     },
-    Tex {
+    Atlas {
         pos: [f32; 2],
         alpha: f32,
-        // FIXME: somehow add texture (but probably only per model and not per vertex) - although for now we will probably do it per vertex
+        uv: (u32, u32),
     },
 }
 
 struct ColorVertex {
-    pub pos: [f32; 2],
-    pub color: [f32; 4],
+    pos: [f32; 2],
+    color: [f32; 4],
 }
 
-struct TexVertex {
-    pub pos: [f32; 2],
-    pub alpha: f32,
-    // FIXME: somehow add texture (but probably only per model and not per vertex) - although for now we will probably do it per vertex
+struct AtlasVertex {
+    pos: [f32; 2],
+    alpha: f32,
+    uv: (u32, u32),
 }
 
 pub struct Dimensions {

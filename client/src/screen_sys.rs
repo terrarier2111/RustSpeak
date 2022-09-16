@@ -19,6 +19,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use winit::dpi::{PhysicalPosition, Position};
 use winit::event::VirtualKeyCode;
 use winit::window::Window;
+use crate::ui::Container;
 
 pub trait Screen: Send + Sync {
     // Called once
@@ -26,14 +27,14 @@ pub trait Screen: Send + Sync {
         &mut self,
         _screen_sys: Arc<ScreenSystem>,
         _renderer: Arc<Renderer>,
-        _ui_container: &mut Container,
+        _ui_container: &Arc<Container>,
     ) {
     }
     fn deinit(
         &mut self,
         _screen_sys: Arc<ScreenSystem>,
         _renderer: Arc<Renderer>,
-        _ui_container: &mut Container,
+        _ui_container: &Arc<Container>,
     ) {
     }
 
@@ -42,13 +43,13 @@ pub trait Screen: Send + Sync {
         &mut self,
         screen_sys: Arc<ScreenSystem>,
         renderer: Arc<Renderer>,
-        ui_container: &mut Container,
+        ui_container: &Arc<Container>,
     );
     fn on_deactive(
         &mut self,
         screen_sys: Arc<ScreenSystem>,
         renderer: Arc<Renderer>,
-        ui_container: &mut Container,
+        ui_container: &Arc<Container>,
     );
 
     // Called every frame the screen is active
@@ -56,7 +57,7 @@ pub trait Screen: Send + Sync {
         &mut self,
         screen_sys: Arc<ScreenSystem>,
         renderer: Arc<Renderer>,
-        ui_container: &mut Container,
+        ui_container: &Arc<Container>,
         delta: f64,
     );
 
@@ -67,7 +68,7 @@ pub trait Screen: Send + Sync {
         &mut self,
         _screen_sys: Arc<ScreenSystem>,
         _renderer: Arc<Renderer>,
-        _ui_container: &mut Container,
+        _ui_container: &Arc<Container>,
     ) {
     } // TODO: make non-optional!
 
@@ -237,7 +238,7 @@ impl ScreenSystem {
         self: Arc<Self>,
         delta: f64,
         renderer: Arc<Renderer>,
-        ui_container: &mut Container,
+        ui_container: &Arc<Container>,
         window: &Window,
     ) -> bool {
         let lowest = self.lowest_offset.load(Ordering::Acquire);
@@ -329,7 +330,7 @@ impl ScreenSystem {
             if !current.active {
                 current.active = true;
                 current.screen.clone().lock().unwrap().on_active(
-                    self,
+                    self.clone(),
                     renderer.clone(),
                     ui_container,
                 );

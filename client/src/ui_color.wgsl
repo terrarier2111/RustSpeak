@@ -11,7 +11,7 @@ struct VertOut {
 @vertex
 fn main_vert(in: VertIn) -> VertOut {
     var out: VertOut;
-    out.clip_position = vec4<f32>(in.position, 0.0, 0.0); // FIXME: should the first 0.0 parameter here be 1.0 instead?
+    out.clip_position = vec4<f32>(in.position, 0.0, 1.0); // FIXME: should these two values actually be 0.0 and 1.0?
     out.color = in.color;
 
     return out;
