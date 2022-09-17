@@ -10,10 +10,14 @@ use std::fs::File;
 use std::net::SocketAddr;
 use std::{fs, io, thread};
 use std::mem::transmute;
+use std::sync::Arc;
 use wgpu_biolerless::{StateBuilder, WindowSize};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoopBuilder};
 use winit::window::{Window, WindowBuilder};
+use crate::render::Renderer;
+use crate::screen::server_list::ServerList;
+use crate::screen_sys::ScreenSystem;
 use crate::utils::current_time_millis;
 
 mod certificate;
@@ -28,6 +32,7 @@ mod security_level;
 mod utils;
 mod ui;
 mod atlas;
+mod screen;
 
 // FIXME: can we even let tokio do this right here? do we have to run our event_loop on the main thread?
 
@@ -41,6 +46,9 @@ fn main() -> anyhow::Result<()> {
         .build(&event_loop)
         .unwrap();
     let state = pollster::block_on(StateBuilder::new().window(&window).build())?;
+    let renderer = Arc::new(Renderer::new(state, &window));
+    let screen_sys = Arc::new(ScreenSystem::new());
+    screen_sys.push_screen(Box::new(ServerList::new()));
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::NewEvents(_) => {}
@@ -93,6 +101,8 @@ fn main() -> anyhow::Result<()> {
         }
         Event::RedrawRequested(_) => {
             // FIXME: perform redraw
+            let models = screen_sys.tick(0.0, &renderer, &window);
+
         }
         Event::RedrawEventsCleared => {}
         Event::LoopDestroyed => {}

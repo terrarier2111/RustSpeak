@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::render::Renderer;
+use crate::render::{Model, Renderer};
 use crate::screen_sys::ScreenType::Other;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -27,14 +27,12 @@ pub trait Screen: Send + Sync {
         &mut self,
         _screen_sys: Arc<ScreenSystem>,
         _renderer: Arc<Renderer>,
-        _ui_container: &Arc<Container>,
     ) {
     }
     fn deinit(
         &mut self,
         _screen_sys: Arc<ScreenSystem>,
         _renderer: Arc<Renderer>,
-        _ui_container: &Arc<Container>,
     ) {
     }
 
@@ -43,13 +41,11 @@ pub trait Screen: Send + Sync {
         &mut self,
         screen_sys: Arc<ScreenSystem>,
         renderer: Arc<Renderer>,
-        ui_container: &Arc<Container>,
     );
     fn on_deactive(
         &mut self,
         screen_sys: Arc<ScreenSystem>,
         renderer: Arc<Renderer>,
-        ui_container: &Arc<Container>,
     );
 
     // Called every frame the screen is active
@@ -57,7 +53,6 @@ pub trait Screen: Send + Sync {
         &mut self,
         screen_sys: Arc<ScreenSystem>,
         renderer: Arc<Renderer>,
-        ui_container: &Arc<Container>,
         delta: f64,
     );
 
@@ -68,7 +63,6 @@ pub trait Screen: Send + Sync {
         &mut self,
         _screen_sys: Arc<ScreenSystem>,
         _renderer: Arc<Renderer>,
-        _ui_container: &Arc<Container>,
     ) {
     } // TODO: make non-optional!
 
@@ -92,6 +86,8 @@ pub trait Screen: Send + Sync {
         Other(String::new())
     }
 
+    fn container(&self) -> &Arc<Container>;
+
     fn clone_screen(&self) -> Box<dyn Screen>;
 }
 
@@ -105,7 +101,7 @@ impl Clone for Box<dyn Screen> {
 pub enum ScreenType {
     Other(String), // FIXME: maybe convert this into a "&'a str" or maybe even into a "&'static str"
     Chat,
-    InGame,
+    InGame, // FIXME: rework all the variations of this type!
 }
 
 #[derive(Clone)]
@@ -128,7 +124,7 @@ impl ScreenSystem {
         Default::default()
     }
 
-    pub fn add_screen(&self, screen: Box<dyn Screen>) {
+    pub fn push_screen(&self, screen: Box<dyn Screen>) {
         let new_offset = self.pre_computed_screens.clone().read().unwrap().len() as isize;
         self.pre_computed_screens
             .clone()
@@ -171,7 +167,7 @@ impl ScreenSystem {
 
     pub fn replace_screen(&self, screen: Box<dyn Screen>) {
         self.pop_screen();
-        self.add_screen(screen);
+        self.push_screen(screen);
     }
 
     pub fn is_current_closable(&self) -> bool {
@@ -235,12 +231,11 @@ impl ScreenSystem {
 
     #[allow(unused_must_use)]
     pub fn tick(
-        self: Arc<Self>,
+        self: &Arc<Self>,
         delta: f64,
-        renderer: Arc<Renderer>,
-        ui_container: &Arc<Container>,
+        renderer: &Arc<Renderer>,
         window: &Window,
-    ) -> bool {
+    ) -> Vec<Model> {
         let lowest = self.lowest_offset.load(Ordering::Acquire);
         if lowest != -1 {
             let screens_len = self.screens.read().unwrap().len();
@@ -265,13 +260,11 @@ impl ScreenSystem {
                         screen.screen.clone().lock().unwrap().on_deactive(
                             self.clone(),
                             renderer.clone(),
-                            ui_container,
                         );
                     }
                     screen.screen.clone().lock().unwrap().deinit(
                         self.clone(),
                         renderer.clone(),
-                        ui_container,
                     );
                 }
             }
@@ -297,16 +290,15 @@ impl ScreenSystem {
                         last.screen.clone().lock().unwrap().on_deactive(
                             self.clone(),
                             renderer.clone(),
-                            ui_container,
                         );
                     }
                 }
                 let mut current = screens.last_mut().unwrap();
                 let curr_screen = current.screen.clone();
                 let mut curr_screen = curr_screen.lock().unwrap();
-                curr_screen.init(self.clone(), renderer.clone(), ui_container);
+                curr_screen.init(self.clone(), renderer.clone());
                 current.active = true;
-                curr_screen.on_active(self.clone(), renderer.clone(), ui_container);
+                curr_screen.on_active(self.clone(), renderer.clone());
             }
             self.lowest_offset.store(-1, Ordering::Release);
             if !was_closable {
@@ -320,59 +312,52 @@ impl ScreenSystem {
 
         let len = self.screens.clone().read().unwrap().len();
         if len == 0 {
-            return true;
+            return vec![];
         }
         // Update state for screens
+        let tmp = self.screens.clone();
+        let mut tmp = tmp.write().unwrap();
+        let current = tmp.last_mut().unwrap();
+        if !current.active {
+            current.active = true;
+            current.screen.clone().lock().unwrap().on_active(
+                self.clone(),
+                renderer.clone(),
+            );
+        }
+        let (width, height) = renderer.dimensions.get();
+        if current.last_width != width as i32 || current.last_height != height as i32
         {
-            let tmp = self.screens.clone();
-            let mut tmp = tmp.write().unwrap();
-            let current = tmp.last_mut().unwrap();
-            if !current.active {
-                current.active = true;
-                current.screen.clone().lock().unwrap().on_active(
-                    self.clone(),
-                    renderer.clone(),
-                    ui_container,
-                );
-            }
-            let (width, height) = renderer.dimensions.get();
-            if current.last_width != width as i32 || current.last_height != height as i32
-            {
-                if current.last_width != -1 && current.last_height != -1 {
-                    for screen in tmp.iter_mut().enumerate() {
-                        let inner_screen = screen.1.screen.clone();
-                        let mut inner_screen = inner_screen.lock().unwrap();
-                        if inner_screen.is_tick_always() || screen.0 == len - 1 {
-                            inner_screen.on_resize(self.clone(), renderer.clone(), ui_container);
-                            drop(inner_screen);
-                            let (width, height) = renderer.dimensions.get();
-                            screen.1.last_width = width as i32;
-                            screen.1.last_height = height as i32;
-                        }
+            if current.last_width != -1 && current.last_height != -1 {
+                for screen in tmp.iter_mut().enumerate() {
+                    let inner_screen = screen.1.screen.clone();
+                    let mut inner_screen = inner_screen.lock().unwrap();
+                    if inner_screen.is_tick_always() || screen.0 == len - 1 {
+                        inner_screen.on_resize(self.clone(), renderer.clone());
+                        drop(inner_screen);
+                        let (width, height) = renderer.dimensions.get();
+                        screen.1.last_width = width as i32;
+                        screen.1.last_height = height as i32;
                     }
-                } else {
-                    let (width, height) =
-                        renderer.dimensions.get();
-                    current.last_width = width as i32;
-                    current.last_height = height as i32;
                 }
-            }
-            for screen in tmp.iter_mut().enumerate() {
-                let inner_screen = screen.1.screen.clone();
-                let mut inner_screen = inner_screen.lock().unwrap();
-                if inner_screen.is_tick_always() || screen.0 == len - 1 {
-                    inner_screen.tick(self.clone(), renderer.clone(), ui_container, delta);
-                }
+            } else {
+                let (width, height) =
+                    renderer.dimensions.get();
+                current.last_width = width as i32;
+                current.last_height = height as i32;
             }
         }
-        // Handle current
-        return self.screens.clone().read().unwrap()[len - 1]
-            .screen
-            .clone()
-            .lock()
-            .unwrap()
-            .ty()
-            != ScreenType::InGame;
+        let mut models = vec![];
+        for screen in tmp.iter_mut().enumerate() {
+            let inner_screen = screen.1.screen.clone();
+            let mut inner_screen = inner_screen.lock().unwrap();
+            if inner_screen.is_tick_always() || screen.0 == len - 1 {
+                inner_screen.tick(self.clone(), renderer.clone(), delta);
+                let mut screen_models = inner_screen.container().build_models();
+                models.append(&mut screen_models);
+            }
+        }
+        models
     }
 
     pub fn on_scroll(&self, x: f64, y: f64) {

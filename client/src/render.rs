@@ -1,8 +1,8 @@
 use std::borrow::Cow;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU64, Ordering};
 use flume::Sender;
-use wgpu::{BindGroupLayoutEntry, BindingType, RenderPass, RenderPipeline, Sampler, SamplerBindingType, ShaderSource, ShaderStages, Texture, TextureSampleType, TextureView, TextureViewDescriptor, TextureViewDimension};
+use wgpu::{BindGroupLayoutEntry, BindingType, Color, LoadOp, Operations, RenderPass, RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPipeline, Sampler, SamplerBindingType, ShaderSource, ShaderStages, Texture, TextureSampleType, TextureView, TextureViewDescriptor, TextureViewDimension};
 use wgpu_biolerless::{FragmentShaderState, ModuleSrc, PipelineBuilder, ShaderModuleSources, State, VertexShaderState, WindowSize};
 use winit::window::Window;
 use crate::atlas::{Atlas, AtlasAlloc};
@@ -20,11 +20,28 @@ impl Renderer {
         Self { tex_pipeline: Self::atlas_pipeline(&state), color_pipeline: Self::color_pipeline(&state), state, dimensions: Dimensions::new(width, height) }
     }
 
-    pub fn render(&mut self, models: Vec<Model>) {
+    pub fn render(&mut self, models: Vec<Model>, atlas: Arc<Atlas>/*atlases: Arc<Mutex<Vec<Arc<Atlas>>>>*/) {
         self.state
             .render(
-                |view, encoder, state| {
-
+                |view, mut encoder, state| {
+                    /*for atlas in atlases.lock().unwrap().iter() {
+                        atlas.update(&mut encoder);
+                    }*/
+                    atlas.update(&mut encoder);
+                    let attachments = [Some(RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: Operations {
+                            load: LoadOp::Clear(Color::BLACK),
+                            store: true,
+                        },
+                    })];
+                    let mut render_pass = state.create_render_pass(
+                        &mut encoder,
+                        &attachments,
+                        None,
+                    );
+                    // FIXME: render models
                     encoder
                 },
                 &TextureViewDescriptor::default(),

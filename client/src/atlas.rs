@@ -51,7 +51,7 @@ impl Atlas {
         }
     }
 
-    pub fn alloc(self: &Arc<Self>, path: String, size: (u32, u32), content: impl AsRef<[u8]>) -> Arc<AtlasAlloc> {
+    pub fn alloc(self: &Arc<Self>, path: String, size: (u32, u32), content: &[u8]) -> Arc<AtlasAlloc> {
         if size.0 >= (1 << 31) || size.1 >= (1 << 31) {
             panic!("The size passed was too big!");
         }
@@ -68,7 +68,7 @@ impl Atlas {
                 // else enqueue the write to happen once the atlas gets updated
                 if realloc {
                     self.write_queue.lock().unwrap().push(QueuedWrite {
-                        data: Arc::new(Box::new(content)),
+                        data: Arc::new(content.to_vec().into_boxed_slice()),
                         pos: (alloc.allocation.rectangle.min.x as u32, alloc.allocation.rectangle.min.y as u32),
                         size,
                     });
@@ -144,7 +144,7 @@ impl Atlas {
         }
     }
 
-    fn write_tex(&self, tex: &Texture, pos: (u32, u32), size: (u32, u32), content: &[u8]/*&impl AsRef<u8>*/) {
+    fn write_tex(&self, tex: &Texture, pos: (u32, u32), size: (u32, u32), content: &[u8]) {
         self.state.queue().write_texture(ImageCopyTexture {
             texture: tex,
             mip_level: 0,
@@ -190,7 +190,7 @@ impl Drop for AtlasAlloc {
 }
 
 struct QueuedWrite {
-    data: Arc<Box<dyn AsRef<[u8]>>>,
+    data: Arc<Box<[u8]>>,
     pos: (u32, u32),
     size: (u32, u32),
 }

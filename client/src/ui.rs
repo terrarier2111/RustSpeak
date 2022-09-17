@@ -5,62 +5,7 @@ use crate::atlas::UV;
 use crate::render::{ColorSource, Model, TexTriple, TexTy, Vertex};
 use crate::screen_sys::ScreenSystem;
 
-pub struct Button {
-    pub pos: (f32, f32),
-    pub width: f32,
-    pub height: f32,
-    pub coloring: Coloring<4>,
-    pub on_click: Box<dyn Fn(&mut Button, Arc<ScreenSystem>)>,
-}
-
-impl Component for Button {
-    fn build_model(&self) -> Model {
-        let vertices = [[0.0, 0.0], [1.0 * self.width, 0.0], [1.0 * self.width, 1.0 * self.height], [0.0, 1.0 * self.height]];
-        let vertices = match &self.coloring {
-            Coloring::Color(colors) => {
-                let mut ret = Vec::with_capacity(4);
-                for (i, pos) in vertices.into_iter().enumerate() {
-                    ret.push(Vertex::Color { pos, color: colors[i].into_array() });
-                }
-                ret
-            }
-            Coloring::Tex(tex) => {
-                let mut ret = Vec::with_capacity(4);
-                for pos in vertices {
-                    ret.push(Vertex::Atlas {
-                        pos,
-                        alpha: 1.0, // FIXME: make this actually parameterized!
-                        uv: match &tex.ty {
-                            TexTy::Atlas(atlas) => atlas.uv().into_tuple(),
-                        },
-                    });
-                }
-                ret
-            }
-        };
-        Model {
-            vertices,
-            color_src: match &self.coloring {
-                Coloring::Color(_) => ColorSource::PerVert,
-                Coloring::Tex(tex) => {
-                    match &tex.ty {
-                        TexTy::Atlas(atlas) => ColorSource::Atlas(atlas.atlas().clone()),
-                    }
-                },
-            }
-        }
-    }
-
-    fn pos(&self) -> (f32, f32) {
-        self.pos
-    }
-
-    fn dims(&self) -> (f32, f32) {
-        (self.width, self.height)
-    }
-}
-
-pub trait Component {
+pub trait Component: Send + Sync {
     fn build_model(&self) -> Model;
 
     // fn is_inbounds(&self, pos: (f32, f32)) -> bool; // FIXME: is this one better?
@@ -68,6 +13,18 @@ pub trait Component {
     fn pos(&self) -> (f32, f32);
 
     fn dims(&self) -> (f32, f32);
+
+    fn on_click(&mut self, screen_sys: &Arc<ScreenSystem>);
+
+    fn on_scroll(&mut self, screen_sys: &Arc<ScreenSystem>);
+
+    fn on_hover(&mut self, screen_sys: &Arc<ScreenSystem>, mode: HoverMode);
+}
+
+#[derive(Copy, Clone)]
+pub enum HoverMode {
+    Enter,
+    Exit,
 }
 
 pub struct UIComponent {
@@ -143,15 +100,118 @@ pub struct Container {
 }
 
 impl Container {
+    
+    pub fn new() -> Self {
+        Self {
+            components: Default::default(),
+        }
+    }
 
     pub fn add(self: &Arc<Self>, component: Arc<RwLock<Box<dyn Component>>>) {
+        let model = component.read().unwrap().build_model();
         self.components.write().unwrap().push(UIComponent {
             inner: Arc::new(InnerUIComponent {
-                precomputed_model: Mutex::new(component.read().unwrap().build_model()),
                 inner: component,
+                precomputed_model: Mutex::new(model),
                 dirty: AtomicBool::new(false),
             })
         });
     }
 
+    pub fn build_models(&self) -> Vec<Model> {
+        let mut models = vec![];
+        for component in self.components.read().unwrap().iter() {
+            models.push(component.build_model());
+        }
+        models
+    }
+
+}
+
+pub struct Button {
+    pub inner_box: ColorBox,
+    pub on_click: Arc<Box<dyn Fn(&mut Button, &Arc<ScreenSystem>) + Send + Sync>>,
+}
+
+impl Component for Button {
+    fn build_model(&self) -> Model {
+        self.inner_box.build_model()
+    }
+
+    fn pos(&self) -> (f32, f32) {
+        self.inner_box.pos()
+    }
+
+    fn dims(&self) -> (f32, f32) {
+        self.inner_box.dims()
+    }
+
+    fn on_click(&mut self, screen_sys: &Arc<ScreenSystem>) {
+        let func = self.on_click.clone();
+        func(self, screen_sys);
+    }
+
+    fn on_scroll(&mut self, _screen_sys: &Arc<ScreenSystem>) {}
+
+    fn on_hover(&mut self, _screen_sys: &Arc<ScreenSystem>, _mode: HoverMode) {}
+}
+
+pub struct ColorBox {
+    pub pos: (f32, f32),
+    pub width: f32,
+    pub height: f32,
+    pub coloring: Coloring<4>,
+}
+
+impl Component for ColorBox {
+    fn build_model(&self) -> Model {
+        let vertices = [[0.0, 0.0], [1.0 * self.width, 0.0], [1.0 * self.width, 1.0 * self.height], [0.0, 1.0 * self.height]];
+        let vertices = match &self.coloring {
+            Coloring::Color(colors) => {
+                let mut ret = Vec::with_capacity(4);
+                for (i, pos) in vertices.into_iter().enumerate() {
+                    ret.push(Vertex::Color { pos, color: colors[i].into_array() });
+                }
+                ret
+            }
+            Coloring::Tex(tex) => {
+                let mut ret = Vec::with_capacity(4);
+                for pos in vertices {
+                    ret.push(Vertex::Atlas {
+                        pos,
+                        alpha: 1.0, // FIXME: make this actually parameterized!
+                        uv: match &tex.ty {
+                            TexTy::Atlas(atlas) => atlas.uv().into_tuple(),
+                        },
+                    });
+                }
+                ret
+            }
+        };
+        Model {
+            vertices,
+            color_src: match &self.coloring {
+                Coloring::Color(_) => ColorSource::PerVert,
+                Coloring::Tex(tex) => {
+                    match &tex.ty {
+                        TexTy::Atlas(atlas) => ColorSource::Atlas(atlas.atlas().clone()),
+                    }
+                },
+            }
+        }
+    }
+
+    fn pos(&self) -> (f32, f32) {
+        self.pos
+    }
+
+    fn dims(&self) -> (f32, f32) {
+        (self.width, self.height)
+    }
+
+    fn on_click(&mut self, _screen_sys: &Arc<ScreenSystem>) {}
+
+    fn on_scroll(&mut self, _screen_sys: &Arc<ScreenSystem>) {}
+
+    fn on_hover(&mut self, _screen_sys: &Arc<ScreenSystem>, _mode: HoverMode) {}
 }
