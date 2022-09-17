@@ -22,27 +22,37 @@ impl ServerList {
 impl Screen for ServerList {
     fn on_active(&mut self, screen_sys: Arc<ScreenSystem>, renderer: Arc<Renderer>) {
         self.container.add(Arc::new(RwLock::new(Box::new(ColorBox {
-            pos: (0.0, 0.0),
-            width: 0.0,
-            height: 0.0,
+            pos: (0.75, 0.75),
+            width: 0.5,
+            height: 0.5,
             coloring: Coloring::Color([Color {
-                r: 0.0,
+                r: 1.0,
+                g: 1.0,
+                b: 0.0,
+                a: 1.0,
+            }, Color {
+                r: 1.0,
                 g: 0.0,
                 b: 0.0,
                 a: 1.0,
             }, Color {
-                r: 0.0,
+                r: 1.0,
                 g: 0.0,
+                b: 1.0,
+                a: 1.0,
+            }, Color {
+                r: 0.0,
+                g: 1.0,
                 b: 0.0,
                 a: 1.0,
             }, Color {
                 r: 0.0,
-                g: 0.0,
+                g: 1.0,
                 b: 0.0,
                 a: 1.0,
             }, Color {
                 r: 0.0,
-                g: 0.0,
+                g: 1.0,
                 b: 0.0,
                 a: 1.0,
             },]),
@@ -50,11 +60,10 @@ impl Screen for ServerList {
     }
 
     fn on_deactive(&mut self, screen_sys: Arc<ScreenSystem>, renderer: Arc<Renderer>) {
-        todo!()
+
     }
 
     fn tick(&mut self, screen_sys: Arc<ScreenSystem>, renderer: Arc<Renderer>, delta: f64) {
-        todo!()
     }
 
     fn container(&self) -> &Arc<Container> {

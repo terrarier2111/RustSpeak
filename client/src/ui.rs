@@ -160,22 +160,23 @@ pub struct ColorBox {
     pub pos: (f32, f32),
     pub width: f32,
     pub height: f32,
-    pub coloring: Coloring<4>,
+    pub coloring: Coloring<6>,
 }
 
 impl Component for ColorBox {
     fn build_model(&self) -> Model {
-        let vertices = [[0.0, 0.0], [1.0 * self.width, 0.0], [1.0 * self.width, 1.0 * self.height], [0.0, 1.0 * self.height]];
+        let vertices = [[0.0, 0.0], [1.0 * self.width, 0.0], [1.0 * self.width, 1.0 * self.height],
+        [0.0, 0.0], [0.0, 1.0 * self.height], [1.0 * self.width, 1.0 * self.height]];
         let vertices = match &self.coloring {
             Coloring::Color(colors) => {
-                let mut ret = Vec::with_capacity(4);
+                let mut ret = Vec::with_capacity(6);
                 for (i, pos) in vertices.into_iter().enumerate() {
                     ret.push(Vertex::Color { pos, color: colors[i].into_array() });
                 }
                 ret
             }
             Coloring::Tex(tex) => {
-                let mut ret = Vec::with_capacity(4);
+                let mut ret = Vec::with_capacity(6);
                 for pos in vertices {
                     ret.push(Vertex::Atlas {
                         pos,

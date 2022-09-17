@@ -11,10 +11,12 @@ use std::net::SocketAddr;
 use std::{fs, io, thread};
 use std::mem::transmute;
 use std::sync::Arc;
+use wgpu::TextureFormat;
 use wgpu_biolerless::{StateBuilder, WindowSize};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoopBuilder};
 use winit::window::{Window, WindowBuilder};
+use crate::atlas::Atlas;
 use crate::render::Renderer;
 use crate::screen::server_list::ServerList;
 use crate::screen_sys::ScreenSystem;
@@ -45,8 +47,9 @@ fn main() -> anyhow::Result<()> {
         .with_title("RustSpeak")
         .build(&event_loop)
         .unwrap();
-    let state = pollster::block_on(StateBuilder::new().window(&window).build())?;
-    let renderer = Arc::new(Renderer::new(state, &window));
+    let state = Arc::new(pollster::block_on(StateBuilder::new().window(&window).build())?);
+    let atlas = Arc::new(Atlas::new(state.clone(), (1024, 1024), TextureFormat::Rgba8Uint));
+    let renderer = Arc::new(Renderer::new(state.clone(), &window));
     let screen_sys = Arc::new(ScreenSystem::new());
     screen_sys.push_screen(Box::new(ServerList::new()));
 
@@ -102,7 +105,7 @@ fn main() -> anyhow::Result<()> {
         Event::RedrawRequested(_) => {
             // FIXME: perform redraw
             let models = screen_sys.tick(0.0, &renderer, &window);
-
+            renderer.render(models, atlas.clone())
         }
         Event::RedrawEventsCleared => {}
         Event::LoopDestroyed => {}
