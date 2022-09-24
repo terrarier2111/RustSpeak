@@ -63,15 +63,13 @@ pub enum ClientPacket {
 
 impl ClientPacket {
     pub fn encode(&self) -> anyhow::Result<BytesMut> {
-        let mut buf = BytesMut::new();
-        buf.resize(8, 0);
-        // unsafe { buf.set_len(8); }
-        buf.advance(8); // FIXME: is a u64 actually desirable?
-        self.write(&mut buf)?;
-        let len = (buf.len() - 8).to_le();
-        // SAFETY: this is safe because we reserved 8 bytes at the beginning of the buffer allocation
-        unsafe { buf.as_mut_ptr().cast::<u64>().write(len as u64) };
-        Ok(buf)
+        let mut tmp_buf = BytesMut::new();
+        self.write(&mut tmp_buf)?;
+        let mut result_buf = BytesMut::with_capacity(8 + tmp_buf.len());
+        result_buf.put_u64_le(tmp_buf.len() as u64);
+        result_buf.put(tmp_buf);
+
+        Ok(result_buf)
     }
 }
 

@@ -1,17 +1,16 @@
-use std::borrow::Cow;
-use std::io::Read;
-use sled::{Db, IVec};
-use uuid::Uuid;
 use crate::{RWBytes, UserUuid};
 use bytemuck_derive::Zeroable;
 use bytes::{Bytes, BytesMut};
+use sled::{Db, IVec};
+use std::borrow::Cow;
+use std::io::Read;
+use uuid::Uuid;
 
 pub struct UserDb {
     db: Db,
 }
 
 impl UserDb {
-
     pub fn new(path: String) -> anyhow::Result<Self> {
         Ok(Self {
             db: sled::open(path)?,
@@ -21,9 +20,7 @@ impl UserDb {
     pub fn get(&self, uuid: &UserUuid) -> anyhow::Result<Option<DbUser>> {
         Ok(match self.db.get(uuid)? {
             None => None,
-            Some(x) => {
-                Some(DbUser::from_bytes(x)?)
-            }
+            Some(x) => Some(DbUser::from_bytes(x)?),
         })
     }
 
@@ -31,7 +28,6 @@ impl UserDb {
         self.db.insert(user.uuid.clone(), user.to_bytes()?)?;
         Ok(())
     }
-
 }
 
 pub struct DbUser {

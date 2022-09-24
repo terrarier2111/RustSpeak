@@ -1,7 +1,13 @@
 use crate::protocol::{ErrorEnumVariantNotFound, RWBytes, RWBytesMut, UserUuid};
+use bytemuck::Pod;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use futures::AsyncWriteExt;
+use openssl::hash::MessageDigest;
+use openssl::pkey::{PKey, PKeyRef, Public};
+use openssl::rsa::{Padding, Rsa};
+use openssl::sign::Verifier;
 use ordinalizer::Ordinal;
+use ruint::aliases::U256;
 use serde_derive::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -13,12 +19,6 @@ use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use bytemuck::Pod;
-use openssl::hash::MessageDigest;
-use openssl::pkey::{PKey, PKeyRef, Public};
-use openssl::rsa::{Padding, Rsa};
-use openssl::sign::Verifier;
-use ruint::aliases::U256;
 use uuid::Uuid;
 
 const PRIVATE_KEY_LEN_BITS: u32 = 4096;
@@ -75,14 +75,13 @@ impl ClientPacket {
 
 impl ServerPacket<'_> {
     pub fn encode(&self) -> anyhow::Result<BytesMut> {
-        let mut buf = BytesMut::new();
-        buf.resize(8, 0);
-        buf.advance(8); // FIXME: is a u64 actually desirable?
-        self.write(&mut buf)?;
-        let len = (buf.len() - 8).to_le();
-        // SAFETY: this is safe because we reserved 8 bytes at the beginning of the buffer allocation
-        unsafe { buf.as_mut_ptr().cast::<u64>().write(len as u64) };
-        Ok(buf)
+        let mut tmp_buf = BytesMut::new();
+        self.write(&mut tmp_buf)?;
+        let mut result_buf = BytesMut::with_capacity(8 + tmp_buf.len());
+        result_buf.put_u64_le(tmp_buf.len() as u64);
+        result_buf.put(tmp_buf);
+
+        Ok(result_buf)
     }
 }
 
@@ -96,7 +95,9 @@ impl RWBytes for ServerPacket<'_> {
             0 => Ok(Self::AuthResponse(AuthResponse::read(src, client_key)?)),
             1 => Ok(Self::ChannelUpdate(ChannelUpdate::read(src, client_key)?)),
             2 => Ok(Self::ClientConnected(RemoteProfile::read(src, client_key)?)),
-            3 => Ok(Self::ClientDisconnected(RemoteProfile::read(src, client_key)?)),
+            3 => Ok(Self::ClientDisconnected(RemoteProfile::read(
+                src, client_key,
+            )?)),
             4 => {
                 let client = UserUuid::read(src, client_key)?;
                 let update = ClientUpdateServerGroups::read(src, client_key)?;
@@ -150,14 +151,15 @@ impl RWBytes for ClientPacket {
         match id {
             0 => {
                 let protocol_version = u64::read(src, client_key)?;
-                println!("got ver!");
+                println!("got ver: {protocol_version}");
                 let pub_key = Vec::<u8>::read(src, client_key)?;
-                println!("got key");
+                println!("got key: {:?}", pub_key);
                 let name = String::read(src, client_key)?;
-                println!("got name");
+                println!("got name: {}", name);
                 let security_proofs = Vec::<U256>::read(src, client_key)?;
-                println!("got proofs!");
+                println!("got proofs: {:?}", security_proofs);
                 let signed_data = Vec::<u8>::read(src, client_key)?;
+                println!("got signed data: {:?}", signed_data);
                 Ok(Self::AuthRequest {
                     protocol_version,
                     pub_key,
@@ -228,19 +230,31 @@ impl<T: RWBytes + Pod> RWBytes for Encrypted<T> {
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
         // SAFETY: This is safe because all bit patterns are valid for u8
-        let mut buf = unsafe { Box::new_zeroed_slice(PRIVATE_KEY_LEN_BITS.div_ceil(8) as usize).assume_init() };
-        self.pub_key.public_encrypt(bytemuck::bytes_of(&self.data), &mut buf, Padding::PKCS1_OAEP)?;
+        let mut buf = unsafe {
+            Box::new_zeroed_slice(PRIVATE_KEY_LEN_BITS.div_ceil(8) as usize).assume_init()
+        };
+        self.pub_key.public_encrypt(
+            bytemuck::bytes_of(&self.data),
+            &mut buf,
+            Padding::PKCS1_OAEP,
+        )?;
         buf.into_vec().write(dst)?; // FIXME: optimize writing u8 arrays to the network
         Ok(())
     }
 }
 
-pub(crate) struct Signed<T: RWBytes> where T::Ty: Pod {
+pub(crate) struct Signed<T: RWBytes>
+where
+    T::Ty: Pod,
+{
     pub data: T,
     pub pub_key: PKeyRef<Public>,
 }
 
-impl<T: RWBytes> RWBytes for Signed<T> where T::Ty: Pod {
+impl<T: RWBytes> RWBytes for Signed<T>
+where
+    T::Ty: Pod,
+{
     type Ty = T::Ty;
 
     fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {

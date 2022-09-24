@@ -1,8 +1,8 @@
 use colored::Color;
-use std::fmt::{Debug, Display};
-use std::io::{Error, ErrorKind, Write};
 use openssl::pkey::{Private, Public};
 use openssl::rsa::Rsa;
+use std::fmt::{Debug, Display};
+use std::io::{Error, ErrorKind, Write};
 
 pub const LIGHT_GRAY: Color = Color::TrueColor {
     r: 153,

@@ -1,5 +1,7 @@
 #![feature(new_uninit)]
 
+extern crate core;
+
 use crate::atlas::Atlas;
 use crate::config::Config;
 use crate::network::{AddressMode, NetworkClient};
@@ -13,13 +15,14 @@ use crate::user_db::ProfileDb;
 use crate::utils::current_time_millis;
 use arc_swap::{ArcSwap, ArcSwapOption};
 use bytes::BytesMut;
+use quinn::ClientConfig;
+use ruint::aliases::U256;
 use std::fs::File;
 use std::mem::transmute;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use std::time::Duration;
 use std::{fs, io, thread};
-use quinn::ClientConfig;
 use wgpu::TextureFormat;
 use wgpu_biolerless::{StateBuilder, WindowSize};
 use winit::event::{Event, WindowEvent};
@@ -74,43 +77,6 @@ async fn main() -> anyhow::Result<()> {
         screen_sys: screen_sys.clone(),
         atlas: atlas.clone(),
     });
-
-    /*thread::spawn(move || {
-        thread::sleep(Duration::from_millis(1000));
-        let client = client.clone();
-        inner_test(client);
-        #[tokio::main]
-        async fn inner_test(client: Arc<Client>) {
-            // let client = start_connect_to();
-            client.connection.store(Some(Arc::new(
-                NetworkClient::new(
-                    AddressMode::V4,
-                    None,
-                    SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 20354)),
-                    "local_test_srv",
-                ).await
-                .unwrap(),
-            )));
-            let auth_packet = ClientPacket::AuthRequest {
-                protocol_version: PROTOCOL_VERSION,
-                pub_key: vec![],
-                name: "test!".to_string(),
-                security_proofs: vec![],
-                signed_data: vec![],
-            };
-            let mut buf = auth_packet.encode().unwrap();
-            client
-                .connection
-                .load()
-                .as_ref()
-                .unwrap()
-                .send_reliable(&mut buf)
-                .await
-                .unwrap();
-            loop {}
-        }
-    });*/
-    thread::sleep(Duration::from_millis(1000));
     // let client = start_connect_to();
     client.connection.store(Some(Arc::new(
         NetworkClient::new(
@@ -118,15 +84,15 @@ async fn main() -> anyhow::Result<()> {
             certificate::insecure_local::config(),
             SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 20354)),
             "local_test_srv",
-        ).await
-            .unwrap(),
+        )
+        .await
+        .unwrap(),
     )));
-    // client.connection.load().as_ref().unwrap().close_with(4, &[3, 7, 4]).await?;
     let auth_packet = ClientPacket::AuthRequest {
         protocol_version: PROTOCOL_VERSION,
         pub_key: vec![],
-        name: "test!".to_string(),
-        security_proofs: vec![],
+        name: "testeee".to_string(),
+        security_proofs: vec![/*U256::from(1234)*/],
         signed_data: vec![],
     };
     let mut buf = auth_packet.encode().unwrap();
@@ -138,13 +104,6 @@ async fn main() -> anyhow::Result<()> {
         .send_reliable(&mut buf)
         .await
         .unwrap();
-    client
-        .connection
-        .load()
-        .as_ref()
-        .unwrap().flush().await.unwrap();
-    // loop {}
-    // thread::sleep(Duration::from_millis(10000));
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::NewEvents(_) => {}
@@ -226,9 +185,14 @@ pub async fn start_connect_to(
     server_name: &str,
     profile: &Profile,
 ) -> anyhow::Result<NetworkClient> {
-    let client = NetworkClient::new(AddressMode::V4, certificate::insecure_local::config(), server_addr, server_name)
-        .await
-        .unwrap();
+    let client = NetworkClient::new(
+        AddressMode::V4,
+        certificate::insecure_local::config(),
+        server_addr,
+        server_name,
+    )
+    .await
+    .unwrap();
     let ctm = current_time_millis();
     let mut data = vec![];
     data.extend_from_slice(&ctm.as_secs().to_le_bytes());

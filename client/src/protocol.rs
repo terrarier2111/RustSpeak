@@ -16,6 +16,16 @@ pub const PROTOCOL_VERSION: u64 = 1;
 #[repr(transparent)]
 pub struct UserUuid(U256);
 
+impl UserUuid {
+    pub fn from_u256(raw: U256) -> Self {
+        Self(raw)
+    }
+
+    pub fn into_u256(self) -> U256 {
+        self.0
+    }
+}
+
 pub(crate) trait RWBytes /*: Sized*/ {
     type Ty;
 
@@ -176,8 +186,9 @@ impl RWBytes for String {
     type Ty = Self;
 
     fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
-        let len = src.get_u64_le();
-        let result = src.slice((src.len() - src.remaining())..(len as usize));
+        let len = src.get_u64_le() as usize;
+        let result = src.slice((src.len() - src.remaining())..len);
+        src.advance(len);
         Ok(String::from(String::from_utf8_lossy(result.deref())))
     }
 
@@ -205,16 +216,20 @@ impl RWBytes for UserUuid {
     type Ty = Self;
 
     fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
-        let uuid = [src.get_u128_le(), src.get_u128_le()];
-        // SAFETY: This is safe as u8 allows all possible bit patterns
-        Ok(unsafe { transmute(uuid) })
+        const LEN: usize = 32;
+        let result = src.slice((src.len() - src.remaining())..LEN);
+        src.advance(LEN);
+        Ok(UserUuid::from_u256(
+            U256::try_from_le_slice(result.as_ref()).unwrap(),
+        ))
     }
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
         // SAFETY: This is safe as u128 allows all possible bit patterns
-        let data: [u128; 2] = unsafe { transmute(self.clone()) };
-        dst.put_u128_le(data[0]);
-        dst.put_u128_le(data[1]);
+        let data: [u128; 2] = unsafe { transmute(self.into_u256().to_le_bytes::<32>()) };
+        // NOTE: we are deliberately not using the "_le" extension here because we make the data LE in the line above
+        dst.put_u128(data[0]);
+        dst.put_u128(data[1]);
         Ok(())
     }
 }
@@ -257,8 +272,9 @@ impl<'a> RWBytes for Cow<'a, str> {
     type Ty = Self;
 
     fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
-        let len = src.get_u64_le();
-        let result = src.slice((src.len() - src.remaining())..(len as usize));
+        let len = src.get_u64_le() as usize;
+        let result = src.slice((src.len() - src.remaining())..len);
+        src.advance(len);
         Ok(Cow::Owned(String::from_utf8(result.to_vec())?))
     }
 

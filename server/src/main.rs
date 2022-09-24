@@ -12,13 +12,16 @@ use crate::packet::{
     AuthFailure, AuthResponse, Channel, ChannelCreatePerms, ChannelPerms, ClientPacket,
     RemoteProfile, ServerGroup, ServerGroupPerms, ServerPacket,
 };
-use crate::protocol::{RWBytes, PROTOCOL_VERSION, UserUuid};
+use crate::protocol::{RWBytes, UserUuid, PROTOCOL_VERSION};
 use crate::server_group_db::{ServerGroupDb, ServerGroupEntry};
+use crate::user_db::UserDb;
 use crate::utils::LIGHT_GRAY;
 use arc_swap::ArcSwap;
 use bytes::Buf;
 use colored::{Color, ColoredString, Colorize};
 use dashmap::DashMap;
+use openssl::sha::sha256;
+use ruint::aliases::U256;
 use sled::Db;
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -31,10 +34,7 @@ use std::ops::Deref;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, RwLock};
 use std::{fs, thread};
-use openssl::sha::sha256;
-use ruint::aliases::U256;
 use uuid::Uuid;
-use crate::user_db::UserDb;
 
 mod certificate;
 mod channel_db;
@@ -45,8 +45,8 @@ mod packet;
 mod protocol;
 mod security_level;
 mod server_group_db;
-mod utils;
 mod user_db;
+mod utils;
 
 const RELATIVE_USER_DB_PATH: &str = "user_db";
 const RELATIVE_CHANNEL_DB_PATH: &str = "channel_db.json";
@@ -63,7 +63,14 @@ async fn main() -> anyhow::Result<()> {
     println!("Starting up server...");
     let data_dir = dirs::config_dir().unwrap().join("RustSpeakServer/");
     fs::create_dir_all(data_dir.clone())?;
-    let user_db = UserDb::new(data_dir.clone().join(RELATIVE_USER_DB_PATH).to_str().unwrap().to_string())?;
+    let user_db = UserDb::new(
+        data_dir
+            .clone()
+            .join(RELATIVE_USER_DB_PATH)
+            .to_str()
+            .unwrap()
+            .to_string(),
+    )?;
     let channel_db = ChannelDb::new(
         data_dir
             .clone()
@@ -245,7 +252,10 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    println!("Server started up successfully, waiting for inbound connections on port {}...", server.config.port);
+    println!(
+        "Server started up successfully, waiting for inbound connections on port {}...",
+        server.config.port
+    );
     start_server(server, |err| {
         println!(
             "An error occurred while establishing a client connection: {}",
@@ -260,7 +270,7 @@ fn setup_network_server(config: &Config) -> anyhow::Result<NetworkServer> {
     let (local_cert, private_key) = certificate::insecure_local::generate_self_signed_cert()?;
     NetworkServer::new(
         config.port,
-        /*1000*/u32::MAX,
+        /*1000*/ u32::MAX,
         config.address_mode,
         certificate::create_config(local_cert, private_key)?,
     )
@@ -313,14 +323,18 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server<'_>>, error_handl
                                     .connection
                                     .remote_address()
                                     .ip(),
-                                uuid: UserUuid::from_u256(U256::from_le_bytes(sha256(&signed_data))),
+                                uuid: UserUuid::from_u256(U256::from_le_bytes(sha256(
+                                    &signed_data,
+                                ))),
                                 recv_proto_ver: protocol_version,
                             }));
                         }
                         let uuid = UserUuid::from_u256(U256::from_le_bytes(sha256(&pub_key)));
                         let security_proof_result = if let Some(level) =
-                            security_level::verified_security_level(uuid.as_u256(), security_proofs)
-                        {
+                            security_level::verified_security_level(
+                                uuid.into_u256(),
+                                security_proofs,
+                            ) {
                             level
                         } else {
                             let failure = ServerPacket::AuthResponse(AuthResponse::Failure(
@@ -350,7 +364,6 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server<'_>>, error_handl
                         let auth = ServerPacket::AuthResponse(AuthResponse::Success {
                             server_groups: server_groups.cloned().collect::<Vec<_>>(), // FIXME: try getting rid of this clone!
                             own_groups: vec![],
-                            // channels: RefCell::new(Box::new(channels)),
                             channels,
                         });
                         let encoded = auth.encode()?;

@@ -43,7 +43,6 @@ impl NetworkServer {
     }
 
     pub async fn accept_connections<
-        // I: Fn(&(SendStream, RecvStream)) -> anyhow::Result<()>,
         F: Fn(Arc<ClientConnection>) -> B,
         B: Future<Output = anyhow::Result<()>>,
         E: Fn(anyhow::Error),
@@ -65,13 +64,13 @@ impl NetworkServer {
                 match connection.bi_streams.next().await {
                     None => {
                         unreachable!()
-                    },
+                    }
                     Some(stream) => match stream {
                         Ok(stream) => stream,
                         Err(err) => {
                             error_handler(anyhow::Error::from(err));
                             continue 'server;
-                        },
+                        }
                     },
                 }
             };
@@ -100,7 +99,6 @@ pub struct ClientConnection {
 
 impl ClientConnection {
     async fn new(conn: NewConnection, bi_conn: (SendStream, RecvStream)) -> anyhow::Result<Self> {
-        // let (send, recv) = conn.connection.open_bi().await?;
         let (send, recv) = bi_conn;
         Ok(Self {
             conn: RwLock::new(conn),
@@ -158,22 +156,4 @@ impl AddressMode {
             AddressMode::V6 => SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), port),
         }
     }
-}
-
-pub struct OpeningHandshakeStreamError;
-
-impl Debug for OpeningHandshakeStreamError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str("an error occurred opening the handshake stream")
-    }
-}
-
-impl Display for OpeningHandshakeStreamError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str("an error occurred opening the handshake stream")
-    }
-}
-
-impl Error for OpeningHandshakeStreamError {
-
 }

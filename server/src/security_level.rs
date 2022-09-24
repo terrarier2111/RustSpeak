@@ -10,10 +10,10 @@
 
 // use rand::{random, Rng};
 use ripemd::{Digest, Ripemd160, Ripemd320};
+use ruint::aliases::U256;
 use sha2::Sha256;
 use std::borrow::Cow;
 use std::mem::transmute;
-use ruint::aliases::U256;
 
 // this is a hashcash implementation based on the ripemd-160 hashing algorithm
 
@@ -53,6 +53,10 @@ fn security_level(hash: &[u8]) -> u8 {
 }*/
 
 pub fn verified_security_level(uuid: U256, hashes: Vec<U256>) -> Option<u8> {
+    if hashes.is_empty() {
+        return Some(0);
+    }
+
     let initial_hash = hash_sha(uuid) ^ hashes[0];
 
     if security_level_num(initial_hash) != 1 {
