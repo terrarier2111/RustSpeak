@@ -1,12 +1,12 @@
+use crate::protocol::UserUuid;
 use openssl::hash::MessageDigest;
 use openssl::pkey::{PKey, Private, Public};
+use openssl::rsa::Rsa;
 use openssl::sha::sha256;
 use openssl::sign::Signer;
 use serde_derive::{Deserialize, Serialize};
 use std::mem::transmute;
-use openssl::rsa::Rsa;
 use uuid::Uuid;
-use crate::protocol::UserUuid;
 
 const PRIVATE_KEY_LEN_BITS: u32 = 4096;
 
@@ -28,11 +28,7 @@ impl Profile {
         })
     }
 
-    pub fn from_existing(
-        name: String,
-        private_key: Vec<u8>,
-        security_proofs: Vec<u128>,
-    ) -> Self {
+    pub fn from_existing(name: String, private_key: Vec<u8>, security_proofs: Vec<u128>) -> Self {
         Self {
             name,
             private_key,
@@ -41,7 +37,10 @@ impl Profile {
     }
 
     pub fn uuid(&self) -> UserUuid {
-        let pub_key = Rsa::private_key_from_der(&self.private_key).unwrap().public_key_to_der().unwrap();
+        let pub_key = Rsa::private_key_from_der(&self.private_key)
+            .unwrap()
+            .public_key_to_der()
+            .unwrap();
         let pub_hash = sha256(&pub_key);
         // SAFETY: This is safe because UserUuid can represent any 16 byte value
         unsafe { transmute(pub_hash) }

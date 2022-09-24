@@ -1,4 +1,6 @@
-mod secure_authority {
+use quinn::ClientConfig;
+
+pub(crate) mod secure_authority {
     use quinn::ClientConfig;
 
     pub fn config() -> ClientConfig {
@@ -7,7 +9,7 @@ mod secure_authority {
 }
 
 // FIXME: we should probably remove this once we are out of the testing stage
-mod insecure_local {
+pub(crate) mod insecure_local {
     use quinn::ClientConfig;
     use rustls::client::{ServerCertVerified, ServerCertVerifier};
     use rustls::{Certificate, ServerName};
@@ -37,7 +39,7 @@ mod insecure_local {
             _end_entity: &Certificate,
             _intermediates: &[Certificate],
             _server_name: &ServerName,
-            _scts: &mut dyn Iterator<Item = &[u8]>,
+            _scts: &mut dyn Iterator<Item=&[u8]>,
             _ocsp_response: &[u8],
             _now: std::time::SystemTime,
         ) -> Result<ServerCertVerified, rustls::Error> {

@@ -8,6 +8,8 @@ use quinn::{
 };
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::error::Error;
+use std::fmt::{Debug, Display, Formatter, Write};
 use std::future::Future;
 use std::mem::MaybeUninit;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -41,6 +43,7 @@ impl NetworkServer {
     }
 
     pub async fn accept_connections<
+        // I: Fn(&(SendStream, RecvStream)) -> anyhow::Result<()>,
         F: Fn(Arc<ClientConnection>) -> B,
         B: Future<Output = anyhow::Result<()>>,
         E: Fn(anyhow::Error),
@@ -58,8 +61,22 @@ impl NetworkServer {
                     continue 'server;
                 }
             };
+            let initial_stream = {
+                match connection.bi_streams.next().await {
+                    None => {
+                        unreachable!()
+                    },
+                    Some(stream) => match stream {
+                        Ok(stream) => stream,
+                        Err(err) => {
+                            error_handler(anyhow::Error::from(err));
+                            continue 'server;
+                        },
+                    },
+                }
+            };
             let id = connection.connection.stable_id();
-            let client_conn = match ClientConnection::new(connection).await {
+            let client_conn = match ClientConnection::new(connection, initial_stream).await {
                 Ok(val) => Arc::new(val),
                 Err(err) => {
                     error_handler(anyhow::Error::from(err));
@@ -82,8 +99,9 @@ pub struct ClientConnection {
 }
 
 impl ClientConnection {
-    async fn new(conn: NewConnection) -> anyhow::Result<Self> {
-        let (send, recv) = conn.connection.open_bi().await?;
+    async fn new(conn: NewConnection, bi_conn: (SendStream, RecvStream)) -> anyhow::Result<Self> {
+        // let (send, recv) = conn.connection.open_bi().await?;
+        let (send, recv) = bi_conn;
         Ok(Self {
             conn: RwLock::new(conn),
             bi_conn: (Mutex::new(send), Mutex::new(recv)),
@@ -113,12 +131,16 @@ impl ClientConnection {
     }
 
     pub async fn close(&self) -> anyhow::Result<()> {
+        self.close_with(0, &[]).await
+    }
+
+    pub async fn close_with(&self, err_code: u32, reason: &[u8]) -> anyhow::Result<()> {
         self.bi_conn.0.lock().unwrap().finish().await?;
         self.conn
             .write()
             .unwrap()
             .connection
-            .close(VarInt::from_u32(0), &[]);
+            .close(VarInt::from_u32(err_code), reason);
         Ok(())
     }
 }
@@ -136,4 +158,22 @@ impl AddressMode {
             AddressMode::V6 => SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), port),
         }
     }
+}
+
+pub struct OpeningHandshakeStreamError;
+
+impl Debug for OpeningHandshakeStreamError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("an error occurred opening the handshake stream")
+    }
+}
+
+impl Display for OpeningHandshakeStreamError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("an error occurred opening the handshake stream")
+    }
+}
+
+impl Error for OpeningHandshakeStreamError {
+
 }

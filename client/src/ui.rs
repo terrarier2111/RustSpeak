@@ -1,9 +1,9 @@
-use std::sync::{Arc, Mutex, RwLock};
-use std::sync::atomic::{AtomicBool, Ordering};
-use wgpu::{Sampler, Texture, TextureView};
 use crate::atlas::UV;
 use crate::render::{ColorSource, Model, TexTriple, TexTy, Vertex};
 use crate::screen_sys::ScreenSystem;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
+use wgpu::{Sampler, Texture, TextureView};
 
 pub trait Component: Send + Sync {
     fn build_model(&self) -> Model;
@@ -32,7 +32,6 @@ pub struct UIComponent {
 }
 
 impl UIComponent {
-
     pub fn build_model(&self) -> Model {
         self.inner.build_model()
     }
@@ -44,7 +43,6 @@ impl UIComponent {
         let bounds = (inner_pos.0 + dims.0, inner_pos.1 + dims.1);
         (pos.0 >= inner_pos.0 && pos.1 >= inner_pos.1) && (pos.0 <= bounds.0 && pos.1 <= bounds.1)
     }
-
 }
 
 pub struct InnerUIComponent {
@@ -78,11 +76,9 @@ pub struct Color {
 }
 
 impl Color {
-
     pub fn into_array(self) -> [f32; 4] {
         [self.r, self.g, self.b, self.a]
     }
-
 }
 
 pub struct Tex {
@@ -100,7 +96,6 @@ pub struct Container {
 }
 
 impl Container {
-    
     pub fn new() -> Self {
         Self {
             components: Default::default(),
@@ -114,7 +109,7 @@ impl Container {
                 inner: component,
                 precomputed_model: Mutex::new(model),
                 dirty: AtomicBool::new(false),
-            })
+            }),
         });
     }
 
@@ -125,7 +120,6 @@ impl Container {
         }
         models
     }
-
 }
 
 pub struct Button {
@@ -165,13 +159,29 @@ pub struct ColorBox {
 
 impl Component for ColorBox {
     fn build_model(&self) -> Model {
-        let vertices = [[0.0, 0.0], [1.0 * self.width, 0.0], [1.0 * self.width, 1.0 * self.height],
-        [0.0, 0.0], [0.0, 1.0 * self.height], [1.0 * self.width, 1.0 * self.height]];
+        let (x_off, y_off) = ((2.0 * self.pos.0), (2.0 * self.pos.1));
+        let vertices = [
+            [-1.0 + x_off, -1.0 + y_off],
+            [2.0 * self.width - 1.0 + x_off, -1.0 + y_off],
+            [
+                2.0 * self.width - 1.0 + x_off,
+                2.0 * self.height - 1.0 + y_off,
+            ],
+            [-1.0 + x_off, -1.0 + y_off],
+            [-1.0 + x_off, 2.0 * self.height - 1.0 + y_off],
+            [
+                2.0 * self.width - 1.0 + x_off,
+                2.0 * self.height - 1.0 + y_off,
+            ],
+        ];
         let vertices = match &self.coloring {
             Coloring::Color(colors) => {
                 let mut ret = Vec::with_capacity(6);
                 for (i, pos) in vertices.into_iter().enumerate() {
-                    ret.push(Vertex::Color { pos, color: colors[i].into_array() });
+                    ret.push(Vertex::Color {
+                        pos,
+                        color: colors[i].into_array(),
+                    });
                 }
                 ret
             }
@@ -193,12 +203,10 @@ impl Component for ColorBox {
             vertices,
             color_src: match &self.coloring {
                 Coloring::Color(_) => ColorSource::PerVert,
-                Coloring::Tex(tex) => {
-                    match &tex.ty {
-                        TexTy::Atlas(atlas) => ColorSource::Atlas(atlas.atlas().clone()),
-                    }
+                Coloring::Tex(tex) => match &tex.ty {
+                    TexTy::Atlas(atlas) => ColorSource::Atlas(atlas.atlas().clone()),
                 },
-            }
+            },
         }
     }
 

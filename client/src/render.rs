@@ -1,15 +1,25 @@
-use std::borrow::Cow;
-use std::mem::size_of;
-use std::process::abort;
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicU64, Ordering};
-use flume::Sender;
-use wgpu::{BindGroupLayoutEntry, BindingType, BlendState, BufferAddress, BufferUsages, Color, ColorTargetState, ColorWrites, LoadOp, Operations, RenderPass, RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPipeline, Sampler, SamplerBindingType, ShaderSource, ShaderStages, Texture, TextureSampleType, TextureView, TextureViewDescriptor, TextureViewDimension, VertexAttribute, VertexBufferLayout, VertexFormat, VertexStepMode};
-use wgpu_biolerless::{FragmentShaderState, ModuleSrc, PipelineBuilder, ShaderModuleSources, State, VertexShaderState, WindowSize};
-use winit::window::Window;
-use crate::atlas::{Atlas, AtlasAlloc};
+use crate::atlas::{Atlas, AtlasAlloc, AtlasId};
 use bytemuck_derive::Pod;
 use bytemuck_derive::Zeroable;
+use flume::Sender;
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::mem::size_of;
+use std::process::abort;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use wgpu::{
+    BindGroupLayoutEntry, BindingType, BlendState, BufferAddress, BufferUsages, Color,
+    ColorTargetState, ColorWrites, LoadOp, Operations, RenderPass, RenderPassColorAttachment,
+    RenderPassDepthStencilAttachment, RenderPipeline, Sampler, SamplerBindingType, ShaderSource,
+    ShaderStages, Texture, TextureSampleType, TextureView, TextureViewDescriptor,
+    TextureViewDimension, VertexAttribute, VertexBufferLayout, VertexFormat, VertexStepMode,
+};
+use wgpu_biolerless::{
+    FragmentShaderState, ModuleSrc, PipelineBuilder, ShaderModuleSources, State, VertexShaderState,
+    WindowSize,
+};
+use winit::window::Window;
 
 pub struct Renderer {
     pub state: Arc<State>,
@@ -21,10 +31,19 @@ pub struct Renderer {
 impl Renderer {
     pub fn new(state: Arc<State>, window: &Window) -> Self {
         let (width, height) = window.window_size();
-        Self { tex_pipeline: Self::atlas_pipeline(&state), color_pipeline: Self::color_pipeline(&state), state, dimensions: Dimensions::new(width, height) }
+        Self {
+            tex_pipeline: Self::atlas_pipeline(&state),
+            color_pipeline: Self::color_pipeline(&state),
+            state,
+            dimensions: Dimensions::new(width, height),
+        }
     }
 
-    pub fn render(&self, models: Vec<Model>, atlas: Arc<Atlas>/*atlases: Arc<Mutex<Vec<Arc<Atlas>>>>*/) {
+    pub fn render(
+        &self,
+        models: Vec<Model>,
+        atlas: Arc<Atlas>, /*atlases: Arc<Mutex<Vec<Arc<Atlas>>>>*/
+    ) {
         self.state
             .render(
                 |view, mut encoder, state| {
@@ -32,28 +51,37 @@ impl Renderer {
                         atlas.update(&mut encoder);
                     }*/
                     atlas.update(&mut encoder);
-                    let mut atlas_models = vec![];
+                    let mut atlas_models: HashMap<AtlasId, Vec<AtlasVertex>> = HashMap::new();
                     let mut color_models = vec![];
                     for model in models {
                         match &model.color_src {
                             ColorSource::PerVert => {
-                                color_models.extend(model.vertices.into_iter().map(|vert| match vert {
-                                    Vertex::Color { pos, color } => {
-                                        ColorVertex {
-                                            pos,
-                                            color,
-                                        }
+                                color_models.extend(model.vertices.into_iter().map(
+                                    |vert| match vert {
+                                        Vertex::Color { pos, color } => ColorVertex { pos, color },
+                                        Vertex::Atlas { .. } => abort(), // FIXME: is it really necessary to abort because of perf stuff?
                                     },
-                                    Vertex::Atlas { .. } => abort(), // FIXME: is it really necessary to abort because of perf stuff?
-                                }));
-                            },
-                            ColorSource::Atlas(_) => {
+                                ));
+                            }
+                            ColorSource::Atlas(atlas) => {
                                 // FIXME: make different atlases work!
-                                atlas_models.extend(model.vertices);
+                                let vertices = model.vertices.into_iter().map(|vert| match vert {
+                                    Vertex::Color { .. } => abort(),
+                                    Vertex::Atlas { pos, alpha, uv } => {
+                                        AtlasVertex { pos, alpha, uv }
+                                    }
+                                });
+                                if let Some(mut models) = atlas_models.get_mut(&atlas.id()) {
+                                    models.extend(vertices);
+                                } else {
+                                    atlas_models
+                                        .insert(atlas.id(), vertices.collect::<Vec<AtlasVertex>>());
+                                }
                             }
                         }
                     }
-                    let color_buffer = state.create_buffer(color_models.as_slice(), BufferUsages::VERTEX);
+                    let color_buffer =
+                        state.create_buffer(color_models.as_slice(), BufferUsages::VERTEX);
                     {
                         let attachments = [Some(RenderPassColorAttachment {
                             view: &view,
@@ -63,11 +91,8 @@ impl Renderer {
                                 store: true,
                             },
                         })];
-                        let mut render_pass = state.create_render_pass(
-                            &mut encoder,
-                            &attachments,
-                            None,
-                        );
+                        let mut render_pass =
+                            state.create_render_pass(&mut encoder, &attachments, None);
                         // let buffer = state.create_buffer(atlas_models.as_slice(), BufferUsages::VERTEX);
                         // render_pass.set_vertex_buffer(0, buffer.slice(..));
 
@@ -83,56 +108,68 @@ impl Renderer {
     }
 
     fn color_pipeline(state: &State) -> RenderPipeline {
-        PipelineBuilder::new().vertex(VertexShaderState {
-            entry_point: "main_vert",
-            buffers: &[
-                ColorVertex::desc(),
-            ],
-        }).fragment(FragmentShaderState {
-            entry_point: "main_frag",
-            targets: &[Some(ColorTargetState {
-                format: state.format(),
-                blend: Some(BlendState::REPLACE),
-                write_mask: ColorWrites::ALL,
-            })],
-        }).shader_src(ShaderModuleSources::Single(ModuleSrc::Source(ShaderSource::Wgsl(include_str!("ui_color.wgsl").into()))))
-            .layout(&state.create_pipeline_layout(&[], &[])).build(state)
+        PipelineBuilder::new()
+            .vertex(VertexShaderState {
+                entry_point: "main_vert",
+                buffers: &[ColorVertex::desc()],
+            })
+            .fragment(FragmentShaderState {
+                entry_point: "main_frag",
+                targets: &[Some(ColorTargetState {
+                    format: state.format(),
+                    blend: Some(BlendState::REPLACE),
+                    write_mask: ColorWrites::ALL,
+                })],
+            })
+            .shader_src(ShaderModuleSources::Single(ModuleSrc::Source(
+                ShaderSource::Wgsl(include_str!("ui_color.wgsl").into()),
+            )))
+            .layout(&state.create_pipeline_layout(&[], &[]))
+            .build(state)
     }
 
     fn atlas_pipeline(state: &State) -> RenderPipeline {
-        PipelineBuilder::new().vertex(VertexShaderState {
-            entry_point: "main_vert",
-            buffers: &[
-                AtlasVertex::desc(),
-            ],
-        }).fragment(FragmentShaderState {
-            entry_point: "main_frag",
-            targets: &[Some(ColorTargetState {
-                format: state.format(),
-                blend: Some(BlendState::REPLACE),
-                write_mask: ColorWrites::ALL,
-            })],
-        }).shader_src(ShaderModuleSources::Single(ModuleSrc::Source(ShaderSource::Wgsl(include_str!("ui_atlas.wgsl").into()))))
-            .layout(&state.create_pipeline_layout(&[&state.create_bind_group_layout(&[BindGroupLayoutEntry {
-                binding: 0,
-                visibility: ShaderStages::FRAGMENT,
-                ty: BindingType::Texture {
-                    multisampled: false,
-                    view_dimension: TextureViewDimension::D2,
-                    sample_type: TextureSampleType::Float { filterable: true },
-                },
-                count: None,
-            },
-                BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: ShaderStages::FRAGMENT,
-                    // This should match the filterable field of the
-                    // corresponding Texture entry above.
-                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
-                    count: None,
-                }, ])], &[])).build(state)
+        PipelineBuilder::new()
+            .vertex(VertexShaderState {
+                entry_point: "main_vert",
+                buffers: &[AtlasVertex::desc()],
+            })
+            .fragment(FragmentShaderState {
+                entry_point: "main_frag",
+                targets: &[Some(ColorTargetState {
+                    format: state.format(),
+                    blend: Some(BlendState::REPLACE),
+                    write_mask: ColorWrites::ALL,
+                })],
+            })
+            .shader_src(ShaderModuleSources::Single(ModuleSrc::Source(
+                ShaderSource::Wgsl(include_str!("ui_atlas.wgsl").into()),
+            )))
+            .layout(&state.create_pipeline_layout(
+                &[&state.create_bind_group_layout(&[
+                    BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: ShaderStages::FRAGMENT,
+                        ty: BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: TextureViewDimension::D2,
+                            sample_type: TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: ShaderStages::FRAGMENT,
+                        // This should match the filterable field of the
+                        // corresponding Texture entry above.
+                        ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ])],
+                &[],
+            ))
+            .build(state)
     }
-
 }
 
 #[derive(Clone)]
@@ -231,7 +268,6 @@ pub struct Dimensions {
 }
 
 impl Dimensions {
-
     pub fn new(width: u32, height: u32) -> Self {
         Self {
             inner: AtomicU64::new(width as u64 | ((height as u64) << 32)),
@@ -247,11 +283,10 @@ impl Dimensions {
         let val = width as u64 | ((height as u64) << 32);
         self.inner.store(val, Ordering::Release);
     }
-
 }
 
 pub trait Renderable {
-    fn render(&self, sender: Sender<Vec<Vertex>>/*, screen_dims: (u32, u32)*/);
+    fn render(&self, sender: Sender<Vec<Vertex>> /*, screen_dims: (u32, u32)*/);
 }
 
 pub struct TexTriple {

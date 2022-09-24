@@ -13,12 +13,13 @@ use ripemd::{Digest, Ripemd160, Ripemd320};
 use sha2::Sha256;
 use std::borrow::Cow;
 use std::mem::transmute;
+use ruint::aliases::U256;
 
 // this is a hashcash implementation based on the ripemd-160 hashing algorithm
 
-fn security_level_num(input: u128) -> u8 {
+fn security_level_num(input: U256) -> u8 {
     let mut hasher = Ripemd160::new();
-    hasher.update(input.to_le_bytes());
+    hasher.update(input.as_le_slice());
     let result = hasher.finalize();
     let hash = result.as_slice();
 
@@ -51,7 +52,7 @@ fn security_level(hash: &[u8]) -> u8 {
     hash.len() as u8 * 8
 }*/
 
-pub fn verified_security_level(uuid: u128, hashes: Vec<u128>) -> Option<u8> {
+pub fn verified_security_level(uuid: U256, hashes: Vec<U256>) -> Option<u8> {
     let initial_hash = hash_sha(uuid) ^ hashes[0];
 
     if security_level_num(initial_hash) != 1 {
@@ -86,18 +87,18 @@ pub fn generate_token_num(req_level: u8, uuid: u128) -> u128 {
     }
 }*/
 
-fn hash_sha(val: u128) -> u128 {
+fn hash_sha(val: U256) -> U256 {
     let mut hasher = Sha256::new();
-    hasher.update(val.to_le_bytes());
+    hasher.update(val.as_le_slice());
     let bytes: [u8; 32] = hasher.finalize().into();
-    // SAFETY: It's safe to reinterpret 32 bytes as two consecutive 16 byte values
-    let data: (u128, u128) = unsafe { transmute(bytes) };
-    data.0 ^ data.1
+    // SAFETY: It's safe to reinterpret
+    let data: U256 = unsafe { transmute(bytes) };
+    data
 }
 
-fn hash(val: u128) -> [u8; 20] {
+fn hash(val: U256) -> [u8; 20] {
     let mut hasher = Ripemd160::new();
-    hasher.update(val.to_le_bytes());
+    hasher.update(val.as_le_slice());
     hasher.finalize().into()
 }
 

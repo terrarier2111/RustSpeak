@@ -1,9 +1,9 @@
-use crate::utils::input;
 use colored::ColoredString;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use std::ops::Range;
+use crate::utils::input;
 
 // FIXME: maybe add tab completion
 

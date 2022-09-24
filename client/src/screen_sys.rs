@@ -14,57 +14,29 @@
 
 use crate::render::{Model, Renderer};
 use crate::screen_sys::ScreenType::Other;
+use crate::ui::Container;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use winit::dpi::{PhysicalPosition, Position};
 use winit::event::VirtualKeyCode;
 use winit::window::Window;
-use crate::ui::Container;
 
 pub trait Screen: Send + Sync {
     // Called once
-    fn init(
-        &mut self,
-        _screen_sys: Arc<ScreenSystem>,
-        _renderer: Arc<Renderer>,
-    ) {
-    }
-    fn deinit(
-        &mut self,
-        _screen_sys: Arc<ScreenSystem>,
-        _renderer: Arc<Renderer>,
-    ) {
-    }
+    fn init(&mut self, _screen_sys: Arc<ScreenSystem>, _renderer: Arc<Renderer>) {}
+    fn deinit(&mut self, _screen_sys: Arc<ScreenSystem>, _renderer: Arc<Renderer>) {}
 
     // May be called multiple times
-    fn on_active(
-        &mut self,
-        screen_sys: Arc<ScreenSystem>,
-        renderer: Arc<Renderer>,
-    );
-    fn on_deactive(
-        &mut self,
-        screen_sys: Arc<ScreenSystem>,
-        renderer: Arc<Renderer>,
-    );
+    fn on_active(&mut self, screen_sys: Arc<ScreenSystem>, renderer: Arc<Renderer>);
+    fn on_deactive(&mut self, screen_sys: Arc<ScreenSystem>, renderer: Arc<Renderer>);
 
     // Called every frame the screen is active
-    fn tick(
-        &mut self,
-        screen_sys: Arc<ScreenSystem>,
-        renderer: Arc<Renderer>,
-        delta: f64,
-    );
+    fn tick(&mut self, screen_sys: Arc<ScreenSystem>, renderer: Arc<Renderer>, delta: f64);
 
     // Events
     fn on_scroll(&mut self, _x: f64, _y: f64) {}
 
-    fn on_resize(
-        &mut self,
-        _screen_sys: Arc<ScreenSystem>,
-        _renderer: Arc<Renderer>,
-    ) {
-    } // TODO: make non-optional!
+    fn on_resize(&mut self, _screen_sys: Arc<ScreenSystem>, _renderer: Arc<Renderer>) {} // TODO: make non-optional!
 
     fn on_key_press(&mut self, screen_sys: Arc<ScreenSystem>, key: VirtualKeyCode, down: bool) {
         if key == VirtualKeyCode::Escape && !down && self.is_closable() {
@@ -152,8 +124,8 @@ impl ScreenSystem {
             pre_computed_screens.pop();
             let new_offset = pre_computed_screens.len() as isize;
             let _ = self.lowest_offset.fetch_update(
-                Ordering::Release,
-                Ordering::Acquire,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
                 |curr_offset| {
                     if curr_offset == -1 || new_offset < curr_offset {
                         Some(new_offset)
@@ -257,15 +229,19 @@ impl ScreenSystem {
                 for _ in 0..(screens_len as isize - lowest) {
                     let screen = self.screens.clone().write().unwrap().pop().unwrap();
                     if screen.active {
-                        screen.screen.clone().lock().unwrap().on_deactive(
-                            self.clone(),
-                            renderer.clone(),
-                        );
+                        screen
+                            .screen
+                            .clone()
+                            .lock()
+                            .unwrap()
+                            .on_deactive(self.clone(), renderer.clone());
                     }
-                    screen.screen.clone().lock().unwrap().deinit(
-                        self.clone(),
-                        renderer.clone(),
-                    );
+                    screen
+                        .screen
+                        .clone()
+                        .lock()
+                        .unwrap()
+                        .deinit(self.clone(), renderer.clone());
                 }
             }
             for screen in self
@@ -287,10 +263,11 @@ impl ScreenSystem {
                 if let Some(last) = last {
                     if last.active {
                         last.active = false;
-                        last.screen.clone().lock().unwrap().on_deactive(
-                            self.clone(),
-                            renderer.clone(),
-                        );
+                        last.screen
+                            .clone()
+                            .lock()
+                            .unwrap()
+                            .on_deactive(self.clone(), renderer.clone());
                     }
                 }
                 let mut current = screens.last_mut().unwrap();
@@ -320,14 +297,15 @@ impl ScreenSystem {
         let current = tmp.last_mut().unwrap();
         if !current.active {
             current.active = true;
-            current.screen.clone().lock().unwrap().on_active(
-                self.clone(),
-                renderer.clone(),
-            );
+            current
+                .screen
+                .clone()
+                .lock()
+                .unwrap()
+                .on_active(self.clone(), renderer.clone());
         }
         let (width, height) = renderer.dimensions.get();
-        if current.last_width != width as i32 || current.last_height != height as i32
-        {
+        if current.last_width != width as i32 || current.last_height != height as i32 {
             if current.last_width != -1 && current.last_height != -1 {
                 for screen in tmp.iter_mut().enumerate() {
                     let inner_screen = screen.1.screen.clone();
@@ -341,8 +319,7 @@ impl ScreenSystem {
                     }
                 }
             } else {
-                let (width, height) =
-                    renderer.dimensions.get();
+                let (width, height) = renderer.dimensions.get();
                 current.last_width = width as i32;
                 current.last_height = height as i32;
             }

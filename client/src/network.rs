@@ -6,6 +6,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::{Arc, Mutex, RwLock};
+use tokio::io::AsyncWriteExt;
 
 pub struct NetworkClient {
     // FIXME: Add keep alive stream
@@ -17,23 +18,26 @@ pub struct NetworkClient {
 impl NetworkClient {
     pub async fn new(
         address_mode: AddressMode,
-        config: Option<ClientConfig>,
+        config: ClientConfig,
         server: SocketAddr,
         server_name: &str,
     ) -> anyhow::Result<Self> {
         let endpoint = Endpoint::client(address_mode.local())?;
-        let conn = if let Some(config) = config {
-            endpoint.connect_with(config, server, server_name)?.await?
-        } else {
-            endpoint.connect(server, server_name)?.await?
-        };
+        let conn = endpoint.connect_with(config, server, server_name)?.await?;
         let (send, recv) = conn.connection.open_bi().await?;
+
+        // panic!("we got pretty far!")
 
         Ok(Self {
             endpoint,
             conn: RwLock::new(conn),
             bi_conn: (Mutex::new(send), Mutex::new(recv)),
         })
+    }
+
+    pub(crate) async fn flush(&self) -> anyhow::Result<()> {
+        self.bi_conn.0.lock().unwrap().flush().await?;
+        Ok(())
     }
 
     pub async fn send_reliable(&self, buf: &BytesMut) -> anyhow::Result<()> {
@@ -59,12 +63,16 @@ impl NetworkClient {
     }
 
     pub async fn close(&self) -> anyhow::Result<()> {
+        self.close_with(0, &[]).await
+    }
+
+    pub async fn close_with(&self, err_code: u32, reason: &[u8]) -> anyhow::Result<()> {
         self.bi_conn.0.lock().unwrap().finish().await?;
         self.conn
             .write()
             .unwrap()
             .connection
-            .close(VarInt::from_u32(0), &[]);
+            .close(VarInt::from_u32(err_code), reason);
         Ok(())
     }
 

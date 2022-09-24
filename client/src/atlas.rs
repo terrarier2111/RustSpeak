@@ -1,18 +1,21 @@
+use crate::render::TexTriple;
+use arc_swap::ArcSwap;
+use guillotiere::{size2, AllocId, Allocation, AtlasAllocator};
 use std::collections::HashMap;
 use std::ops::Deref;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
-use std::sync::atomic::{AtomicU64, Ordering};
-use arc_swap::ArcSwap;
-use guillotiere::{Allocation, AllocId, AtlasAllocator, size2};
-use wgpu::{CommandEncoder, Extent3d, FilterMode, ImageCopyTexture, ImageDataLayout, Origin3d, Sampler, SamplerDescriptor, Texture, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureViewDescriptor, TextureViewDimension};
+use wgpu::{
+    CommandEncoder, Extent3d, FilterMode, ImageCopyTexture, ImageDataLayout, Origin3d, Sampler,
+    SamplerDescriptor, Texture, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat,
+    TextureUsages, TextureViewDescriptor, TextureViewDimension,
+};
 use wgpu_biolerless::{RawTextureBuilder, State};
-use crate::render::TexTriple;
 
 #[derive(Copy, Clone)]
 pub struct UV(pub u32, pub u32);
 
 impl UV {
-
     pub fn into_array(self) -> [u32; 2] {
         [self.0, self.1]
     }
@@ -20,8 +23,19 @@ impl UV {
     pub fn into_tuple(self) -> (u32, u32) {
         (self.0, self.1)
     }
-
 }
+
+#[derive(Copy, Clone, Hash, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct AtlasId(usize);
+
+impl AtlasId {
+    pub fn generate() -> Self {
+        Self(ATLAS_ID.fetch_add(1, Ordering::SeqCst)) // FIXME: can we use a looser ordering?
+    }
+}
+
+static ATLAS_ID: AtomicUsize = AtomicUsize::new(0);
 
 pub struct Atlas {
     alloc: Mutex<AtlasAllocator>,
@@ -31,11 +45,12 @@ pub struct Atlas {
     state: Arc<State>,
     write_queue: Mutex<Vec<QueuedWrite>>,
     texture_format: TextureFormat,
+    id: AtlasId,
 }
 
 impl Atlas {
-
-    pub fn new(state: Arc<State>, size: (u32, u32), texture_format: TextureFormat) -> Self { // FIXME: can we infer the texture_format from the state?
+    pub fn new(state: Arc<State>, size: (u32, u32), texture_format: TextureFormat) -> Self {
+        // FIXME: can we infer the texture_format from the state?
         if size.0 >= (1 << 31) || size.1 >= (1 << 31) {
             panic!("The size passed was too big!");
         }
@@ -48,10 +63,16 @@ impl Atlas {
             state,
             write_queue: Mutex::new(vec![]),
             texture_format,
+            id: AtlasId::generate(),
         }
     }
 
-    pub fn alloc(self: &Arc<Self>, path: String, size: (u32, u32), content: &[u8]) -> Arc<AtlasAlloc> {
+    pub fn alloc(
+        self: &Arc<Self>,
+        path: String,
+        size: (u32, u32),
+        content: &[u8],
+    ) -> Arc<AtlasAlloc> {
         if size.0 >= (1 << 31) || size.1 >= (1 << 31) {
             panic!("The size passed was too big!");
         }
@@ -69,11 +90,22 @@ impl Atlas {
                 if realloc {
                     self.write_queue.lock().unwrap().push(QueuedWrite {
                         data: Arc::new(content.to_vec().into_boxed_slice()),
-                        pos: (alloc.allocation.rectangle.min.x as u32, alloc.allocation.rectangle.min.y as u32),
+                        pos: (
+                            alloc.allocation.rectangle.min.x as u32,
+                            alloc.allocation.rectangle.min.y as u32,
+                        ),
                         size,
                     });
                 } else {
-                    self.write_tex(&self.gpu_buffer.load().tex, (alloc.allocation.rectangle.min.x as u32, alloc.allocation.rectangle.min.y as u32), size, content.as_ref());
+                    self.write_tex(
+                        &self.gpu_buffer.load().tex,
+                        (
+                            alloc.allocation.rectangle.min.x as u32,
+                            alloc.allocation.rectangle.min.y as u32,
+                        ),
+                        size,
+                        content.as_ref(),
+                    );
                 }
                 return alloc;
             }
@@ -85,7 +117,11 @@ impl Atlas {
     }
 
     pub fn dealloc(&self, path: String) -> bool {
-        self.alloc_map.write().unwrap().remove(path.as_str()).is_some()
+        self.alloc_map
+            .write()
+            .unwrap()
+            .remove(path.as_str())
+            .is_some()
     }
 
     pub fn update(&self, cmd_encoder: &mut CommandEncoder) {
@@ -93,25 +129,46 @@ impl Atlas {
         if !write_queue.is_empty() {
             let new_size = self.alloc.lock().unwrap().size().to_tuple();
             let new_size = (new_size.0 as u32, new_size.1 as u32);
-            let new_tex = Arc::new(Self::create_tex(&self.state, new_size.clone(), self.texture_format));
+            let new_tex = Arc::new(Self::create_tex(
+                &self.state,
+                new_size.clone(),
+                self.texture_format,
+            ));
             let (width, height) = self.buffer_size.get();
-            cmd_encoder.copy_texture_to_texture(self.gpu_buffer.load().tex.as_image_copy(), new_tex.tex.as_image_copy(), Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 0,
-            });
+            cmd_encoder.copy_texture_to_texture(
+                self.gpu_buffer.load().tex.as_image_copy(),
+                new_tex.tex.as_image_copy(),
+                Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 0,
+                },
+            );
             self.gpu_buffer.store(new_tex);
             self.buffer_size.set(new_size.0, new_size.1);
             while let Some(write) = write_queue.pop() {
-                self.write_tex(&self.gpu_buffer.load().tex, write.pos, write.size, write.data.deref().as_ref().as_ref());
+                self.write_tex(
+                    &self.gpu_buffer.load().tex,
+                    write.pos,
+                    write.size,
+                    write.data.deref().as_ref().as_ref(),
+                );
             }
         }
     }
 
-    fn create_tex(state: &Arc<State>, size: (u32, u32), texture_format: TextureFormat) -> TexTriple {
-        let tex = state.create_raw_texture(RawTextureBuilder::new()
-            .usages(TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST).dimensions(size)
-            .texture_dimension(TextureDimension::D2).format(texture_format));
+    fn create_tex(
+        state: &Arc<State>,
+        size: (u32, u32),
+        texture_format: TextureFormat,
+    ) -> TexTriple {
+        let tex = state.create_raw_texture(
+            RawTextureBuilder::new()
+                .usages(TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST)
+                .dimensions(size)
+                .texture_dimension(TextureDimension::D2)
+                .format(texture_format),
+        );
 
         let view = tex.create_view(&TextureViewDescriptor {
             label: None,
@@ -123,7 +180,8 @@ impl Atlas {
             base_array_layer: 0,
             array_layer_count: None,
         });
-        let sampler = state.device().create_sampler(&SamplerDescriptor { // FIXME: check values!
+        let sampler = state.device().create_sampler(&SamplerDescriptor {
+            // FIXME: check values!
             label: None,
             address_mode_u: Default::default(),
             address_mode_v: Default::default(),
@@ -137,34 +195,39 @@ impl Atlas {
             anisotropy_clamp: None,
             border_color: None,
         });
-        TexTriple {
-            tex,
-            view,
-            sampler,
-        }
+        TexTriple { tex, view, sampler }
     }
 
     fn write_tex(&self, tex: &Texture, pos: (u32, u32), size: (u32, u32), content: &[u8]) {
-        self.state.queue().write_texture(ImageCopyTexture {
-            texture: tex,
-            mip_level: 0,
-            origin: Origin3d {
-                x: pos.0,
-                y: pos.1,
-                z: 0,
+        self.state.queue().write_texture(
+            ImageCopyTexture {
+                texture: tex,
+                mip_level: 0,
+                origin: Origin3d {
+                    x: pos.0,
+                    y: pos.1,
+                    z: 0,
+                },
+                aspect: TextureAspect::All,
             },
-            aspect: TextureAspect::All,
-        }, content, ImageDataLayout {
-            offset: 1,
-            bytes_per_row: None, // FIXME: can we pass the actual values, so we get more optimizations?
-            rows_per_image: None, // FIXME: can we pass the actual values, so we get more optimizations?
-        }, Extent3d {
-            width: size.0,
-            height: size.1,
-            depth_or_array_layers: 1,
-        });
+            content,
+            ImageDataLayout {
+                offset: 1,
+                bytes_per_row: None, // FIXME: can we pass the actual values, so we get more optimizations?
+                rows_per_image: None, // FIXME: can we pass the actual values, so we get more optimizations?
+            },
+            Extent3d {
+                width: size.0,
+                height: size.1,
+                depth_or_array_layers: 1,
+            },
+        );
     }
 
+    #[inline(always)]
+    pub fn id(&self) -> AtlasId {
+        self.id
+    }
 }
 
 pub struct AtlasAlloc {
@@ -174,7 +237,10 @@ pub struct AtlasAlloc {
 
 impl AtlasAlloc {
     pub fn uv(&self) -> UV {
-        UV(self.allocation.rectangle.min.x as u32, self.allocation.rectangle.min.y as u32)
+        UV(
+            self.allocation.rectangle.min.x as u32,
+            self.allocation.rectangle.min.y as u32,
+        )
     }
 
     #[inline(always)]
@@ -185,7 +251,11 @@ impl AtlasAlloc {
 
 impl Drop for AtlasAlloc {
     fn drop(&mut self) {
-        self.atlas.alloc.lock().unwrap().deallocate(self.allocation.id);
+        self.atlas
+            .alloc
+            .lock()
+            .unwrap()
+            .deallocate(self.allocation.id);
     }
 }
 
@@ -198,7 +268,6 @@ struct QueuedWrite {
 struct Size(AtomicU64);
 
 impl Size {
-
     fn new(width: u32, height: u32) -> Self {
         let val = AtomicU64::new((width as u64) | ((height as u64) << 32));
         Self(val)
@@ -211,7 +280,7 @@ impl Size {
     }
 
     fn set(&self, width: u32, height: u32) {
-        self.0.store((width as u64) | ((height as u64) << 32), Ordering::Release);
+        self.0
+            .store((width as u64) | ((height as u64) << 32), Ordering::Release);
     }
-
 }

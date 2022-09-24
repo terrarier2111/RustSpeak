@@ -1,4 +1,5 @@
 use bytes::{Buf, BufMut, Bytes, BytesMut};
+use ruint::aliases::U256;
 use std::borrow::Cow;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter, Write};
@@ -7,7 +8,6 @@ use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use ruint::aliases::U256;
 use uuid::Uuid;
 
 pub const PROTOCOL_VERSION: u64 = 1;
@@ -348,6 +348,23 @@ impl<T: RWBytes<Ty = V>, V> RWBytes for &T {
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
         T::write(self, dst)
+    }
+}
+
+impl RWBytes for U256 {
+    type Ty = U256;
+
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        let val = (src.get_u128_le(), src.get_u128_le());
+        // SAFETY: This is safe, because we are just reinterpreting 2 u128 values as a single u256 value
+        Ok(unsafe { transmute(val) })
+    }
+
+    fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
+        // SAFETY: This is safe, because we are just reinterpreting one u256 value as 2 u128 values
+        let data: (u128, u128) = unsafe { transmute(self.clone()) };
+        data.0.write(dst)?;
+        data.1.write(dst)
     }
 }
 

@@ -1,6 +1,7 @@
 use crate::protocol::{ErrorEnumVariantNotFound, RWBytes, UserUuid};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use ordinalizer::Ordinal;
+use ruint::aliases::U256;
 use std::borrow::Cow;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter, Write};
@@ -9,7 +10,6 @@ use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use ruint::aliases::U256;
 use uuid::Uuid;
 
 /// packets the server sends to the client
@@ -44,8 +44,8 @@ pub enum ClientPacket {
         protocol_version: u64,
         pub_key: Vec<u8>, // the public key of the client which gets later hashed to get it's id
         name: String,
-        security_proofs: Vec<u128>, // TODO: add comment
-        signed_data: Vec<u8>, // contains a signed send time
+        security_proofs: Vec<U256>, // TODO: add comment
+        signed_data: Vec<u8>,       // contains a signed send time
     },
     Disconnect,
     KeepAlive {
@@ -64,8 +64,21 @@ pub enum ClientPacket {
 impl ClientPacket {
     pub fn encode(&self) -> anyhow::Result<BytesMut> {
         let mut buf = BytesMut::new();
+        buf.resize(8, 0);
+        // unsafe { buf.set_len(8); }
+        buf.advance(8); // FIXME: is a u64 actually desirable?
         self.write(&mut buf)?;
+        let len = (buf.len() - 8).to_le();
+        // SAFETY: this is safe because we reserved 8 bytes at the beginning of the buffer allocation
+        unsafe { buf.as_mut_ptr().cast::<u64>().write(len as u64) };
         Ok(buf)
+    }
+}
+
+impl ServerPacket<'_> {
+    pub fn decode(buf: &mut Bytes) -> anyhow::Result<Self> {
+        let _len = buf.get_u64_le(); // FIXME: use this!
+        Self::read(buf)
     }
 }
 
@@ -150,7 +163,7 @@ impl RWBytes for ClientPacket {
                 let protocol_version = u64::read(src)?;
                 let pub_key = Vec::<u8>::read(src)?;
                 let name = String::read(src)?;
-                let security_proofs = Vec::<u128>::read(src)?;
+                let security_proofs = Vec::<U256>::read(src)?;
                 let signed_data = Vec::<u8>::read(src)?;
                 Ok(Self::AuthRequest {
                     protocol_version,

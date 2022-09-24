@@ -12,7 +12,7 @@ use crate::packet::{
     AuthFailure, AuthResponse, Channel, ChannelCreatePerms, ChannelPerms, ClientPacket,
     RemoteProfile, ServerGroup, ServerGroupPerms, ServerPacket,
 };
-use crate::protocol::{RWBytes, PROTOCOL_VERSION};
+use crate::protocol::{RWBytes, PROTOCOL_VERSION, UserUuid};
 use crate::server_group_db::{ServerGroupDb, ServerGroupEntry};
 use crate::utils::LIGHT_GRAY;
 use arc_swap::ArcSwap;
@@ -31,7 +31,10 @@ use std::ops::Deref;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, RwLock};
 use std::{fs, thread};
+use openssl::sha::sha256;
+use ruint::aliases::U256;
 use uuid::Uuid;
+use crate::user_db::UserDb;
 
 mod certificate;
 mod channel_db;
@@ -43,6 +46,7 @@ mod protocol;
 mod security_level;
 mod server_group_db;
 mod utils;
+mod user_db;
 
 const RELATIVE_USER_DB_PATH: &str = "user_db";
 const RELATIVE_CHANNEL_DB_PATH: &str = "channel_db.json";
@@ -59,7 +63,7 @@ async fn main() -> anyhow::Result<()> {
     println!("Starting up server...");
     let data_dir = dirs::config_dir().unwrap().join("RustSpeakServer/");
     fs::create_dir_all(data_dir.clone())?;
-    let user_db = sled::open(data_dir.clone().join(RELATIVE_USER_DB_PATH))?;
+    let user_db = UserDb::new(data_dir.clone().join(RELATIVE_USER_DB_PATH).to_str().unwrap().to_string())?;
     let channel_db = ChannelDb::new(
         data_dir
             .clone()
@@ -241,7 +245,7 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    println!("Server started up successfully, waiting for inbound connections...");
+    println!("Server started up successfully, waiting for inbound connections on port {}...", server.config.port);
     start_server(server, |err| {
         println!(
             "An error occurred while establishing a client connection: {}",
@@ -256,7 +260,7 @@ fn setup_network_server(config: &Config) -> anyhow::Result<NetworkServer> {
     let (local_cert, private_key) = certificate::insecure_local::generate_self_signed_cert()?;
     NetworkServer::new(
         config.port,
-        1000,
+        /*1000*/u32::MAX,
         config.address_mode,
         certificate::create_config(local_cert, private_key)?,
     )
@@ -271,21 +275,29 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server<'_>>, error_handl
                 let new_conn = new_conn.clone();
                 let server = tmp_srv.clone();
                 async move {
+                    println!("initial connection attempt!");
                     let new_conn = new_conn.clone();
-                    let mut header = new_conn.read_reliable(2).await?;
-                    let size = header.get_u16_le();
+                    // FIXME: use more sophisticated packet header like the one commented out below!
+                    // let mut header = new_conn.read_reliable(2).await?;
+                    // let size = header.get_u16_le();
                     // let id = header.get_u8(); // FIXME: try to somehow get this data here already
+                    // let mut data = new_conn.read_reliable(size as usize).await?;
+                    let size = new_conn.read_reliable(8).await?.get_u64_le();
+                    println!("got size {}", size);
                     let mut data = new_conn.read_reliable(size as usize).await?;
-                    let packet = ClientPacket::read(&mut data)?;
+                    println!("read data!");
+                    let packet = ClientPacket::read(&mut data, None)?;
+                    println!("read packet!");
                     let server = server.clone();
                     if let ClientPacket::AuthRequest {
                         protocol_version,
-                        uuid,
+                        pub_key,
                         name,
                         security_proofs,
-                        auth_id,
+                        signed_data,
                     } = packet
                     {
+                        println!("{} tried to connect!", name);
                         if protocol_version != PROTOCOL_VERSION {
                             let failure = ServerPacket::AuthResponse(AuthResponse::Failure(
                                 AuthFailure::OutOfDate(PROTOCOL_VERSION),
@@ -301,12 +313,13 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server<'_>>, error_handl
                                     .connection
                                     .remote_address()
                                     .ip(),
-                                uuid,
+                                uuid: UserUuid::from_u256(U256::from_le_bytes(sha256(&signed_data))),
                                 recv_proto_ver: protocol_version,
                             }));
                         }
+                        let uuid = UserUuid::from_u256(U256::from_le_bytes(sha256(&pub_key)));
                         let security_proof_result = if let Some(level) =
-                            security_level::verified_security_level(uuid.as_u128(), security_proofs)
+                            security_level::verified_security_level(uuid.as_u256(), security_proofs)
                         {
                             level
                         } else {
@@ -365,10 +378,10 @@ pub struct Server<'a> {
     // pub server_groups: DashMap<Uuid, ServerGroup>,
     pub server_groups: ArcSwap<HashMap<Uuid, Arc<ServerGroup<'a>>>>,
     pub channels: ArcSwap<HashMap<Uuid, Channel<'a>>>,
-    pub online_users: DashMap<Uuid, User<'a>>,
+    pub online_users: DashMap<Uuid, User<'a>>, // FIXME: add a timed cache for offline users
     pub network_server: NetworkServer,
     pub config: Config, // FIXME: make this mutable somehow
-    pub user_db: Db,
+    pub user_db: UserDb,
     pub channel_db: ChannelDb,
     pub server_group_db: ServerGroupDb,
     pub cli: CommandLineInterface<'a>,
@@ -385,7 +398,7 @@ pub struct User<'a> {
 
 struct ErrorAuthProtoVer {
     ip: IpAddr,
-    uuid: Uuid,
+    uuid: UserUuid,
     recv_proto_ver: u64,
 }
 
@@ -394,7 +407,7 @@ impl Debug for ErrorAuthProtoVer {
         f.write_str("client from ")?;
         f.write_str(self.ip.to_string().as_str())?;
         f.write_str(" with uuid ")?;
-        f.write_str(self.uuid.to_string().as_str())?;
+        f.write_str(&*format!("{:?}", self.uuid))?;
         f.write_str(" tried to login with incompatible protocol version ")?;
         f.write_str(self.recv_proto_ver.to_string().as_str())
     }
@@ -405,7 +418,7 @@ impl Display for ErrorAuthProtoVer {
         f.write_str("client from ")?;
         f.write_str(self.ip.to_string().as_str())?;
         f.write_str(" with uuid ")?;
-        f.write_str(self.uuid.to_string().as_str())?;
+        f.write_str(&*format!("{:?}", self.uuid))?;
         f.write_str(" tried to login with incompatible protocol version ")?;
         f.write_str(self.recv_proto_ver.to_string().as_str())
     }
@@ -415,7 +428,7 @@ impl Error for ErrorAuthProtoVer {}
 
 struct ErrorAuthSecProof {
     ip: IpAddr,
-    uuid: Uuid,
+    uuid: UserUuid,
 }
 
 impl Debug for ErrorAuthSecProof {
@@ -423,7 +436,7 @@ impl Debug for ErrorAuthSecProof {
         f.write_str("client from ")?;
         f.write_str(self.ip.to_string().as_str())?;
         f.write_str(" with uuid ")?;
-        f.write_str(self.uuid.to_string().as_str())?;
+        f.write_str(&*format!("{:?}", self.uuid))?;
         f.write_str(" tried to login with invalid security proofs")
     }
 }
@@ -433,7 +446,7 @@ impl Display for ErrorAuthSecProof {
         f.write_str("client from ")?;
         f.write_str(self.ip.to_string().as_str())?;
         f.write_str(" with uuid ")?;
-        f.write_str(self.uuid.to_string().as_str())?;
+        f.write_str(&*format!("{:?}", self.uuid))?;
         f.write_str(" tried to login with invalid security proofs")
     }
 }
