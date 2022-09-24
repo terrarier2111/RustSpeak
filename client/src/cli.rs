@@ -5,7 +5,8 @@ use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use std::ops::Range;
 use std::sync::Arc;
-use crate::Server;
+use crate::Client;
+// This module is mainly used for debugging purposes
 
 // FIXME: maybe add tab completion
 
@@ -39,7 +40,7 @@ impl<'a> CommandLineInterface<'a> {
         }
     }*/
 
-    pub fn await_input(&self, server: &Arc<Server<'_>>) -> anyhow::Result<bool> {
+    pub fn await_input(&self, client: &Arc<Client<'_>>) -> anyhow::Result<bool> {
         let input = input(&self.prompt)?;
         let mut parts = input.split(" ").collect::<Vec<_>>();
         let cmd = parts.remove(0).to_lowercase();
@@ -50,7 +51,7 @@ impl<'a> CommandLineInterface<'a> {
                 Ok(false)
             },
             Some(cmd) => {
-                cmd.cmd_impl.execute(server, &parts)?;
+                cmd.cmd_impl.execute(client, &parts)?;
                 Ok(true)
             }
         }
@@ -95,6 +96,7 @@ impl<'a> CLIBuilder<'a> {
     pub fn build(self) -> CommandLineInterface<'a> {
         CommandLineInterface {
             prompt: self.prompt,
+            help_msg: self.help_msg.expect("a help message has to be specified before a CLI can be built"),
             cmds: {
                 let mut cmds = HashMap::new();
 
@@ -103,7 +105,6 @@ impl<'a> CLIBuilder<'a> {
                 }
                 cmds
             },
-            help_msg: self.help_msg.expect("a help message has to be specified before a CLI can be built"),
         }
     }
 }
@@ -134,7 +135,7 @@ impl<'a> Command<'a> {
 }
 
 pub trait CommandImpl: Send + Sync {
-    fn execute(&self, server: &Arc<Server<'_>>, input: &[&str]) -> anyhow::Result<()>;
+    fn execute(&self, client: &Arc<Client<'_>>, input: &[&str]) -> anyhow::Result<()>;
 }
 
 pub struct CommandBuilder<'a> {

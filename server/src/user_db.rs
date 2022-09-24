@@ -4,6 +4,7 @@ use bytes::{Bytes, BytesMut};
 use sled::{Db, IVec};
 use std::borrow::Cow;
 use std::io::Read;
+use ruint::aliases::U256;
 use uuid::Uuid;
 
 pub struct UserDb {
@@ -30,10 +31,11 @@ impl UserDb {
     }
 }
 
+#[derive(Clone)]
 pub struct DbUser {
-    pub uuid: UserUuid,
+    pub uuid: UserUuid, // FIXME: maybe it's better to store the user's actual public key instead of their uuid
     pub name: String,
-    pub last_security_proof: u128,
+    pub last_security_proof: U256,
     pub last_verified_security_level: u8,
     pub groups: Vec<Uuid>,
     // FIXME: add individual user perms
@@ -54,7 +56,7 @@ impl DbUser {
         Ok(Self {
             uuid: UserUuid::read(&mut buf, None)?,
             name: String::read(&mut buf, None)?,
-            last_security_proof: u128::read(&mut buf, None)?,
+            last_security_proof: U256::read(&mut buf, None)?,
             last_verified_security_level: u8::read(&mut buf, None)?,
             groups: Vec::<Uuid>::read(&mut buf, None)?,
         })

@@ -151,13 +151,10 @@ impl RWBytes for ClientPacket {
         match id {
             0 => {
                 let protocol_version = u64::read(src, client_key)?;
-                println!("got ver: {protocol_version}");
                 let pub_key = Vec::<u8>::read(src, client_key)?;
-                println!("got key: {:?}", pub_key);
                 let name = String::read(src, client_key)?;
                 println!("got name: {}", name);
                 let security_proofs = Vec::<U256>::read(src, client_key)?;
-                println!("got proofs: {:?}", security_proofs);
                 let signed_data = Vec::<u8>::read(src, client_key)?;
                 println!("got signed data: {:?}", signed_data);
                 Ok(Self::AuthRequest {

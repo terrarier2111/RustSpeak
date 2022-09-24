@@ -16,7 +16,12 @@ impl Config {
         Ok(if let Ok(mut config) = File::open(&src) {
             let mut result = String::new();
             config.read_to_string(&mut result)?;
-            serde_json::from_str(result.as_str())?
+            let mut result: Config = serde_json::from_str(result.as_str())?;
+            if result.req_security_level < 1 {
+                result.req_security_level = 1;
+                // FIXME: warn about invalid config value
+            }
+            result
         } else {
             let mut file = File::create(src)?;
             let def = Self::default();

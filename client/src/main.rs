@@ -11,7 +11,7 @@ use crate::protocol::{RWBytes, PROTOCOL_VERSION};
 use crate::render::Renderer;
 use crate::screen::server_list::ServerList;
 use crate::screen_sys::ScreenSystem;
-use crate::user_db::ProfileDb;
+use crate::profile_db::{DbProfile, ProfileDb, uuid_from_pub_key};
 use crate::utils::current_time_millis;
 use arc_swap::{ArcSwap, ArcSwapOption};
 use bytes::BytesMut;
@@ -23,11 +23,17 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use std::time::Duration;
 use std::{fs, io, thread};
+use std::error::Error;
+use std::fmt::{Debug, Display, Formatter};
+use colored::{ColoredString, Colorize};
+use openssl::pkey::PKey;
 use wgpu::TextureFormat;
 use wgpu_biolerless::{StateBuilder, WindowSize};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoopBuilder};
 use winit::window::{Window, WindowBuilder};
+use crate::cli::{CLIBuilder, CmdParamStrConstraints, CommandBuilder, CommandImpl, CommandLineInterface, CommandParam, CommandParamTy, UsageBuilder};
+use crate::security_level::generate_token_num;
 
 mod atlas;
 mod certificate;
@@ -41,8 +47,11 @@ mod screen;
 mod screen_sys;
 mod security_level;
 mod ui;
-mod user_db;
+mod profile_db;
 mod utils;
+mod cli;
+
+// FIXME: review all the endianness related shit!
 
 const RELATIVE_PROFILE_DB_PATH: &str = "user_db";
 
@@ -69,6 +78,17 @@ async fn main() -> anyhow::Result<()> {
     let renderer = Arc::new(Renderer::new(state.clone(), &window));
     let screen_sys = Arc::new(ScreenSystem::new());
     screen_sys.push_screen(Box::new(ServerList::new()));
+    let cli = CLIBuilder::new()
+        .prompt(ColoredString::from("RustSpeak").green())
+        .help_msg(ColoredString::from("This command doesn't exist").red())
+        .command(CommandBuilder::new().name("profiles").desc("manage profiles via command line")
+        .params(UsageBuilder::new().required(CommandParam {
+            name: "action",
+            ty: CommandParamTy::String(CmdParamStrConstraints::Variants(&["list", "create", "delete", "rename", "bump_sl"])),
+        }).optional(CommandParam { // FIXME: add ability to make following arguments depend on the value of the previous argument (maybe by integrating the following arguments into the variants list)
+            name: "name",
+            ty: CommandParamTy::String(CmdParamStrConstraints::None),
+        })).cmd_impl(Box::new(CommandProfiles()))).build();
     let client = Arc::new(Client {
         config: cfg.clone(),
         profile_db: profile_db.clone(),
@@ -76,7 +96,20 @@ async fn main() -> anyhow::Result<()> {
         renderer: renderer.clone(),
         screen_sys: screen_sys.clone(),
         atlas: atlas.clone(),
+        cli,
     });
+
+    let tmp = client.clone();
+    thread::spawn(move || {
+        let client = tmp.clone();
+        loop {
+            client.cli.await_input(&client).unwrap(); // FIXME: handle errors properly!
+        }
+    });
+
+    println!(
+        "Client started up successfully, waiting for commands..."
+    );
     // let client = start_connect_to();
     client.connection.store(Some(Arc::new(
         NetworkClient::new(
@@ -211,11 +244,69 @@ pub async fn start_connect_to(
 
     Ok(client)
 }
-pub struct Client {
+pub struct Client<'a> {
     pub config: Arc<Config>, // FIXME: make this somehow mutable (maybe using an ArcSwap or a Mutex)
     pub profile_db: Arc<ProfileDb>,
     pub connection: ArcSwapOption<NetworkClient>, // FIXME: support connecting to multiple servers at once
     pub renderer: Arc<Renderer>,
     pub screen_sys: Arc<ScreenSystem>,
     pub atlas: Arc<Atlas>,
+    pub cli: CommandLineInterface<'a>,
 }
+
+struct CommandProfiles();
+
+impl CommandImpl for CommandProfiles {
+    fn execute(&self, client: &Arc<Client<'_>>, input: &[&str]) -> anyhow::Result<()> {
+        match input[0] {
+            "create" => {
+                if client.profile_db.get(&input[1].to_string())?.is_some() {
+                    return Err(anyhow::Error::from(ProfileAlreadyExistsError(input[1].to_string())));
+                }
+                client.profile_db.insert(DbProfile::new(input[1].to_string())?)?;
+                println!("A profile with the name {} was created.", input[1]);
+            },
+            "list" => {
+                println!("There are {} profiles:", client.profile_db.len());
+                // println!("Name   UUID   SecLevel"); // FIXME: adjust this and try using it for more graceful profile display
+                for profile in client.profile_db.iter() {
+                    let profile = DbProfile::from_bytes(profile?.1)?;
+                    println!("{:?}", profile);
+                }
+            },
+            "bump_sl" => {
+                if let Some(mut profile) = client.profile_db.get(&input[1].to_string())? {
+                    let req_lvl = input[2].parse::<u8>()?;
+                    let priv_key = PKey::private_key_from_der(&*profile.priv_key)?;
+                    let pub_key = priv_key.public_key_to_der()?;
+                    generate_token_num(req_lvl, uuid_from_pub_key(&*pub_key), &mut profile.security_proofs);
+                    client.profile_db.insert(profile)?;
+                    println!("Successfully levelled up security level to {}", req_lvl);
+                }
+            }
+            _ => {}
+        }
+
+        Ok(())
+    }
+}
+
+struct ProfileAlreadyExistsError(String);
+
+impl Debug for ProfileAlreadyExistsError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a profile with the name ")?;
+        f.write_str(&*self.0)?;
+        f.write_str(" already exists!")
+    }
+}
+
+impl Display for ProfileAlreadyExistsError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a profile with the name ")?;
+        f.write_str(&*self.0)?;
+        f.write_str(" already exists!")
+    }
+}
+
+impl Error for ProfileAlreadyExistsError {}

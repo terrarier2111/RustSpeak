@@ -6,29 +6,20 @@ use openssl::sha::sha256;
 use openssl::sign::Signer;
 use serde_derive::{Deserialize, Serialize};
 use std::mem::transmute;
+use ruint::aliases::U256;
 use uuid::Uuid;
 
-const PRIVATE_KEY_LEN_BITS: u32 = 4096;
+pub const PRIVATE_KEY_LEN_BITS: u32 = 4096;
 
 // #[derive(Serialize, Deserialize)]
 pub struct Profile {
     pub name: String,
     private_key: Vec<u8>, // this private rsa key gets used to verify the ownership of the profile
-    pub security_proofs: Vec<u128>,
+    pub security_proofs: Vec<U256>,
 }
 
 impl Profile {
-    pub fn new(name: String) -> anyhow::Result<Self> {
-        let keys = openssl::rsa::Rsa::generate(PRIVATE_KEY_LEN_BITS)?;
-        let priv_key = PKey::from_rsa(keys)?;
-        Ok(Self {
-            name,
-            private_key: priv_key.private_key_to_der()?,
-            security_proofs: vec![],
-        })
-    }
-
-    pub fn from_existing(name: String, private_key: Vec<u8>, security_proofs: Vec<u128>) -> Self {
+    pub fn from_existing(name: String, private_key: Vec<u8>, security_proofs: Vec<U256>) -> Self {
         Self {
             name,
             private_key,

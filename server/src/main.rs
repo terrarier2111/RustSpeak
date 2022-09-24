@@ -1,5 +1,6 @@
 #![feature(new_uninit)]
 #![feature(int_roundings)]
+#![feature(once_cell)]
 
 use crate::channel_db::{ChannelDb, ChannelDbEntry};
 use crate::cli::{
@@ -14,7 +15,7 @@ use crate::packet::{
 };
 use crate::protocol::{RWBytes, UserUuid, PROTOCOL_VERSION};
 use crate::server_group_db::{ServerGroupDb, ServerGroupEntry};
-use crate::user_db::UserDb;
+use crate::user_db::{DbUser, UserDb};
 use crate::utils::LIGHT_GRAY;
 use arc_swap::ArcSwap;
 use bytes::Buf;
@@ -24,7 +25,7 @@ use openssl::sha::sha256;
 use ruint::aliases::U256;
 use sled::Db;
 use std::borrow::Cow;
-use std::cell::RefCell;
+use std::cell::{LazyCell, RefCell};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter, Write};
@@ -32,7 +33,7 @@ use std::fs::File;
 use std::net::IpAddr;
 use std::ops::Deref;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::{fs, thread};
 use uuid::Uuid;
 
@@ -47,6 +48,8 @@ mod security_level;
 mod server_group_db;
 mod user_db;
 mod utils;
+
+// FIXME: review all the endianness related shit!
 
 const RELATIVE_USER_DB_PATH: &str = "user_db";
 const RELATIVE_CHANNEL_DB_PATH: &str = "channel_db.json";
@@ -209,6 +212,7 @@ async fn main() -> anyhow::Result<()> {
 
     let cli = CLIBuilder::new()
         .prompt(ColoredString::from("RustSpeak").red())
+        .help_msg(ColoredString::from("This command doesn't exist, try using help to get a full list of all available commands").red()) // FIXME: color "help" in yellow
         .command(
             CommandBuilder::new()
                 .name("help")
@@ -231,6 +235,11 @@ async fn main() -> anyhow::Result<()> {
                     ty: CommandParamTy::String(CmdParamStrConstraints::None),
                 }))
                 .cmd_impl(Box::new(CommandUser())),
+        )
+        .command(
+            CommandBuilder::new()
+                .name("onlineusers")
+                .cmd_impl(Box::new(CommandOnlineUsers())),
         );
 
     let server = Arc::new(Server {
@@ -248,7 +257,7 @@ async fn main() -> anyhow::Result<()> {
     thread::spawn(move || {
         let server = tmp.clone();
         loop {
-            server.clone().cli.await_input().unwrap(); // FIXME: handle errors properly!
+            server.cli.await_input(&server).unwrap(); // FIXME: handle errors properly!
         }
     });
 
@@ -295,7 +304,6 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server<'_>>, error_handl
                     let size = new_conn.read_reliable(8).await?.get_u64_le();
                     println!("got size {}", size);
                     let mut data = new_conn.read_reliable(size as usize).await?;
-                    println!("read data!");
                     let packet = ClientPacket::read(&mut data, None)?;
                     println!("read packet!");
                     let server = server.clone();
@@ -330,6 +338,7 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server<'_>>, error_handl
                             }));
                         }
                         let uuid = UserUuid::from_u256(U256::from_le_bytes(sha256(&pub_key)));
+                        let last_security_proof = security_proofs.last().copied();
                         let security_proof_result = if let Some(level) =
                             security_level::verified_security_level(
                                 uuid.into_u256(),
@@ -343,7 +352,7 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server<'_>>, error_handl
                             let encoded = failure.encode()?;
                             new_conn.send_reliable(&encoded).await?;
                             new_conn.close().await?;
-                            return Err(anyhow::Error::from(ErrorAuthSecProof {
+                            return Err(anyhow::Error::from(ErrorAuthInvSecProof {
                                 ip: new_conn
                                     .conn
                                     .read()
@@ -354,6 +363,25 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server<'_>>, error_handl
                                 uuid,
                             }));
                         };
+                        if server.config.req_security_level > security_proof_result {
+                            let failure = ServerPacket::AuthResponse(AuthResponse::Failure(
+                                AuthFailure::ReqSec(server.config.req_security_level),
+                            ));
+                            let encoded = failure.encode()?;
+                            new_conn.send_reliable(&encoded).await?;
+                            new_conn.close().await?;
+                            return Err(anyhow::Error::from(ErrorAuthLowSecProof {
+                                ip: new_conn
+                                    .conn
+                                    .read()
+                                    .unwrap()
+                                    .connection
+                                    .remote_address()
+                                    .ip(),
+                                uuid,
+                                provided_lvl: security_proof_result,
+                            }));
+                        }
                         // FIXME: compare auth_id with the auth_id in our data base if this isn't the first login!
                         // FIXME: insert data send the proper data back!
                         let channels = server.channels.load();
@@ -361,9 +389,29 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server<'_>>, error_handl
                         let server_groups = server.server_groups.load();
                         let server_groups = server_groups.values();
                         let channels = channels.cloned().collect::<Vec<_>>();
+                        let user = if let Some(user) = server.user_db.get(&uuid)? {
+                            user
+                        } else {
+                            let user = DbUser {
+                                uuid,
+                                name,
+                                last_security_proof: last_security_proof.unwrap(),
+                                last_verified_security_level: security_proof_result,
+                                groups: vec![],
+                            };
+                            server.user_db.insert(user.clone())?;
+                            user
+                        };
+                        server.online_users.insert(user.uuid, User {
+                            uuid: user.uuid,
+                            name: RwLock::new(user.name.into()),
+                            last_security_proof: user.last_security_proof,
+                            last_verified_security_level: user.last_verified_security_level,
+                            groups: RwLock::new(user.groups.clone()),
+                        });
                         let auth = ServerPacket::AuthResponse(AuthResponse::Success {
                             server_groups: server_groups.cloned().collect::<Vec<_>>(), // FIXME: try getting rid of this clone!
-                            own_groups: vec![],
+                            own_groups: user.groups,
                             channels,
                         });
                         let encoded = auth.encode()?;
@@ -391,7 +439,7 @@ pub struct Server<'a> {
     // pub server_groups: DashMap<Uuid, ServerGroup>,
     pub server_groups: ArcSwap<HashMap<Uuid, Arc<ServerGroup<'a>>>>,
     pub channels: ArcSwap<HashMap<Uuid, Channel<'a>>>,
-    pub online_users: DashMap<Uuid, User<'a>>, // FIXME: add a timed cache for offline users
+    pub online_users: DashMap<UserUuid, User<'a>>, // FIXME: add a timed cache for offline users
     pub network_server: NetworkServer,
     pub config: Config, // FIXME: make this mutable somehow
     pub user_db: UserDb,
@@ -401,9 +449,9 @@ pub struct Server<'a> {
 }
 
 pub struct User<'a> {
-    pub uuid: Uuid,
+    pub uuid: UserUuid,
     pub name: RwLock<Cow<'a, str>>,
-    pub last_security_proof: u128,
+    pub last_security_proof: U256,
     pub last_verified_security_level: u8,
     pub groups: RwLock<Vec<Uuid>>,
     // FIXME: add individual user perms
@@ -421,7 +469,7 @@ impl Debug for ErrorAuthProtoVer {
         f.write_str(self.ip.to_string().as_str())?;
         f.write_str(" with uuid ")?;
         f.write_str(&*format!("{:?}", self.uuid))?;
-        f.write_str(" tried to login with incompatible protocol version ")?;
+        f.write_str(" tried to login with an incompatible protocol version ")?;
         f.write_str(self.recv_proto_ver.to_string().as_str())
     }
 }
@@ -432,19 +480,19 @@ impl Display for ErrorAuthProtoVer {
         f.write_str(self.ip.to_string().as_str())?;
         f.write_str(" with uuid ")?;
         f.write_str(&*format!("{:?}", self.uuid))?;
-        f.write_str(" tried to login with incompatible protocol version ")?;
+        f.write_str(" tried to login with an incompatible protocol version ")?;
         f.write_str(self.recv_proto_ver.to_string().as_str())
     }
 }
 
 impl Error for ErrorAuthProtoVer {}
 
-struct ErrorAuthSecProof {
+struct ErrorAuthInvSecProof {
     ip: IpAddr,
     uuid: UserUuid,
 }
 
-impl Debug for ErrorAuthSecProof {
+impl Debug for ErrorAuthInvSecProof {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str("client from ")?;
         f.write_str(self.ip.to_string().as_str())?;
@@ -454,7 +502,7 @@ impl Debug for ErrorAuthSecProof {
     }
 }
 
-impl Display for ErrorAuthSecProof {
+impl Display for ErrorAuthInvSecProof {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str("client from ")?;
         f.write_str(self.ip.to_string().as_str())?;
@@ -464,13 +512,43 @@ impl Display for ErrorAuthSecProof {
     }
 }
 
-impl Error for ErrorAuthSecProof {}
+impl Error for ErrorAuthInvSecProof {}
+
+struct ErrorAuthLowSecProof {
+    ip: IpAddr,
+    uuid: UserUuid,
+    provided_lvl: u8,
+}
+
+impl Debug for ErrorAuthLowSecProof {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("client from ")?;
+        f.write_str(self.ip.to_string().as_str())?;
+        f.write_str(" with uuid ")?;
+        f.write_str(&*format!("{:?}", self.uuid))?;
+        f.write_str(" tried to login with a too weak security level ")?;
+        f.write_str(&*format!("{}", self.provided_lvl))
+    }
+}
+
+impl Display for ErrorAuthLowSecProof {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("client from ")?;
+        f.write_str(self.ip.to_string().as_str())?;
+        f.write_str(" with uuid ")?;
+        f.write_str(&*format!("{:?}", self.uuid))?;
+        f.write_str(" tried to login with a too weak security level ")?;
+        f.write_str(&*format!("{}", self.provided_lvl))
+    }
+}
+
+impl Error for ErrorAuthLowSecProof {}
 
 struct CommandHelp();
 
 impl CommandImpl for CommandHelp {
-    fn execute(&self, cli: &CommandLineInterface, _input: &[&str]) -> anyhow::Result<()> {
-        let cmds = cli.cmds();
+    fn execute(&self, server: &Arc<Server<'_>>, _input: &[&str]) -> anyhow::Result<()> {
+        let cmds = server.cli.cmds();
         println!("Commands ({}):", cmds.len());
         for cmd in cmds {
             let usage = if let Some(usage) = cmd.1.params() {
@@ -505,7 +583,7 @@ impl CommandImpl for CommandHelp {
 struct CommandShutdown();
 
 impl CommandImpl for CommandShutdown {
-    fn execute(&self, cli: &CommandLineInterface, input: &[&str]) -> anyhow::Result<()> {
+    fn execute(&self, server: &Arc<Server<'_>>, input: &[&str]) -> anyhow::Result<()> {
         todo!()
     }
 }
@@ -513,7 +591,21 @@ impl CommandImpl for CommandShutdown {
 struct CommandUser();
 
 impl CommandImpl for CommandUser {
-    fn execute(&self, cli: &CommandLineInterface, input: &[&str]) -> anyhow::Result<()> {
+    fn execute(&self, server: &Arc<Server<'_>>, input: &[&str]) -> anyhow::Result<()> {
         todo!()
+    }
+}
+
+struct CommandOnlineUsers();
+
+impl CommandImpl for CommandOnlineUsers {
+    fn execute(&self, server: &Arc<Server<'_>>, _input: &[&str]) -> anyhow::Result<()> {
+        // FIXME: add groups printing support!
+        println!("There are {} users online:", server.online_users.len());
+        println!("Name   UUID   SecLevel");
+        for user in server.online_users.iter() {
+            println!("{} | {:?} | {}", user.name.read().unwrap(), user.uuid, user.last_verified_security_level);
+        }
+        Ok(())
     }
 }

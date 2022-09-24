@@ -13,12 +13,13 @@ use ripemd::{Digest, Ripemd160, Ripemd320};
 use sha2::Sha256;
 use std::borrow::Cow;
 use std::mem::transmute;
+use ruint::aliases::U256;
 
 // this is a hashcash implementation based on the ripemd-160 hashing algorithm
 
-fn security_level_num(input: u128) -> u8 {
+fn security_level_num(input: U256) -> u8 {
     let mut hasher = Ripemd160::new();
-    hasher.update(input.to_le_bytes());
+    hasher.update(input.to_le_bytes::<32>());
     let result = hasher.finalize();
     let hash = result.as_slice();
 
@@ -51,7 +52,7 @@ fn security_level(hash: &[u8]) -> u8 {
     hash.len() as u8 * 8
 }*/
 
-pub fn verified_security_level(uuid: u128, hashes: Vec<u128>) -> Option<u8> {
+pub fn verified_security_level(uuid: U256, hashes: Vec<U256>) -> Option<u8> {
     let initial_hash = hash_sha(uuid) ^ hashes[0];
 
     if security_level_num(initial_hash) != 1 {
@@ -72,9 +73,12 @@ pub fn verified_security_level(uuid: u128, hashes: Vec<u128>) -> Option<u8> {
     Some(hashes_len as u8)
 }
 
-pub fn generate_token_num(req_level: u8, uuid: u128) -> u128 {
-    loop {
-        let token = random::<u128>();
+pub fn generate_token_num(req_level: u8, uuid: U256, pre_computed_tokens: &mut Vec<U256>) {
+    let req_level = req_level as usize;
+    /*loop {
+        let token = random::<[u8; 32]>();
+        // SAFETY: It's safe to reinterpret 32 bytes as one 256 bit number
+        let token = unsafe { transmute(token) };
         // we first hash the uuid here in order to prevent the possibility to
         // reverse the XOR operation we do
         let uuid_hashed = hash_sha(uuid);
@@ -83,16 +87,50 @@ pub fn generate_token_num(req_level: u8, uuid: u128) -> u128 {
         if security_level >= req_level {
             return token;
         }
+    }*/
+    if req_level <= pre_computed_tokens.len() {
+        // we already have the required security level, do nothing!
+        return;
+    }
+    let mut next_lvl = pre_computed_tokens.len() as u8 + 1;
+    let mut curr_token = if let Some(last_token) = pre_computed_tokens.last() {
+        last_token.clone()
+    } else {
+        uuid
+    };
+    let mut lvl_diff = req_level - pre_computed_tokens.len();
+    while lvl_diff > 0 {
+        let new_lvl = compute_single_lvl(curr_token, next_lvl);
+        pre_computed_tokens.push(new_lvl);
+        next_lvl += 1;
+        lvl_diff -= 1;
+        curr_token = new_lvl;
+        println!("Found token level {}", next_lvl - 1);
     }
 }
 
-fn hash_sha(val: u128) -> u128 {
+fn compute_single_lvl(base: U256, new_lvl: u8) -> U256 {
+    loop {
+        let token = random::<[u8; 32]>();
+        // SAFETY: It's safe to reinterpret 32 bytes as one 256 bit number
+        let token = unsafe { transmute(token) };
+        // we first hash the base here in order to prevent the possibility to
+        // reverse the XOR operation we do
+        let base_hashed = hash_sha(base);
+        let security_level = security_level_num(base_hashed ^ token);
+        if security_level == new_lvl {
+            return token;
+        }
+    }
+}
+
+fn hash_sha(val: U256) -> U256 {
     let mut hasher = Sha256::new();
-    hasher.update(val.to_le_bytes());
+    hasher.update(val.to_le_bytes::<32>());
     let bytes: [u8; 32] = hasher.finalize().into();
-    // SAFETY: It's safe to reinterpret 32 bytes as two consecutive 16 byte values
-    let data: (u128, u128) = unsafe { transmute(bytes) };
-    data.0 ^ data.1
+    // SAFETY: It's safe to reinterpret 32 bytes as one 256 bit number
+    let data: U256 = unsafe { transmute(bytes) };
+    data
 }
 
 // wgpu-biolerless
