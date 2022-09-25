@@ -6,13 +6,17 @@ use std::fs::File;
 use std::io::BufReader;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::{Arc, Mutex, RwLock};
-use tokio::io::AsyncWriteExt;
+use std::time::Duration;
+use arc_swap::ArcSwapOption;
+use tokio::task::JoinHandle;
+use crate::{current_time_millis, RWBytes};
 
 pub struct NetworkClient {
     // FIXME: Add keep alive stream
     endpoint: Endpoint,
     conn: RwLock<NewConnection>,
     bi_conn: (Mutex<SendStream>, Mutex<RecvStream>),
+    keep_alive_handler: ArcSwapOption<KeepAliveHandler>,
 }
 
 impl NetworkClient {
@@ -32,13 +36,15 @@ impl NetworkClient {
             endpoint,
             conn: RwLock::new(conn),
             bi_conn: (Mutex::new(send), Mutex::new(recv)),
+            keep_alive_handler: ArcSwapOption::empty(),
         })
     }
 
+    /*
     pub(crate) async fn flush(&self) -> anyhow::Result<()> {
         self.bi_conn.0.lock().unwrap().flush().await?;
         Ok(())
-    }
+    }*/
 
     pub async fn send_reliable(&self, buf: &BytesMut) -> anyhow::Result<()> {
         self.bi_conn.0.lock().unwrap().write_all(buf).await?;
@@ -76,6 +82,34 @@ impl NetworkClient {
         Ok(())
     }
 
+    pub async fn start_do_keep_alive(&self, interval: Duration) -> anyhow::Result<()> {
+        let stream = self.conn.write().unwrap().connection.open_bi().await?;
+        let handle = tokio::task::spawn(async move {
+            let mut interval = tokio::time::interval(interval);
+            loop {
+                self.send_keep_alive(KeepAlive {
+                    id: 0, // FIXME: choose an id that makes sense
+                    send_time: current_time_millis(),
+                });
+                interval.tick().await;
+            }
+        });
+        let handler = KeepAliveHandler {
+            stream: (Mutex::new(stream.0), Mutex::new(stream.1)),
+            timer: handle,
+        };
+        self.keep_alive_handler.store(Some(Arc::new(handler)));
+        Ok(())
+    }
+
+    async fn send_keep_alive(&self, data: KeepAlive) -> anyhow::Result<()> {
+        let mut send_data = BytesMut::with_capacity(8 + 8 + 4);
+        data.id.write(&mut send_data)?;
+        data.send_time.write(&mut send_data)?;
+        self.keep_alive_handler.load().as_ref().unwrap().stream.0.lock().unwrap().write_all(&send_data).await?;
+        Ok(())
+    }
+
     pub async fn read_unreliable(&self) -> anyhow::Result<Bytes> {
         // self.conn.write().unwrap().connection.
         todo!()
@@ -99,4 +133,14 @@ impl AddressMode {
 
 pub trait ToBytes {
     fn to_bytes(&self) -> Vec<u8>;
+}
+
+pub struct KeepAlive {
+    pub id: u64,
+    pub send_time: Duration,
+}
+
+struct KeepAliveHandler {
+    stream: (Mutex<SendStream>, Mutex<RecvStream>),
+    timer: JoinHandle<()>,
 }

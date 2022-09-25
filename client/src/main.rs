@@ -121,13 +121,23 @@ async fn main() -> anyhow::Result<()> {
         .await
         .unwrap(),
     )));
+    let profile = DbProfile::from_bytes(client.profile_db.iter().next().unwrap().unwrap().1).unwrap();
+    let priv_key = PKey::private_key_from_der(&profile.priv_key).unwrap();
+    let pub_key = priv_key.public_key_to_der()?;
     let auth_packet = ClientPacket::AuthRequest {
         protocol_version: PROTOCOL_VERSION,
-        pub_key: vec![],
-        name: "testeee".to_string(),
-        security_proofs: vec![/*U256::from(1234)*/],
-        signed_data: vec![],
+        pub_key,
+        name: profile.name,
+        security_proofs: profile.security_proofs,
+        signed_data: vec![], // FIXME: sign current time!
     };
+    /*let auth_packet = ClientPacket::AuthRequest {
+        protocol_version: PROTOCOL_VERSION,
+        pub_key: vec![],
+        name: "TESTING".to_string(),
+        security_proofs: vec![],
+        signed_data: vec![], // FIXME: sign current time!
+    };*/
     let mut buf = auth_packet.encode().unwrap();
     client
         .connection

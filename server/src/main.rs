@@ -35,6 +35,7 @@ use std::ops::Deref;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 use std::{fs, thread};
+use futures::StreamExt;
 use uuid::Uuid;
 
 mod certificate;
@@ -286,6 +287,13 @@ fn setup_network_server(config: &Config) -> anyhow::Result<NetworkServer> {
 }
 
 async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server<'_>>, error_handler: F) {
+    tokio::spawn(async move {
+        loop {
+            for conn in server.network_server.connections.iter() {
+                conn.read_reliable()
+            }
+        }
+    });
     let tmp_srv = server.clone();
     server
         .network_server
@@ -384,6 +392,7 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server<'_>>, error_handl
                         }
                         // FIXME: compare auth_id with the auth_id in our data base if this isn't the first login!
                         // FIXME: insert data send the proper data back!
+                        println!("{} ({:?}) successfully connected", name, uuid);
                         let channels = server.channels.load();
                         let channels = channels.values();
                         let server_groups = server.server_groups.load();
@@ -416,6 +425,13 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server<'_>>, error_handl
                         });
                         let encoded = auth.encode()?;
                         new_conn.send_reliable(&encoded).await?;
+                        let keep_alive_stream = {
+                            match new_conn.conn.write().unwrap().bi_streams.next().await {
+                                None => unreachable!(),
+                                Some(stream) => stream,
+                            }
+                        }?;
+                        new_conn.keep_alive_stream.store(Some(Arc::new((Mutex::new(keep_alive_stream.0), Mutex::new(keep_alive_stream.1)))));
                     } else {
                         let failure = ServerPacket::AuthResponse(AuthResponse::Failure(
                             AuthFailure::Invalid(Cow::from(

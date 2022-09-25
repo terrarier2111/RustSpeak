@@ -93,33 +93,37 @@ pub fn generate_token_num(req_level: u8, uuid: U256, pre_computed_tokens: &mut V
         return;
     }
     let mut next_lvl = pre_computed_tokens.len() as u8 + 1;
-    let mut curr_token = if let Some(last_token) = pre_computed_tokens.last() {
-        last_token.clone()
+    let mut curr_token = if !pre_computed_tokens.is_empty() {
+        let mut curr = uuid;
+        for token in pre_computed_tokens.iter() {
+            curr = hash_sha(curr ^ token);
+        }
+        curr
     } else {
         uuid
     };
     let mut lvl_diff = req_level - pre_computed_tokens.len();
     while lvl_diff > 0 {
         let new_lvl = compute_single_lvl(curr_token, next_lvl);
-        pre_computed_tokens.push(new_lvl);
+        pre_computed_tokens.push(new_lvl.0);
         next_lvl += 1;
         lvl_diff -= 1;
-        curr_token = new_lvl;
+        curr_token = new_lvl.1;
         println!("Found token level {}", next_lvl - 1);
     }
 }
 
-fn compute_single_lvl(base: U256, new_lvl: u8) -> U256 {
+fn compute_single_lvl(base: U256, new_lvl: u8) -> (U256, U256) {
     loop {
         let token = random::<[u8; 32]>();
         // SAFETY: It's safe to reinterpret 32 bytes as one 256 bit number
         let token = unsafe { transmute(token) };
-        // we first hash the base here in order to prevent the possibility to
+        // we hash the base and the token in order to prevent the possibility to
         // reverse the XOR operation we do
-        let base_hashed = hash_sha(base);
-        let security_level = security_level_num(base_hashed ^ token);
-        if security_level == new_lvl {
-            return token;
+        let combined = hash_sha(base ^ token); // FIXME: verify the safety of this!
+        let security_level = combined.leading_zeros()/*security_level_num(combined)*/;
+        if security_level as u8 == new_lvl {
+            return (token, combined);
         }
     }
 }

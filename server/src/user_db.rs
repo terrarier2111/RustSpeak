@@ -21,7 +21,14 @@ impl UserDb {
     pub fn get(&self, uuid: &UserUuid) -> anyhow::Result<Option<DbUser>> {
         Ok(match self.db.get(uuid)? {
             None => None,
-            Some(x) => Some(DbUser::from_bytes(x)?),
+            Some(x) => {
+                println!("size: {}", x.len());
+                if !x.is_empty() {
+                    Some(DbUser::from_bytes(x)?)
+                } else {
+                    None
+                }
+            },
         })
     }
 
@@ -47,6 +54,7 @@ impl DbUser {
         self.uuid.write(&mut buf)?;
         self.name.write(&mut buf)?;
         self.last_security_proof.write(&mut buf)?;
+        self.last_verified_security_level.write(&mut buf)?;
         self.groups.write(&mut buf)?;
         Ok(IVec::from(buf.to_vec()))
     }

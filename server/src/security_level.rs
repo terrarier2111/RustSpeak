@@ -57,7 +57,8 @@ pub fn verified_security_level(uuid: U256, hashes: Vec<U256>) -> Option<u8> {
         return Some(0);
     }
 
-    let initial_hash = hash_sha(uuid) ^ hashes[0];
+    /*
+    let initial_hash = hash_sha(uuid ^ hashes[0]);
 
     if security_level_num(initial_hash) != 1 {
         return None;
@@ -68,6 +69,19 @@ pub fn verified_security_level(uuid: U256, hashes: Vec<U256>) -> Option<u8> {
     for x in hashes.into_iter().skip(1).enumerate() {
         curr = hash_sha(curr ^ x.1);
         // verify that the expected amount of leading zeros is present
+        println!("expected zeros: {}", x.0 + 1);
+        if x.0 + 1 != curr.leading_zeros() as usize {
+            return None;
+        }
+    }*/
+    let hashes_len = hashes.len();
+
+    let mut curr = uuid;
+    for x in hashes.into_iter().enumerate() {
+        curr = hash_sha(curr ^ x.1);
+        // verify that the expected amount of leading zeros is present
+        // println!("expected zeros: {}", x.0 + 1);
+        // println!("found zeros: {}", curr.leading_zeros());
         if x.0 + 1 != curr.leading_zeros() as usize {
             return None;
         }
