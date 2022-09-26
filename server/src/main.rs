@@ -35,7 +35,11 @@ use std::ops::Deref;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 use std::{fs, thread};
+use std::future::Future;
+use std::task::{Context, Poll};
 use futures::StreamExt;
+use futures::task::noop_waker_ref;
+use tokio::join;
 use uuid::Uuid;
 
 mod certificate;
@@ -287,15 +291,22 @@ fn setup_network_server(config: &Config) -> anyhow::Result<NetworkServer> {
 }
 
 async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server<'_>>, error_handler: F) {
-    tokio::spawn(async move {
+    let tmp_srv = server.clone();
+    let f2 = async move {
+        let noop_waker = noop_waker_ref();
+        let mut noop_cx = Context::from_waker(noop_waker);
         loop {
-            for conn in server.network_server.connections.iter() {
-                conn.read_reliable()
+            for conn in tmp_srv.network_server.connections.iter() { // FIXME: this is probably a pretty stupid method of dealing with this!
+                let mut tmp = conn.read_packet.lock().unwrap();
+                match tmp.as_mut().unwrap().as_mut().poll(&mut noop_cx) {
+                    Poll::Ready(_) => {}
+                    Poll::Pending => {}
+                }
             }
         }
-    });
+    };
     let tmp_srv = server.clone();
-    server
+    let f1 = server
         .network_server
         .accept_connections(
             move |new_conn| {
@@ -447,16 +458,16 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server<'_>>, error_handl
                 }
             },
             error_handler,
-        )
-        .await;
+        );
+    join!(f1, f2); // FIXME: is this okay perf-wise?
 }
 
-pub struct Server<'a> {
+pub struct Server<'a> { // FIXME: remove this lifetime!
     // pub server_groups: DashMap<Uuid, ServerGroup>,
     pub server_groups: ArcSwap<HashMap<Uuid, Arc<ServerGroup<'a>>>>,
     pub channels: ArcSwap<HashMap<Uuid, Channel<'a>>>,
     pub online_users: DashMap<UserUuid, User<'a>>, // FIXME: add a timed cache for offline users
-    pub network_server: NetworkServer,
+    pub network_server: NetworkServer<'a>,
     pub config: Config, // FIXME: make this mutable somehow
     pub user_db: UserDb,
     pub channel_db: ChannelDb,
