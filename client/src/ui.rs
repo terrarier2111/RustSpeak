@@ -4,11 +4,15 @@ use crate::screen_sys::ScreenSystem;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use wgpu::{Sampler, Texture, TextureView};
+use wgpu_glyph::{BuiltInLineBreaker, Extra, Layout, Section, Text};
+use crate::Renderer;
 
 pub trait Component: Send + Sync {
     fn build_model(&self) -> Model;
 
     // fn is_inbounds(&self, pos: (f32, f32)) -> bool; // FIXME: is this one better?
+
+    fn do_render(&self, _renderer: &Arc<Renderer>) {}
 
     fn pos(&self) -> (f32, f32);
 
@@ -113,10 +117,11 @@ impl Container {
         });
     }
 
-    pub fn build_models(&self) -> Vec<Model> {
+    pub fn build_models(&self, renderer: &Arc<Renderer>) -> Vec<Model> {
         let mut models = vec![];
         for component in self.components.read().unwrap().iter() {
             models.push(component.build_model());
+            component.inner.inner.read().unwrap().do_render(renderer);
         }
         models
     }
@@ -223,4 +228,96 @@ impl Component for ColorBox {
     fn on_scroll(&mut self, _screen_sys: &Arc<ScreenSystem>) {}
 
     fn on_hover(&mut self, _screen_sys: &Arc<ScreenSystem>, _mode: HoverMode) {}
+}
+
+pub struct TextBox<'a> {
+    pub pos: (f32, f32),
+    pub width: f32,
+    pub height: f32,
+    pub coloring: Coloring<6>,
+    pub text: TextSection<'a>,
+}
+
+impl Component for TextBox<'_> {
+    fn build_model(&self) -> Model {
+        let (x_off, y_off) = ((2.0 * self.pos.0), (2.0 * self.pos.1));
+        let vertices = [
+            [-1.0 + x_off, -1.0 + y_off],
+            [2.0 * self.width - 1.0 + x_off, -1.0 + y_off],
+            [
+                2.0 * self.width - 1.0 + x_off,
+                2.0 * self.height - 1.0 + y_off,
+            ],
+            [-1.0 + x_off, -1.0 + y_off],
+            [-1.0 + x_off, 2.0 * self.height - 1.0 + y_off],
+            [
+                2.0 * self.width - 1.0 + x_off,
+                2.0 * self.height - 1.0 + y_off,
+            ],
+        ];
+        let vertices = match &self.coloring {
+            Coloring::Color(colors) => {
+                let mut ret = Vec::with_capacity(6);
+                for (i, pos) in vertices.into_iter().enumerate() {
+                    ret.push(Vertex::Color {
+                        pos,
+                        color: colors[i].into_array(),
+                    });
+                }
+                ret
+            }
+            Coloring::Tex(tex) => {
+                let mut ret = Vec::with_capacity(6);
+                for pos in vertices {
+                    ret.push(Vertex::Atlas {
+                        pos,
+                        alpha: 1.0, // FIXME: make this actually parameterized!
+                        uv: match &tex.ty {
+                            TexTy::Atlas(atlas) => atlas.uv().into_tuple(),
+                        },
+                    });
+                }
+                ret
+            }
+        };
+        Model {
+            vertices,
+            color_src: match &self.coloring {
+                Coloring::Color(_) => ColorSource::PerVert,
+                Coloring::Tex(tex) => match &tex.ty {
+                    TexTy::Atlas(atlas) => ColorSource::Atlas(atlas.atlas().clone()),
+                },
+            },
+        }
+    }
+
+    fn pos(&self) -> (f32, f32) {
+        self.pos
+    }
+
+    fn dims(&self) -> (f32, f32) {
+        (self.width, self.height)
+    }
+
+    fn on_click(&mut self, _screen_sys: &Arc<ScreenSystem>) {}
+
+    fn on_scroll(&mut self, _screen_sys: &Arc<ScreenSystem>) {}
+
+    fn on_hover(&mut self, _screen_sys: &Arc<ScreenSystem>, _mode: HoverMode) {}
+
+    fn do_render(&self, renderer: &Arc<Renderer>) {
+        renderer.queue_glyph(0, Section {
+            screen_position: ((self.pos.0 - 1.0) / 2.0, (self.pos.1 - 1.0) / 2.0),
+            bounds: (1.0, 1.0),
+            layout: self.text.layout,
+            text: self.text.text.clone(),
+        });
+    }
+}
+
+pub struct TextSection<'a, X = Extra> {
+    /// Built in layout, can be overridden with custom layout logic see queue_custom_layout
+    pub layout: Layout<BuiltInLineBreaker>,
+    /// Text to render, rendered next to one another according the layout.
+    pub text: Vec<Text<'a, X>>,
 }

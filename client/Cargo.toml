@@ -18,6 +18,7 @@ rustls = { version = "0.20.6", features = [ "dangerous_configuration", "quic" ] 
 # rendering/graphics
 wgpu = "0.13.1"
 wgpu-biolerless = { git = "https://github.com/terrarier2111/wgpu-boilerless", features = [ "winit" ] }
+wgpu_glyph = "0.17.0"
 winit = "0.27.2"
 
 # other utils
@@ -42,3 +43,4 @@ guillotiere = "0.6.2"
 arc-swap = "1.5.1"
 sled = "0.34.7"
 colored = "2.0.0"
+dashmap = "5.4.0"

@@ -330,7 +330,7 @@ impl ScreenSystem {
             let mut inner_screen = inner_screen.lock().unwrap();
             if inner_screen.is_tick_always() || screen.0 == len - 1 {
                 inner_screen.tick(self.clone(), renderer.clone(), delta);
-                let mut screen_models = inner_screen.container().build_models();
+                let mut screen_models = inner_screen.container().build_models(renderer);
                 models.append(&mut screen_models);
             }
         }

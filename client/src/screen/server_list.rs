@@ -1,8 +1,9 @@
 use crate::render::Renderer;
 use crate::screen_sys::Screen;
-use crate::ui::{Color, ColorBox, Coloring, Container};
+use crate::ui::{Color, ColorBox, Coloring, Container, TextBox, TextSection};
 use crate::ScreenSystem;
 use std::sync::{Arc, RwLock};
+use wgpu_glyph::Text;
 
 #[derive(Clone)]
 pub struct ServerList {
@@ -61,6 +62,51 @@ impl Screen for ServerList {
                     a: 1.0,
                 },
             ]),
+        }))));
+        self.container.add(Arc::new(RwLock::new(Box::new(TextBox {
+            pos: (0.0, 0.0),
+            width: 0.5,
+            height: 0.5,
+            coloring: Coloring::Color([
+                Color {
+                    r: 1.0,
+                    g: 1.0,
+                    b: 0.0,
+                    a: 0.2,
+                },
+                Color {
+                    r: 1.0,
+                    g: 0.0,
+                    b: 0.0,
+                    a: 0.2,
+                },
+                Color {
+                    r: 1.0,
+                    g: 0.0,
+                    b: 1.0,
+                    a: 0.2,
+                },
+                Color {
+                    r: 0.0,
+                    g: 1.0,
+                    b: 0.0,
+                    a: 0.2,
+                },
+                Color {
+                    r: 0.0,
+                    g: 1.0,
+                    b: 0.0,
+                    a: 0.2,
+                },
+                Color {
+                    r: 0.0,
+                    g: 1.0,
+                    b: 0.0,
+                    a: 0.2,
+                },
+            ]),
+            text: TextSection { layout: Default::default(), text: vec![Text::new("Test").with_color([1.0, 1.0, 1.0, 1.0])
+                .with_scale(40.0)] }
         }))));
     }
 

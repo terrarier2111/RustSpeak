@@ -56,7 +56,6 @@ mod cli;
 const RELATIVE_PROFILE_DB_PATH: &str = "user_db";
 
 // FIXME: can we even let tokio do this right here? do we have to run our event_loop on the main thread?
-
 #[tokio::main] // FIXME: is it okay to use tokio in the main thread already, don't we need it to do rendering stuff?
 async fn main() -> anyhow::Result<()> {
     let (cfg, profile_db) = load_data()?;
@@ -75,7 +74,7 @@ async fn main() -> anyhow::Result<()> {
         (1024, 1024),
         TextureFormat::Rgba8Uint,
     ));
-    let renderer = Arc::new(Renderer::new(state.clone(), &window));
+    let renderer = Arc::new(Renderer::new(state.clone(), &window)?);
     let screen_sys = Arc::new(ScreenSystem::new());
     screen_sys.push_screen(Box::new(ServerList::new()));
     let cli = CLIBuilder::new()
@@ -207,7 +206,7 @@ async fn main() -> anyhow::Result<()> {
         Event::RedrawRequested(_) => {
             // FIXME: perform redraw
             let models = screen_sys.tick(0.0, &renderer, &window);
-            renderer.render(models, atlas.clone())
+            renderer.render(models, atlas.clone());
         }
         Event::RedrawEventsCleared => {}
         Event::LoopDestroyed => {}
