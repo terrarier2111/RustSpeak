@@ -11,20 +11,21 @@ use std::future::Future;
 use std::mem::MaybeUninit;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};
 use std::time::Duration;
 use arc_swap::ArcSwapOption;
-use crate::RWBytes;
+use tokio::sync::Mutex;
+use crate::{ClientPacket, RWBytes, Server, UserUuid};
 use crate::utils::current_time_millis;
 
-pub struct NetworkServer<'a> {
+pub struct NetworkServer {
     pub endpoint: Endpoint,
     pub incoming: Mutex<Incoming>,
-    pub connections: DashMap<usize, Arc<ClientConnection<'a>>>,
+    pub connections: DashMap<usize, Arc<ClientConnection>>,
 }
 
-impl NetworkServer<'_> {
+impl NetworkServer {
     pub fn new(
         port: u16,
         idle_timeout_millis: u32,
@@ -53,8 +54,9 @@ impl NetworkServer<'_> {
         &self,
         handler: F,
         error_handler: E,
+        server: Arc<Server>,
     ) {
-        'server: while let Some(conn) = self.incoming.lock().unwrap().next().await {
+        'server: while let Some(conn) = self.incoming.lock().await.next().await {
             // FIXME: here we are holding on a mutex across await boundaries
             let mut connection = match conn.await {
                 Ok(val) => val,
@@ -76,7 +78,7 @@ impl NetworkServer<'_> {
                 }
             };
             let id = connection.connection.stable_id();
-            let client_conn = match ClientConnection::new(connection, initial_stream).await {
+            let client_conn = match ClientConnection::new(server.clone(), connection, initial_stream).await {
                 Ok(val) => Arc::new(val),
                 Err(err) => {
                     error_handler(anyhow::Error::from(err));
@@ -93,126 +95,108 @@ impl NetworkServer<'_> {
     }
 }
 
-struct ReadPacket<'a> {
-    conn: Arc<ClientConnection<'a>>,
-    read_future: Pin<Box<ReadReliable<'a>>>, // FIXME: maybe add the possibility to reuse this allocation by providing a `reset` method on relevant structs
-    payload: bool,
-}
-
-impl ReadPacket<'_> {
-    fn new(conn: Arc<ClientConnection>) -> Self {
-        let size_future = conn.read_reliable(8);
-        Self {
-            conn,
-            read_future: Box::pin(size_future),
-            payload: false,
-        }
-    }
-}
-
-impl Future for ReadPacket<'_> {
-    type Output = anyhow::Result<Bytes>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut this = self.as_mut();
-        match this.read_future.as_mut().poll(cx) {
-            Poll::Ready(result) => {
-                match result {
-                    Ok(mut buf) => {
-                        if this.payload {
-                            Poll::Ready(Ok(buf))
-                        } else {
-                            // we got the size, now we can read the payload
-                            this.payload = true;
-                            this.read_future = Box::pin(this.conn.read_reliable(buf.get_u64_le() as usize));
-                            this.poll(cx)
-                        }
-                    },
-                    Err(err) => Poll::Ready(Err(err)),
-                }
-            }
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-
-pub struct ReadReliable<'a> {
-    buf: Option<Box<[u8]>>,
-    // fut: Pin<Box<dyn Future<Output = Result<(), ReadExactError>> + Send>>,
-    fut: Pin<Box<ReadExact<'a>>>,
-}
-
-impl Future for ReadReliable<'_> {
-    type Output = anyhow::Result<Bytes>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut this = self.as_mut();
-        match this.fut.as_mut().poll(cx) {
-            Poll::Ready(maybe_err) => {
-                match maybe_err {
-                    Ok(_) => Poll::Ready(Ok(Bytes::from(this.buf.take().unwrap()))),
-                    Err(err) => Poll::Ready(Err(anyhow::Error::from(err))),
-                }
-            }
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-
-pub struct ClientConnection<'a> {
+pub struct ClientConnection {
+    pub uuid: ArcSwapOption<UserUuid>,
     pub conn: RwLock<NewConnection>,
     pub default_stream: (Mutex<SendStream>, Mutex<RecvStream>),
     pub keep_alive_stream: ArcSwapOption<(Mutex<SendStream>, Mutex<RecvStream>)>,
-    pub read_packet: Mutex<Option<Pin<Box<ReadPacket<'a>>>>>,
-    // FIXME: save read future in here and complete it further and further (but only if we already got a size)
+    server: Arc<Server>,
+    stable_id: usize,
     // FIXME: cache buffers in order to avoid performance penalty for allocating new ones
 }
 
-impl<'a> ClientConnection<'a> {
-    async fn new(conn: NewConnection, bi_conn: (SendStream, RecvStream)) -> anyhow::Result<ClientConnection<'a>> {
+impl ClientConnection {
+    async fn new(server: Arc<Server>, conn: NewConnection, bi_conn: (SendStream, RecvStream)) -> anyhow::Result<ClientConnection> {
         let (send, recv) = bi_conn;
+        let stable_id = conn.connection.stable_id();
         Ok(Self {
+            uuid: ArcSwapOption::empty(),
             conn: RwLock::new(conn),
             default_stream: (Mutex::new(send), Mutex::new(recv)),
             keep_alive_stream: ArcSwapOption::empty(),
-            read_packet: Mutex::new(None),
+            server,
+            stable_id,
         })
     }
 
+    pub async fn start_read(self: &Arc<Self>) {
+        let this = self.clone();
+        tokio::spawn(async move { // FIXME: is this okay perf-wise?
+            let this = this.clone();
+            'end: loop {
+                match this.read_keep_alive().await {
+                    Ok(keep_alive) => {
+                        // FIXME: use the keep alive!
+                        println!("got keep alive: {}", keep_alive.id);
+                    }
+                    Err(_err) => {
+                        // FIXME: somehow give feedback to server console and to client
+                        this.close().await;
+                        break 'end;
+                    }
+                }
+            }
+        });
+
+        let this = self.clone();
+        let server = self.server.clone();
+        tokio::spawn(async move { // FIXME: is this okay perf-wise?
+            let server = server.clone();
+            let this = this.clone();
+            'end: loop {
+                match this.read_reliable(8).await {
+                    Ok(mut size) => {
+                        println!("got packet header!");
+                        let size = size.get_u64_le();
+                        let mut payload = match this.read_reliable(size as usize).await {
+                            Ok(payload) => payload,
+                            Err(_err) => {
+                                // FIXME: somehow give feedback to server console and to client
+                                this.close().await;
+                                break 'end;
+                            }
+                        };
+                        let packet = ClientPacket::read(&mut payload, None); // FIXME: provide client key!
+                        match packet {
+                            Ok(packet) => {
+                                handle_packet(packet, &server, &this);
+                            }
+                            Err(_err) => {
+                                // FIXME: somehow give feedback to server console and to client
+                                this.close().await;
+                                break 'end;
+                            }
+                        }
+                    }
+                    Err(_err) => {
+                        // FIXME: somehow give feedback to server console and to client
+                        this.close().await;
+                        break 'end;
+                    }
+                }
+            }
+        });
+
+
+        /*
+
+        */
+    }
+
     pub async fn send_reliable(&self, buf: &BytesMut) -> anyhow::Result<()> {
-        self.default_stream.0.lock().unwrap().write_all(buf).await?;
+        self.default_stream.0.lock().await.write_all(buf).await?;
         Ok(())
     }
 
-    /*
     pub async fn read_reliable(&self, size: usize) -> anyhow::Result<Bytes> {
         // SAFETY: This is safe because 0 is a valid value for u8
         let mut buf = unsafe { Box::new_zeroed_slice(size).assume_init() };
-        self.default_stream.1.lock().unwrap().read_exact(&mut buf).await?;
+        self.default_stream.1.lock().await.read_exact(&mut buf).await?;
         Ok(Bytes::from(buf))
-    }*/
-
-    pub fn read_reliable(&self, size: usize) -> ReadReliable<'_> {
-        // SAFETY: This is safe because 0 is a valid value for u8
-        let mut buf = unsafe { Box::new_zeroed_slice(size).assume_init() };
-        let mut tmp = self.default_stream.1.lock().unwrap();
-        let fut = tmp.read_exact(&mut buf);
-        ReadReliable {
-            buf: Some(buf),
-            fut: Box::pin(fut),
-        }
     }
 
-    /*
-    pub fn try_read_reliable(&self, size: usize) -> anyhow::Result<Option<Bytes>> {
-        // SAFETY: This is safe because 0 is a valid value for u8
-        let mut buf = unsafe { Box::new_zeroed_slice(size).assume_init() };
-        self.default_stream.1.lock().unwrap().read_exact(&mut buf).await?;
-        Ok(Some(Bytes::from(buf)))
-    }*/
-
     pub async fn read_reliable_into(&self, buf: &mut BytesMut) -> anyhow::Result<()> {
-        self.default_stream.1.lock().unwrap().read_exact(buf).await?;
+        self.default_stream.1.lock().await.read_exact(buf).await?;
         Ok(())
     }
 
@@ -225,13 +209,13 @@ impl<'a> ClientConnection<'a> {
         let mut send_data = BytesMut::with_capacity(8 + 8 + 4);
         data.id.write(&mut send_data)?;
         data.send_time.write(&mut send_data)?;
-        self.keep_alive_stream.load().as_ref().unwrap().0.lock().unwrap().write_all(&send_data).await?;
+        self.keep_alive_stream.load().as_ref().unwrap().0.lock().await.write_all(&send_data).await?;
         Ok(())
     }
 
-    pub async fn read_keep_alive(&self) -> anyhow::Result<Option<KeepAlive>> {
+    pub async fn read_keep_alive(&self) -> anyhow::Result<KeepAlive> {
         let mut buf = [0; 8 + 8 + 4]; // FIXME: use a cached buffer in order to avoid reallocation
-        self.keep_alive_stream.load().as_ref().unwrap().1.lock().unwrap().read_exact(&mut buf).await?;
+        self.keep_alive_stream.load().as_ref().unwrap().1.lock().await.read_exact(&mut buf).await?;
         let mut buf = Bytes::from(buf.to_vec());
 
         let ret = KeepAlive {
@@ -245,23 +229,30 @@ impl<'a> ClientConnection<'a> {
         self.send_keep_alive(KeepAlive {
             id: ret.id,
             send_time: curr,
-        });
+        }).await?;
 
-        Ok(Some(ret))
+        Ok(ret)
     }
 
     pub async fn close(&self) -> anyhow::Result<()> {
+        self.finish_up();
         self.close_with(0, &[]).await
     }
 
     pub async fn close_with(&self, err_code: u32, reason: &[u8]) -> anyhow::Result<()> {
-        self.default_stream.0.lock().unwrap().finish().await?;
+        self.finish_up();
+        self.default_stream.0.lock().await.finish().await?;
         self.conn
             .write()
             .unwrap()
             .connection
             .close(VarInt::from_u32(err_code), reason);
         Ok(())
+    }
+
+    fn finish_up(&self) {
+        self.server.network_server.connections.remove(&self.stable_id);
+        self.server.online_users.remove(self.uuid.load().as_ref().unwrap());
     }
 }
 
@@ -283,4 +274,17 @@ impl AddressMode {
 pub struct KeepAlive {
     pub id: u64,
     pub send_time: Duration,
+}
+
+pub fn handle_packet(packet: ClientPacket, server: &Arc<Server>, client: &Arc<ClientConnection>) {
+    match packet {
+        ClientPacket::AuthRequest { .. } => unreachable!(),
+        ClientPacket::Disconnect => {
+            server.online_users.remove(client.uuid.load().as_ref().unwrap()); // FIXME: verify that this can't be received before AuthRequest is handled!
+        }
+        ClientPacket::KeepAlive { .. } => {
+
+        }
+        ClientPacket::UpdateClientServerGroups { .. } => {}
+    }
 }

@@ -8,7 +8,7 @@ use crate::cli::{
     CommandParam, CommandParamTy, UsageBuilder,
 };
 use crate::config::Config;
-use crate::network::NetworkServer;
+use crate::network::{handle_packet, NetworkServer};
 use crate::packet::{
     AuthFailure, AuthResponse, Channel, ChannelCreatePerms, ChannelPerms, ClientPacket,
     RemoteProfile, ServerGroup, ServerGroupPerms, ServerPacket,
@@ -37,9 +37,9 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::{fs, thread};
 use std::future::Future;
 use std::task::{Context, Poll};
-use futures::StreamExt;
+use futures::{FutureExt, StreamExt};
 use futures::task::noop_waker_ref;
-use tokio::join;
+use tokio::{join, select};
 use uuid::Uuid;
 
 mod certificate;
@@ -109,8 +109,8 @@ async fn main() -> anyhow::Result<()> {
         .map(|entry| Channel {
             uuid: Uuid::from_u128(entry.id),
             password: AtomicBool::new(entry.password),
-            name: Arc::new(RwLock::new(entry.name)),
-            desc: Arc::new(RwLock::new(entry.desc)),
+            name: Arc::new(RwLock::new(entry.name.to_string())),
+            desc: Arc::new(RwLock::new(entry.desc.to_string())),
             perms: Arc::new(RwLock::new(entry.perms)),
             clients: Arc::new(Default::default()),
             proto_clients: Arc::new(Default::default()),
@@ -182,7 +182,7 @@ async fn main() -> anyhow::Result<()> {
         .into_iter()
         .map(|server_group| ServerGroup {
             uuid: Uuid::from_u128(server_group.uuid),
-            name: Cow::Owned(server_group.name.to_string()),
+            name: server_group.name.to_string(),
             priority: 0,
             perms: ServerGroupPerms {
                 server_group_assign: 0,
@@ -236,7 +236,7 @@ async fn main() -> anyhow::Result<()> {
             CommandBuilder::new()
                 .name("user")
                 .params(UsageBuilder::new().required(CommandParam {
-                    name: "user",
+                    name: "user".to_string(),
                     ty: CommandParamTy::String(CmdParamStrConstraints::None),
                 }))
                 .cmd_impl(Box::new(CommandUser())),
@@ -290,23 +290,9 @@ fn setup_network_server(config: &Config) -> anyhow::Result<NetworkServer> {
     )
 }
 
-async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server<'_>>, error_handler: F) {
+async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: F) {
     let tmp_srv = server.clone();
-    let f2 = async move {
-        let noop_waker = noop_waker_ref();
-        let mut noop_cx = Context::from_waker(noop_waker);
-        loop {
-            for conn in tmp_srv.network_server.connections.iter() { // FIXME: this is probably a pretty stupid method of dealing with this!
-                let mut tmp = conn.read_packet.lock().unwrap();
-                match tmp.as_mut().unwrap().as_mut().poll(&mut noop_cx) {
-                    Poll::Ready(_) => {}
-                    Poll::Pending => {}
-                }
-            }
-        }
-    };
-    let tmp_srv = server.clone();
-    let f1 = server
+    server
         .network_server
         .accept_connections(
             move |new_conn| {
@@ -359,10 +345,10 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server<'_>>, error_handl
                         let uuid = UserUuid::from_u256(U256::from_le_bytes(sha256(&pub_key)));
                         let last_security_proof = security_proofs.last().copied();
                         let security_proof_result = if let Some(level) =
-                            security_level::verified_security_level(
-                                uuid.into_u256(),
-                                security_proofs,
-                            ) {
+                        security_level::verified_security_level(
+                            uuid.into_u256(),
+                            security_proofs,
+                        ) {
                             level
                         } else {
                             let failure = ServerPacket::AuthResponse(AuthResponse::Failure(
@@ -403,6 +389,7 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server<'_>>, error_handl
                         }
                         // FIXME: compare auth_id with the auth_id in our data base if this isn't the first login!
                         // FIXME: insert data send the proper data back!
+                        new_conn.uuid.store(Some(Arc::new(uuid)));
                         println!("{} ({:?}) successfully connected", name, uuid);
                         let channels = server.channels.load();
                         let channels = channels.values();
@@ -442,7 +429,8 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server<'_>>, error_handl
                                 Some(stream) => stream,
                             }
                         }?;
-                        new_conn.keep_alive_stream.store(Some(Arc::new((Mutex::new(keep_alive_stream.0), Mutex::new(keep_alive_stream.1)))));
+                        new_conn.keep_alive_stream.store(Some(Arc::new((tokio::sync::Mutex::new(keep_alive_stream.0), tokio::sync::Mutex::new(keep_alive_stream.1)))));
+                        new_conn.start_read().await;
                     } else {
                         let failure = ServerPacket::AuthResponse(AuthResponse::Failure(
                             AuthFailure::Invalid(Cow::from(
@@ -457,27 +445,26 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server<'_>>, error_handl
                     Ok(())
                 }
             },
-            error_handler,
-        );
-    join!(f1, f2); // FIXME: is this okay perf-wise?
+            error_handler, server.clone(),
+        ).await // FIXME: is this okay perf-wise?
 }
 
-pub struct Server<'a> { // FIXME: remove this lifetime!
+pub struct Server {
     // pub server_groups: DashMap<Uuid, ServerGroup>,
-    pub server_groups: ArcSwap<HashMap<Uuid, Arc<ServerGroup<'a>>>>,
-    pub channels: ArcSwap<HashMap<Uuid, Channel<'a>>>,
-    pub online_users: DashMap<UserUuid, User<'a>>, // FIXME: add a timed cache for offline users
-    pub network_server: NetworkServer<'a>,
+    pub server_groups: ArcSwap<HashMap<Uuid, Arc<ServerGroup>>>,
+    pub channels: ArcSwap<HashMap<Uuid, Channel>>,
+    pub online_users: DashMap<UserUuid, User>, // FIXME: add a timed cache for offline users
+    pub network_server: NetworkServer,
     pub config: Config, // FIXME: make this mutable somehow
     pub user_db: UserDb,
     pub channel_db: ChannelDb,
     pub server_group_db: ServerGroupDb,
-    pub cli: CommandLineInterface<'a>,
+    pub cli: CommandLineInterface,
 }
 
-pub struct User<'a> {
+pub struct User {
     pub uuid: UserUuid,
-    pub name: RwLock<Cow<'a, str>>,
+    pub name: RwLock<String>,
     pub last_security_proof: U256,
     pub last_verified_security_level: u8,
     pub groups: RwLock<Vec<Uuid>>,
@@ -574,7 +561,7 @@ impl Error for ErrorAuthLowSecProof {}
 struct CommandHelp();
 
 impl CommandImpl for CommandHelp {
-    fn execute(&self, server: &Arc<Server<'_>>, _input: &[&str]) -> anyhow::Result<()> {
+    fn execute(&self, server: &Arc<Server>, _input: &[&str]) -> anyhow::Result<()> {
         let cmds = server.cli.cmds();
         println!("Commands ({}):", cmds.len());
         for cmd in cmds {
@@ -583,7 +570,7 @@ impl CommandImpl for CommandHelp {
                 for param in usage.required() {
                     ret_usage.push(' ');
                     ret_usage.push('[');
-                    ret_usage.push_str(param.name);
+                    ret_usage.push_str(&*param.name);
                     let mut ty = String::new();
                     ty.push('(');
                     ty.push_str(param.ty.as_str());
@@ -610,7 +597,7 @@ impl CommandImpl for CommandHelp {
 struct CommandShutdown();
 
 impl CommandImpl for CommandShutdown {
-    fn execute(&self, server: &Arc<Server<'_>>, input: &[&str]) -> anyhow::Result<()> {
+    fn execute(&self, server: &Arc<Server>, input: &[&str]) -> anyhow::Result<()> {
         todo!()
     }
 }
@@ -618,7 +605,7 @@ impl CommandImpl for CommandShutdown {
 struct CommandUser();
 
 impl CommandImpl for CommandUser {
-    fn execute(&self, server: &Arc<Server<'_>>, input: &[&str]) -> anyhow::Result<()> {
+    fn execute(&self, server: &Arc<Server>, input: &[&str]) -> anyhow::Result<()> {
         todo!()
     }
 }
@@ -626,7 +613,7 @@ impl CommandImpl for CommandUser {
 struct CommandOnlineUsers();
 
 impl CommandImpl for CommandOnlineUsers {
-    fn execute(&self, server: &Arc<Server<'_>>, _input: &[&str]) -> anyhow::Result<()> {
+    fn execute(&self, server: &Arc<Server>, _input: &[&str]) -> anyhow::Result<()> {
         // FIXME: add groups printing support!
         println!("There are {} users online:", server.online_users.len());
         println!("Name   UUID   SecLevel");

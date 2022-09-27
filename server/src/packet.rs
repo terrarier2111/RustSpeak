@@ -30,8 +30,8 @@ const PRIVATE_KEY_LEN_BITS: u32 = 4096;
 pub enum ServerPacket<'a> {
     AuthResponse(AuthResponse<'a>),
     ChannelUpdate(ChannelUpdate<'a>),
-    ClientConnected(RemoteProfile<'a>),
-    ClientDisconnected(RemoteProfile<'a>),
+    ClientConnected(RemoteProfile),
+    ClientDisconnected(RemoteProfile),
     ClientUpdateServerGroups {
         client: UserUuid,
         update: ClientUpdateServerGroups,
@@ -50,6 +50,7 @@ pub enum ServerPacket<'a> {
 pub enum ClientPacket {
     AuthRequest {
         protocol_version: u64,
+        // auth_kind: ,
         pub_key: Vec<u8>, // the public key of the client which gets later hashed to get it's id
         name: String,
         security_proofs: Vec<U256>, // TODO: add comment
@@ -268,9 +269,15 @@ where
     }
 }
 
+#[derive(Ordinal, Copy, Clone)]
+pub enum AuthKind {
+    Text, // Text connection
+    Full, // Voice and text connection
+}
+
 #[derive(Ordinal)]
 pub enum ChannelUpdate<'a> {
-    Create(Channel<'a>),
+    Create(Channel),
     SubUpdate {
         channel: Uuid,
         update: ChannelSubUpdate<'a>,
@@ -468,17 +475,17 @@ impl RWBytes for ClientUpdateServerGroups {
     }
 }
 
-pub struct RemoteProfile<'a> {
-    pub name: Cow<'a, String>,
+pub struct RemoteProfile {
+    pub name: String,
     pub uuid: UserUuid,
     pub server_groups: Vec<Uuid>,
 }
 
-impl RWBytes for RemoteProfile<'_> {
+impl RWBytes for RemoteProfile {
     type Ty = Self;
 
     fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
-        let name = Cow::<String>::read(src, client_key)?;
+        let name = String::read(src, client_key)?;
         let uuid = UserUuid::read(src, client_key)?;
         let server_groups = Vec::<Uuid>::read(src, client_key)?;
 
@@ -498,19 +505,19 @@ impl RWBytes for RemoteProfile<'_> {
     }
 }
 
-pub struct Channel<'a> {
+pub struct Channel {
     pub uuid: Uuid,
     pub password: AtomicBool,
     // pub hide_users_if_pw: AtomicBool, // FIXME: add capability to hide users if a password is set
-    pub name: Arc<RwLock<Cow<'a, str>>>,
-    pub desc: Arc<RwLock<Cow<'a, str>>>,
+    pub name: Arc<RwLock<String>>,
+    pub desc: Arc<RwLock<String>>,
     pub perms: Arc<RwLock<ChannelPerms>>,
     pub clients: Arc<RwLock<Vec<UserUuid>>>,
-    pub proto_clients: Arc<RwLock<Vec<RemoteProfile<'a>>>>,
+    pub proto_clients: Arc<RwLock<Vec<RemoteProfile>>>, // FIXME: is it worth making RemoteProfiles ref-counted?
 }
 
 // FIXME: use Arc<Channel<'_>> so that we don't need a clone impl for Channel<'_>
-impl Clone for Channel<'_> {
+impl Clone for Channel {
     fn clone(&self) -> Self {
         Self {
             uuid: self.uuid,
@@ -524,14 +531,14 @@ impl Clone for Channel<'_> {
     }
 }
 
-impl RWBytes for Channel<'_> {
+impl RWBytes for Channel {
     type Ty = Self;
 
     fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
         let uuid = Uuid::read(src, client_key)?;
         let password = AtomicBool::new(bool::read(src, client_key)?);
-        let name = Arc::new(RwLock::new(Cow::<str>::read(src, client_key)?));
-        let desc = Arc::new(RwLock::new(Cow::<str>::read(src, client_key)?));
+        let name = Arc::new(RwLock::new(String::read(src, client_key)?));
+        let desc = Arc::new(RwLock::new(String::read(src, client_key)?));
         let perms = Arc::new(RwLock::new(ChannelPerms::read(src, client_key)?));
         let clients = Arc::new(RwLock::new(Vec::<RemoteProfile>::read(src, client_key)?));
 
@@ -608,19 +615,19 @@ impl RWBytes for ChannelPerms {
 }
 
 #[derive(Clone)]
-pub struct ServerGroup<'a> {
+pub struct ServerGroup {
     pub uuid: Uuid,
-    pub name: Cow<'a, String>,
+    pub name: String,
     pub priority: u64,
     pub perms: ServerGroupPerms,
 }
 
-impl RWBytes for ServerGroup<'_> {
+impl RWBytes for ServerGroup {
     type Ty = Self;
 
     fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
         let uuid = Uuid::read(src, client_key)?;
-        let name = Cow::<String>::read(src, client_key)?;
+        let name = String::read(src, client_key)?;
         let priority = u64::read(src, client_key)?;
         let perms = ServerGroupPerms::read(src, client_key)?;
 
@@ -741,11 +748,11 @@ impl RWBytes for ChannelCreatePerms {
 pub enum AuthResponse<'a> {
     Success {
         // server_groups: Cow<'a, dyn Into<dyn ExactSizeIterator<Item = &'a ServerGroup>>>,
-        server_groups: Vec<Arc<ServerGroup<'a>>>,
+        server_groups: Vec<Arc<ServerGroup>>,
         own_groups: Vec<Uuid>,
         // channels: RefCell<Box<dyn ExactSizeIterator<Item = &'a Channel<'a>>>>,
         // channels: Cow<'a, dyn Into<dyn ExactSizeIterator<Item = &'a Channel>>>,
-        channels: Vec<Channel<'a>>,
+        channels: Vec<Channel>,
     },
     Failure(AuthFailure<'a>),
 }

@@ -147,6 +147,13 @@ async fn main() -> anyhow::Result<()> {
         .send_reliable(&mut buf)
         .await
         .unwrap();
+    client
+        .connection
+        .load()
+        .as_ref()
+        .unwrap().start_do_keep_alive(Duration::from_millis(250), |err| {
+        panic!("{}", err)
+    }).await.unwrap();
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::NewEvents(_) => {}
