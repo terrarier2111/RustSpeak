@@ -1,7 +1,7 @@
 use crate::render::Renderer;
 use crate::screen_sys::Screen;
 use crate::ui::{Color, ColorBox, Coloring, Container, TextBox, TextSection};
-use crate::ScreenSystem;
+use crate::{Client, ScreenSystem};
 use std::sync::{Arc, RwLock};
 use wgpu_glyph::Text;
 
@@ -18,9 +18,15 @@ impl ServerList {
     }
 }
 
+const ENTRIES_ON_PAGE: usize = 12;
+
 impl Screen for ServerList {
-    fn on_active(&mut self, screen_sys: Arc<ScreenSystem>, renderer: Arc<Renderer>) {
-        self.container.add(Arc::new(RwLock::new(Box::new(ColorBox {
+    fn on_active(&mut self, client: &Arc<Client>) {
+        let entry_offset = 1.0 / ENTRIES_ON_PAGE as f32;
+        for entry in client.config.fav_servers.iter() {
+            // self.container.add();
+        }
+        /*self.container.add(Arc::new(RwLock::new(Box::new(ColorBox {
             pos: (0.25, 0.25),
             width: 0.5,
             height: 0.5,
@@ -105,14 +111,14 @@ impl Screen for ServerList {
                     a: 0.2,
                 },
             ]),
-            text: TextSection { layout: Default::default(), text: vec![Text::new("Test").with_color([1.0, 1.0, 1.0, 1.0])
-                .with_scale(40.0)] }
-        }))));
+            text: TextSection { layout: Default::default(), text: vec![Text::new("Teste").with_color([1.0, 1.0, 1.0, 1.0])
+                .with_scale(500.0)] }
+        }))));*/
     }
 
-    fn on_deactive(&mut self, screen_sys: Arc<ScreenSystem>, renderer: Arc<Renderer>) {}
+    fn on_deactive(&mut self, _client: &Arc<Client>) {}
 
-    fn tick(&mut self, screen_sys: Arc<ScreenSystem>, renderer: Arc<Renderer>, delta: f64) {}
+    fn tick(&mut self, _client: &Arc<Client>, delta: f64) {}
 
     fn container(&self) -> &Arc<Container> {
         &self.container

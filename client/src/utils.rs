@@ -11,6 +11,13 @@ pub const LIGHT_GRAY: Color = Color::TrueColor {
     b: 153,
 };
 
+pub const DARK_GRAY: wgpu::Color = wgpu::Color {
+    r: 0.384,
+    g: 0.396,
+    b: 0.412,
+    a: 1.0,
+};
+
 pub fn current_time_millis() -> Duration {
     let start = SystemTime::now();
     let since_the_epoch = start

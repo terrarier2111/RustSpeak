@@ -40,4 +40,5 @@ impl Config {
 pub struct ServerEntry {
     pub name: String, // FIXME: should we use Cow?
     pub addr: SocketAddr,
+    // FIXME: we need a favicon (image) for each server image
 }

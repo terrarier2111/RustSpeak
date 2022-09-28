@@ -17,6 +17,7 @@ use wgpu_biolerless::{
 };
 use wgpu_glyph::{ab_glyph, GlyphBrush, GlyphBrushBuilder, Section};
 use winit::window::Window;
+use crate::utils::DARK_GRAY;
 
 pub struct Renderer {
     pub state: Arc<State>,
@@ -112,7 +113,7 @@ impl Renderer {
                             view: &view,
                             resolve_target: None,
                             ops: Operations {
-                                load: LoadOp::Clear(Color::RED),
+                                load: LoadOp::Clear(DARK_GRAY),
                                 store: true,
                             },
                         })];

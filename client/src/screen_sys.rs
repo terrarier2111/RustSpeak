@@ -20,25 +20,26 @@ use std::sync::{Arc, Mutex, RwLock};
 use winit::dpi::{PhysicalPosition, Position};
 use winit::event::VirtualKeyCode;
 use winit::window::Window;
+use crate::Client;
 
 pub trait Screen: Send + Sync {
     // Called once
-    fn init(&mut self, _screen_sys: Arc<ScreenSystem>, _renderer: Arc<Renderer>) {}
-    fn deinit(&mut self, _screen_sys: Arc<ScreenSystem>, _renderer: Arc<Renderer>) {}
+    fn init(&mut self, _client: &Arc<Client>) {}
+    fn deinit(&mut self, _client: &Arc<Client>) {}
 
     // May be called multiple times
-    fn on_active(&mut self, screen_sys: Arc<ScreenSystem>, renderer: Arc<Renderer>);
-    fn on_deactive(&mut self, screen_sys: Arc<ScreenSystem>, renderer: Arc<Renderer>);
+    fn on_active(&mut self, _client: &Arc<Client>);
+    fn on_deactive(&mut self, _client: &Arc<Client>);
 
     // Called every frame the screen is active
-    fn tick(&mut self, screen_sys: Arc<ScreenSystem>, renderer: Arc<Renderer>, delta: f64);
+    fn tick(&mut self, _client: &Arc<Client>, delta: f64);
 
     // Events
     fn on_scroll(&mut self, _x: f64, _y: f64) {}
 
-    fn on_resize(&mut self, _screen_sys: Arc<ScreenSystem>, _renderer: Arc<Renderer>) {} // TODO: make non-optional!
+    fn on_resize(&mut self, _client: &Arc<Client>) {} // TODO: make non-optional!
 
-    fn on_key_press(&mut self, screen_sys: Arc<ScreenSystem>, key: VirtualKeyCode, down: bool) {
+    fn on_key_press(&mut self, screen_sys: &Arc<ScreenSystem>, key: VirtualKeyCode, down: bool) {
         if key == VirtualKeyCode::Escape && !down && self.is_closable() {
             screen_sys.pop_screen();
         }
@@ -190,7 +191,7 @@ impl ScreenSystem {
         }
     }
 
-    pub fn press_key(self: Arc<Self>, key: VirtualKeyCode, down: bool) {
+    pub fn press_key(self: &Arc<Self>, key: VirtualKeyCode, down: bool) {
         if let Some(screen) = self.screens.clone().read().unwrap().last() {
             screen
                 .screen

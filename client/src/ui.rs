@@ -3,6 +3,7 @@ use crate::render::{ColorSource, Model, TexTriple, TexTy, Vertex};
 use crate::screen_sys::ScreenSystem;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
+use fontdue::{Font, FontSettings};
 use wgpu::{Sampler, Texture, TextureView};
 use wgpu_glyph::{BuiltInLineBreaker, Extra, Layout, Section, Text};
 use crate::Renderer;
@@ -291,6 +292,16 @@ impl Component for TextBox<'_> {
         }
     }
 
+    fn do_render(&self, renderer: &Arc<Renderer>) {
+        let (width, height) = renderer.dimensions.get();
+        renderer.queue_glyph(0, Section {
+            screen_position: (self.pos.0 * width as f32/*(self.pos.0 - 1.0) / 2.0*/, self.pos.1 * height as f32/*(self.pos.1 - 1.0) / 2.0*/),
+            bounds: (width as f32, height as f32),
+            layout: self.text.layout,
+            text: self.text.text.clone(),
+        });
+    }
+
     fn pos(&self) -> (f32, f32) {
         self.pos
     }
@@ -304,15 +315,6 @@ impl Component for TextBox<'_> {
     fn on_scroll(&mut self, _screen_sys: &Arc<ScreenSystem>) {}
 
     fn on_hover(&mut self, _screen_sys: &Arc<ScreenSystem>, _mode: HoverMode) {}
-
-    fn do_render(&self, renderer: &Arc<Renderer>) {
-        renderer.queue_glyph(0, Section {
-            screen_position: ((self.pos.0 - 1.0) / 2.0, (self.pos.1 - 1.0) / 2.0),
-            bounds: (1.0, 1.0),
-            layout: self.text.layout,
-            text: self.text.text.clone(),
-        });
-    }
 }
 
 pub struct TextSection<'a, X = Extra> {

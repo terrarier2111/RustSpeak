@@ -251,8 +251,10 @@ impl ClientConnection {
     }
 
     fn finish_up(&self) {
-        self.server.network_server.connections.remove(&self.stable_id);
-        self.server.online_users.remove(self.uuid.load().as_ref().unwrap());
+        if let Some(uuid) = self.uuid.load().as_ref() {
+            self.server.network_server.connections.remove(&self.stable_id);
+            self.server.online_users.remove(uuid);
+        }
     }
 }
 
