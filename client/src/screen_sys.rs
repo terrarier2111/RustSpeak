@@ -206,7 +206,7 @@ impl ScreenSystem {
     pub fn tick(
         self: &Arc<Self>,
         delta: f64,
-        renderer: &Arc<Renderer>,
+        client: &Arc<Client>,
         window: &Window,
     ) -> Vec<Model> {
         let lowest = self.lowest_offset.load(Ordering::Acquire);
@@ -235,14 +235,14 @@ impl ScreenSystem {
                             .clone()
                             .lock()
                             .unwrap()
-                            .on_deactive(self.clone(), renderer.clone());
+                            .on_deactive(client);
                     }
                     screen
                         .screen
                         .clone()
                         .lock()
                         .unwrap()
-                        .deinit(self.clone(), renderer.clone());
+                        .deinit(client);
                 }
             }
             for screen in self
@@ -268,19 +268,19 @@ impl ScreenSystem {
                             .clone()
                             .lock()
                             .unwrap()
-                            .on_deactive(self.clone(), renderer.clone());
+                            .on_deactive(client);
                     }
                 }
                 let mut current = screens.last_mut().unwrap();
                 let curr_screen = current.screen.clone();
                 let mut curr_screen = curr_screen.lock().unwrap();
-                curr_screen.init(self.clone(), renderer.clone());
+                curr_screen.init(client);
                 current.active = true;
-                curr_screen.on_active(self.clone(), renderer.clone());
+                curr_screen.on_active(client);
             }
             self.lowest_offset.store(-1, Ordering::Release);
             if !was_closable {
-                let (width, height) = renderer.dimensions.get();
+                let (width, height) = client.renderer.dimensions.get();
                 window.set_cursor_position(Position::Physical(PhysicalPosition::new(
                     (width / 2) as i32,
                     (height / 2) as i32,
@@ -303,24 +303,24 @@ impl ScreenSystem {
                 .clone()
                 .lock()
                 .unwrap()
-                .on_active(self.clone(), renderer.clone());
+                .on_active(client);
         }
-        let (width, height) = renderer.dimensions.get();
+        let (width, height) = client.renderer.dimensions.get();
         if current.last_width != width as i32 || current.last_height != height as i32 {
             if current.last_width != -1 && current.last_height != -1 {
                 for screen in tmp.iter_mut().enumerate() {
                     let inner_screen = screen.1.screen.clone();
                     let mut inner_screen = inner_screen.lock().unwrap();
                     if inner_screen.is_tick_always() || screen.0 == len - 1 {
-                        inner_screen.on_resize(self.clone(), renderer.clone());
+                        inner_screen.on_resize(client);
                         drop(inner_screen);
-                        let (width, height) = renderer.dimensions.get();
+                        let (width, height) = client.renderer.dimensions.get();
                         screen.1.last_width = width as i32;
                         screen.1.last_height = height as i32;
                     }
                 }
             } else {
-                let (width, height) = renderer.dimensions.get();
+                let (width, height) = client.renderer.dimensions.get();
                 current.last_width = width as i32;
                 current.last_height = height as i32;
             }
@@ -330,8 +330,8 @@ impl ScreenSystem {
             let inner_screen = screen.1.screen.clone();
             let mut inner_screen = inner_screen.lock().unwrap();
             if inner_screen.is_tick_always() || screen.0 == len - 1 {
-                inner_screen.tick(self.clone(), renderer.clone(), delta);
-                let mut screen_models = inner_screen.container().build_models(renderer);
+                inner_screen.tick(client, delta);
+                let mut screen_models = inner_screen.container().build_models(&client.renderer);
                 models.append(&mut screen_models);
             }
         }

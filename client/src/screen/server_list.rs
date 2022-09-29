@@ -3,7 +3,7 @@ use crate::screen_sys::Screen;
 use crate::ui::{Color, ColorBox, Coloring, Container, TextBox, TextSection};
 use crate::{Client, ScreenSystem};
 use std::sync::{Arc, RwLock};
-use wgpu_glyph::Text;
+use wgpu_glyph::{HorizontalAlign, Layout, Text, VerticalAlign};
 
 #[derive(Clone)]
 pub struct ServerList {
@@ -23,8 +23,55 @@ const ENTRIES_ON_PAGE: usize = 12;
 impl Screen for ServerList {
     fn on_active(&mut self, client: &Arc<Client>) {
         let entry_offset = 1.0 / ENTRIES_ON_PAGE as f32;
-        for entry in client.config.fav_servers.iter() {
-            // self.container.add();
+        for entry in client.config.fav_servers.iter().enumerate() {
+            self.container.add(Arc::new(RwLock::new(Box::new(TextBox {
+                pos: (0.0, 1.0 - ((entry.0 + 1) as f32 * entry_offset)),
+                width: 0.2,
+                height: 0.1,
+                coloring: Coloring::Color([
+                    Color {
+                        r: 1.0,
+                        g: 1.0,
+                        b: 0.0,
+                        a: 0.3,
+                    },
+                    Color {
+                        r: 1.0,
+                        g: 0.0,
+                        b: 0.0,
+                        a: 0.3,
+                    },
+                    Color {
+                        r: 1.0,
+                        g: 0.0,
+                        b: 1.0,
+                        a: 0.3,
+                    },
+                    Color {
+                        r: 0.0,
+                        g: 1.0,
+                        b: 0.0,
+                        a: 0.3,
+                    },
+                    Color {
+                        r: 0.0,
+                        g: 1.0,
+                        b: 0.0,
+                        a: 0.3,
+                    },
+                    Color {
+                        r: 0.0,
+                        g: 1.0,
+                        b: 0.0,
+                        a: 0.3,
+                    },
+                ]),
+                text: TextSection {
+                    layout: Layout::default_single_line().v_align(VerticalAlign::Top/*Bottom*//*VerticalAlign::Center*/).h_align(HorizontalAlign::Left),
+                    text: vec![Text::default().with_scale(120.0)],
+                    texts: vec![entry.1.name.clone()],
+                }
+            }))));
         }
         /*self.container.add(Arc::new(RwLock::new(Box::new(ColorBox {
             pos: (0.25, 0.25),
@@ -118,7 +165,7 @@ impl Screen for ServerList {
 
     fn on_deactive(&mut self, _client: &Arc<Client>) {}
 
-    fn tick(&mut self, _client: &Arc<Client>, delta: f64) {}
+    fn tick(&mut self, _client: &Arc<Client>, _delta: f64) {}
 
     fn container(&self) -> &Arc<Container> {
         &self.container

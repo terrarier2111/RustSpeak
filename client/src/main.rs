@@ -205,7 +205,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Event::RedrawRequested(_) => {
             // FIXME: perform redraw
-            let models = screen_sys.tick(0.0, &renderer, &window);
+            let models = screen_sys.tick(0.0, &client, &window);
             renderer.render(models, atlas.clone());
         }
         Event::RedrawEventsCleared => {}

@@ -15,7 +15,10 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            fav_servers: vec![],
+            fav_servers: vec![ServerEntry {
+                name: "local".to_string(),
+                addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 20354)),
+            }],
             last_server: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)), // FIXME: define a default port for client and server
         }
     }
