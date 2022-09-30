@@ -18,10 +18,11 @@ rustls = { version = "0.20.6", features = [ "dangerous_configuration", "quic" ] 
 # rendering/graphics
 wgpu = "0.13.1"
 wgpu-biolerless = { git = "https://github.com/terrarier2111/wgpu-boilerless", features = [ "winit" ] }
-wgpu_glyph = "0.17.0"
+# wgpu_glyph = "0.17.0"
 winit = "0.27.3"
 # font-kit = "0.11"
 fontdue = "0.7.2"
+wgpu_text = "0.6.3"
 
 # other utils
 uuid = { version = "1.1.2", features = [ "v4" ] }

@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use fontdue::{Font, FontSettings};
 use wgpu::{Sampler, Texture, TextureView};
-use wgpu_glyph::{BuiltInLineBreaker, Extra, Layout, Section, Text};
+use wgpu_text::section::{BuiltInLineBreaker, Layout, Section, Text};
 use crate::Renderer;
 
 pub trait Component: Send + Sync {
@@ -295,7 +295,7 @@ impl Component for TextBox<'_> {
     fn do_render(&self, renderer: &Arc<Renderer>) {
         let (width, height) = renderer.dimensions.get();
         renderer.queue_glyph(0, Section {
-            screen_position: (self.pos.0 * width as f32/*(self.pos.0 - 1.0) / 2.0*/, 0.0/*(1.0 - self.pos.1 - self.height) * height as f32*//*(self.pos.1 - 1.0) / 2.0*/),
+            screen_position: (self.pos.0 * width as f32/*(self.pos.0 - 1.0) / 2.0*/, /*0.0*/(1.0 - self.pos.1 - self.height) * height as f32/*(self.pos.1 - 1.0) / 2.0*/),
             bounds: (self.width * width as f32, self.height * height as f32),
             layout: self.text.layout,
             text: self.text.text.iter().enumerate().map(|txt| {
@@ -319,10 +319,10 @@ impl Component for TextBox<'_> {
     fn on_hover(&mut self, _screen_sys: &Arc<ScreenSystem>, _mode: HoverMode) {}
 }
 
-pub struct TextSection<'a, X = Extra> {
+pub struct TextSection<'a/*, X = Extra*/> {
     /// Built in layout, can be overridden with custom layout logic see queue_custom_layout
     pub layout: Layout<BuiltInLineBreaker>,
     /// Text to render, rendered next to one another according the layout.
-    pub text: Vec<Text<'a, X>>,
+    pub text: Vec<Text<'a/*, X*/>>,
     pub texts: Vec</*Arc<*/String/*>*/>,
 }

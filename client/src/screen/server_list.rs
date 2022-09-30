@@ -3,7 +3,7 @@ use crate::screen_sys::Screen;
 use crate::ui::{Color, ColorBox, Coloring, Container, TextBox, TextSection};
 use crate::{Client, ScreenSystem};
 use std::sync::{Arc, RwLock};
-use wgpu_glyph::{HorizontalAlign, Layout, Text, VerticalAlign};
+use wgpu_text::section::{HorizontalAlign, Layout, Text, VerticalAlign};
 
 #[derive(Clone)]
 pub struct ServerList {
@@ -67,8 +67,8 @@ impl Screen for ServerList {
                     },
                 ]),
                 text: TextSection {
-                    layout: Layout::default_single_line().v_align(VerticalAlign::Top/*Bottom*//*VerticalAlign::Center*/).h_align(HorizontalAlign::Left),
-                    text: vec![Text::default().with_scale(120.0)],
+                    layout: Layout::default_single_line().v_align(VerticalAlign::Top/*Bottom*//*VerticalAlign::Center*/).h_align(HorizontalAlign::Left).v_align(VerticalAlign::Top),
+                    text: vec![Text::default().with_scale(40.0)],
                     texts: vec![entry.1.name.clone()],
                 }
             }))));

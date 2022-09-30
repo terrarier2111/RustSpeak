@@ -15,7 +15,9 @@ use wgpu_biolerless::{
     FragmentShaderState, ModuleSrc, PipelineBuilder, ShaderModuleSources, State, VertexShaderState,
     WindowSize,
 };
-use wgpu_glyph::{ab_glyph, GlyphBrush, GlyphBrushBuilder, Section};
+use wgpu_text::section::Section;
+use wgpu_text::{BrushBuilder, TextBrush};
+use wgpu_text::font::FontArc;
 use winit::window::Window;
 use crate::utils::DARK_GRAY;
 
@@ -24,37 +26,17 @@ pub struct Renderer {
     tex_pipeline: RenderPipeline,
     color_pipeline: RenderPipeline,
     pub dimensions: Dimensions,
-    glyphs: Mutex<Vec<GlyphInfo>>,
-}
-
-pub struct GlyphInfo {
-    pub brush: Mutex<GlyphBrush<()>>,
-    pub format: TextureFormat,
-    staging_belt: Mutex<StagingBelt>,
-}
-
-impl GlyphInfo {
-    pub fn new(brush: GlyphBrush<()>, format: TextureFormat) -> Self {
-        Self {
-            brush: Mutex::new(brush),
-            format,
-            staging_belt: Mutex::new(StagingBelt::new(1024)),
-        }
-    }
+    glyphs: Mutex<Vec<Mutex<TextBrush>>>,
 }
 
 impl Renderer {
     pub fn new(state: Arc<State>, window: &Window) -> anyhow::Result<Self> {
         let mut glyphs = vec![];
-        let font = ab_glyph::FontArc::try_from_slice(include_bytes!(
+        let font = FontArc::try_from_slice(include_bytes!(
             "PlayfairDisplayRegular.ttf"
         ))?;
 
-        glyphs.push(GlyphInfo {
-            brush: Mutex::new(GlyphBrushBuilder::using_font(font).build(state.device(), state.format())),
-            format: state.format(),
-            staging_belt: Mutex::new(StagingBelt::new(1024)),
-        });
+        glyphs.push(Mutex::new(BrushBuilder::using_font(font).build(state.device(), &*state.raw_inner_surface_config())));
         let (width, height) = window.window_size();
         Ok(Self {
             tex_pipeline: Self::atlas_pipeline(&state),
@@ -127,19 +109,16 @@ impl Renderer {
                         render_pass.draw(0..(color_models.len() as u32), 0..1);
                     }
                     for glyph in self.glyphs.lock().unwrap().iter() {
-                        let mut staging_belt = glyph.staging_belt.lock().unwrap();
-                        let (width, height) = self.dimensions.get();
-                        glyph.brush.lock().unwrap().draw_queued(state.device(), &mut staging_belt, &mut encoder, view, width, height);
-                        staging_belt.finish();
+                        glyph.lock().unwrap().draw(state.device(), view, state.queue());
                     }
                     encoder
                 },
                 &TextureViewDescriptor::default(),
             )
             .unwrap();
-        for glyph in self.glyphs.lock().unwrap().iter() {
+        /*for glyph in self.glyphs.lock().unwrap().iter() {
             glyph.staging_belt.lock().unwrap().recall();
-        }
+        }*/
     }
 
     fn color_pipeline(state: &State) -> RenderPipeline {
@@ -206,15 +185,15 @@ impl Renderer {
             .build(state)
     }
 
-    pub fn add_glyph(&self, glyph_info: GlyphInfo) -> usize {
+    pub fn add_glyph(&self, glyph_info: TextBrush) -> usize {
         let mut glyphs = self.glyphs.lock().unwrap();
         let len = glyphs.len();
-        glyphs.push(glyph_info);
+        glyphs.push(Mutex::new(glyph_info));
         len
     }
 
     pub fn queue_glyph(&self, glyph_id: usize, section: Section) {
-        self.glyphs.lock().unwrap()[glyph_id].brush.lock().unwrap().queue(section);
+        self.glyphs.lock().unwrap()[glyph_id].lock().unwrap().queue(section);
     }
 }
 
