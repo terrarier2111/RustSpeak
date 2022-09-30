@@ -6,24 +6,24 @@ use std::sync::{Arc, Mutex, RwLock};
 use fontdue::{Font, FontSettings};
 use wgpu::{Sampler, Texture, TextureView};
 use wgpu_glyph::{BuiltInLineBreaker, Extra, Layout, Section, Text};
-use crate::Renderer;
+use crate::{Client, Renderer};
 
 pub trait Component: Send + Sync {
     fn build_model(&self) -> Model;
 
     // fn is_inbounds(&self, pos: (f32, f32)) -> bool; // FIXME: is this one better?
 
-    fn do_render(&self, _renderer: &Arc<Renderer>) {}
+    fn do_render(&self, _client: &Arc<Client>) {}
 
     fn pos(&self) -> (f32, f32);
 
     fn dims(&self) -> (f32, f32);
 
-    fn on_click(&mut self, screen_sys: &Arc<ScreenSystem>);
+    fn on_click(&mut self, client: &Arc<Client>);
 
-    fn on_scroll(&mut self, screen_sys: &Arc<ScreenSystem>);
+    fn on_scroll(&mut self, client: &Arc<Client>);
 
-    fn on_hover(&mut self, screen_sys: &Arc<ScreenSystem>, mode: HoverMode);
+    fn on_hover(&mut self, client: &Arc<Client>, mode: HoverMode);
 }
 
 #[derive(Copy, Clone)]
@@ -41,11 +41,19 @@ impl UIComponent {
         self.inner.build_model()
     }
 
+    pub fn on_mouse_click(&self, client: &Arc<Client>) {
+        self.inner.inner.write().unwrap().on_click(client);
+        self.inner.make_dirty();
+    }
+
     pub fn is_inbounds(&self, pos: (f32, f32)) -> bool {
         let inner = self.inner.inner.read().unwrap();
         let dims = inner.dims();
         let inner_pos = inner.pos();
+        // println!("pos: {:?}", pos);
         let bounds = (inner_pos.0 + dims.0, inner_pos.1 + dims.1);
+        // println!("higher than comp start ({:?}): {}", inner_pos, (pos.0 >= inner_pos.0 && pos.1 >= inner_pos.1));
+        // println!("lower than comp end: ({:?}): {}", bounds, (pos.0 <= bounds.0 && pos.1 <= bounds.1));
         (pos.0 >= inner_pos.0 && pos.1 >= inner_pos.1) && (pos.0 <= bounds.0 && pos.1 <= bounds.1)
     }
 }
@@ -118,24 +126,38 @@ impl Container {
         });
     }
 
-    pub fn build_models(&self, renderer: &Arc<Renderer>) -> Vec<Model> {
+    pub fn build_models(&self, client: &Arc<Client>) -> Vec<Model> {
         let mut models = vec![];
         for component in self.components.read().unwrap().iter() {
             models.push(component.build_model());
-            component.inner.inner.read().unwrap().do_render(renderer);
+            component.inner.inner.read().unwrap().do_render(client);
         }
         models
     }
+
+    pub fn on_mouse_click(&self, client: &Arc<Client>, pos: (f64, f64)) {
+        for component in self.components.read().unwrap().iter() {
+            if component.is_inbounds((pos.0 as f32, pos.1 as f32)) { // FIXME: switch to using f64 instead!
+                component.on_mouse_click(client);
+                return;
+            }
+        }
+    }
 }
 
-pub struct Button {
-    pub inner_box: ColorBox,
-    pub on_click: Arc<Box<dyn Fn(&mut Button, &Arc<ScreenSystem>) + Send + Sync>>,
+pub struct Button<'a, T = ()> {
+    pub inner_box: TextBox<'a>,
+    pub data: Option<Box<T>>,
+    pub on_click: Arc<Box<dyn Fn(&mut Button, &Arc<Client>) + Send + Sync>>,
 }
 
-impl Component for Button {
+impl Component for Button<'_> {
     fn build_model(&self) -> Model {
         self.inner_box.build_model()
+    }
+
+    fn do_render(&self, client: &Arc<Client>) {
+        self.inner_box.do_render(client)
     }
 
     fn pos(&self) -> (f32, f32) {
@@ -146,14 +168,14 @@ impl Component for Button {
         self.inner_box.dims()
     }
 
-    fn on_click(&mut self, screen_sys: &Arc<ScreenSystem>) {
+    fn on_click(&mut self, client: &Arc<Client>) {
         let func = self.on_click.clone();
-        func(self, screen_sys);
+        func(self, client);
     }
 
-    fn on_scroll(&mut self, _screen_sys: &Arc<ScreenSystem>) {}
+    fn on_scroll(&mut self, _client: &Arc<Client>) {}
 
-    fn on_hover(&mut self, _screen_sys: &Arc<ScreenSystem>, _mode: HoverMode) {}
+    fn on_hover(&mut self, _client: &Arc<Client>, _mode: HoverMode) {}
 }
 
 pub struct ColorBox {
@@ -224,11 +246,11 @@ impl Component for ColorBox {
         (self.width, self.height)
     }
 
-    fn on_click(&mut self, _screen_sys: &Arc<ScreenSystem>) {}
+    fn on_click(&mut self, _client: &Arc<Client>) {}
 
-    fn on_scroll(&mut self, _screen_sys: &Arc<ScreenSystem>) {}
+    fn on_scroll(&mut self, _client: &Arc<Client>) {}
 
-    fn on_hover(&mut self, _screen_sys: &Arc<ScreenSystem>, _mode: HoverMode) {}
+    fn on_hover(&mut self, _client: &Arc<Client>, _mode: HoverMode) {}
 }
 
 pub struct TextBox<'a> {
@@ -292,10 +314,10 @@ impl Component for TextBox<'_> {
         }
     }
 
-    fn do_render(&self, renderer: &Arc<Renderer>) {
-        let (width, height) = renderer.dimensions.get();
-        renderer.queue_glyph(0, Section {
-            screen_position: (self.pos.0 * width as f32/*(self.pos.0 - 1.0) / 2.0*/, 0.0/*(1.0 - self.pos.1 - self.height) * height as f32*//*(self.pos.1 - 1.0) / 2.0*/),
+    fn do_render(&self, client: &Arc<Client>) {
+        let (width, height) = client.renderer.dimensions.get();
+        client.renderer.queue_glyph(0, Section {
+            screen_position: (self.pos.0 * width as f32/*(self.pos.0 - 1.0) / 2.0*/, /*0.0*/(1.0 - self.pos.1/* - self.height*/) * height as f32/*(self.pos.1 - 1.0) / 2.0*/),
             bounds: (self.width * width as f32, self.height * height as f32),
             layout: self.text.layout,
             text: self.text.text.iter().enumerate().map(|txt| {
@@ -312,11 +334,11 @@ impl Component for TextBox<'_> {
         (self.width, self.height)
     }
 
-    fn on_click(&mut self, _screen_sys: &Arc<ScreenSystem>) {}
+    fn on_click(&mut self, _client: &Arc<Client>) {}
 
-    fn on_scroll(&mut self, _screen_sys: &Arc<ScreenSystem>) {}
+    fn on_scroll(&mut self, _client: &Arc<Client>) {}
 
-    fn on_hover(&mut self, _screen_sys: &Arc<ScreenSystem>, _mode: HoverMode) {}
+    fn on_hover(&mut self, _client: &Arc<Client>, _mode: HoverMode) {}
 }
 
 pub struct TextSection<'a, X = Extra> {

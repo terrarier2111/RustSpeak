@@ -58,7 +58,7 @@ impl<'a> CommandLineInterface<'a> {
     }
 
     #[inline(always)]
-    pub(crate) fn cmds(&self) -> &HashMap<String, Command<'a>> {
+    pub fn cmds(&self) -> &HashMap<String, Command<'a>> {
         &self.cmds
     }
 }
@@ -109,7 +109,7 @@ impl<'a> CLIBuilder<'a> {
     }
 }
 
-pub(crate) struct Command<'a> {
+pub struct Command<'a> {
     name: String,
     desc: Option<String>,
     params: Option<UsageBuilder<'a, BuilderImmutable>>,

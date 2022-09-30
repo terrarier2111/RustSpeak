@@ -12,6 +12,7 @@ use uuid::Uuid;
 pub const PRIVATE_KEY_LEN_BITS: u32 = 4096;
 
 // #[derive(Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct Profile {
     pub name: String,
     private_key: Vec<u8>, // this private rsa key gets used to verify the ownership of the profile

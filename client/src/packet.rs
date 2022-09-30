@@ -19,8 +19,8 @@ use uuid::Uuid;
 pub enum ServerPacket<'a> {
     AuthResponse(AuthResponse<'a>),
     ChannelUpdate(ChannelUpdate<'a>),
-    ClientConnected(RemoteProfile<'a>),
-    ClientDisconnected(RemoteProfile<'a>),
+    ClientConnected(RemoteProfile),
+    ClientDisconnected(RemoteProfile),
     ClientUpdateServerGroups {
         client: UserUuid,
         update: ClientUpdateServerGroups,
@@ -224,7 +224,7 @@ impl RWBytes for ClientPacket {
 
 #[derive(Ordinal)]
 pub enum ChannelUpdate<'a> {
-    Create(Channel<'a>),
+    Create(Channel),
     SubUpdate {
         channel: Uuid,
         update: ChannelSubUpdate<'a>,
@@ -422,17 +422,17 @@ impl RWBytes for ClientUpdateServerGroups {
     }
 }
 
-pub struct RemoteProfile<'a> {
-    pub name: Cow<'a, String>,
+pub struct RemoteProfile {
+    pub name: String,
     pub uuid: Uuid,
     pub server_groups: Vec<Uuid>,
 }
 
-impl RWBytes for RemoteProfile<'_> {
+impl RWBytes for RemoteProfile {
     type Ty = Self;
 
     fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
-        let name = Cow::<String>::read(src)?;
+        let name = String::read(src)?;
         let uuid = Uuid::read(src)?;
         let server_groups = Vec::<Uuid>::read(src)?;
 
@@ -452,23 +452,23 @@ impl RWBytes for RemoteProfile<'_> {
     }
 }
 
-pub struct Channel<'a> {
+pub struct Channel {
     pub(crate) id: u64,
     pub(crate) password: bool, // FIXME: add capability to hide users if a password is set
-    pub(crate) name: Cow<'a, String>,
-    pub(crate) desc: Cow<'a, String>,
+    pub(crate) name: String,
+    pub(crate) desc: String,
     pub(crate) perms: ChannelPerms,
-    pub(crate) clients: Vec<RemoteProfile<'a>>,
+    pub(crate) clients: Vec<RemoteProfile>,
 }
 
-impl RWBytes for Channel<'_> {
+impl RWBytes for Channel {
     type Ty = Self;
 
     fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         let id = u64::read(src)?;
         let password = bool::read(src)?;
-        let name = Cow::<String>::read(src)?;
-        let desc = Cow::<String>::read(src)?;
+        let name = String::read(src)?;
+        let desc = String::read(src)?;
         let perms = ChannelPerms::read(src)?;
         let clients = Vec::<RemoteProfile>::read(src)?;
 
@@ -679,7 +679,7 @@ pub enum AuthResponse<'a> {
         // server_groups: Cow<'a, dyn Into<dyn ExactSizeIterator<Item = &'a ServerGroup>>>,
         server_groups: Vec<Arc<ServerGroup<'a>>>,
         own_groups: Vec<Uuid>,
-        channels: Vec<Channel<'a>>,
+        channels: Vec<Channel>,
         // channels: Cow<'a, dyn Into<dyn ExactSizeIterator<Item = &'a Channel>>>,
     },
     Failure(AuthFailure<'a>),

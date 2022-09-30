@@ -202,6 +202,17 @@ impl ScreenSystem {
         }
     }
 
+    pub fn on_mouse_click(&self, client: &Arc<Client>, pos: (f64, f64)) {
+        if let Some(screen) = self.screens.clone().read().unwrap().last() {
+            screen
+                .screen
+                .clone()
+                .lock()
+                .unwrap()
+                .container().on_mouse_click(client, pos);
+        }
+    }
+
     #[allow(unused_must_use)]
     pub fn tick(
         self: &Arc<Self>,
@@ -331,7 +342,7 @@ impl ScreenSystem {
             let mut inner_screen = inner_screen.lock().unwrap();
             if inner_screen.is_tick_always() || screen.0 == len - 1 {
                 inner_screen.tick(client, delta);
-                let mut screen_models = inner_screen.container().build_models(&client.renderer);
+                let mut screen_models = inner_screen.container().build_models(client);
                 models.append(&mut screen_models);
             }
         }
