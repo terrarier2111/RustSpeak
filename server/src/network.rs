@@ -97,7 +97,7 @@ impl NetworkServer {
 
 pub struct ClientConnection {
     pub uuid: ArcSwapOption<UserUuid>,
-    pub conn: RwLock<NewConnection>,
+    pub conn: tokio::sync::RwLock<NewConnection>,
     pub default_stream: (Mutex<SendStream>, Mutex<RecvStream>),
     pub keep_alive_stream: ArcSwapOption<(Mutex<SendStream>, Mutex<RecvStream>)>,
     server: Arc<Server>,
@@ -111,7 +111,7 @@ impl ClientConnection {
         let stable_id = conn.connection.stable_id();
         Ok(Self {
             uuid: ArcSwapOption::empty(),
-            conn: RwLock::new(conn),
+            conn: tokio::sync::RwLock::new(conn),
             default_stream: (Mutex::new(send), Mutex::new(recv)),
             keep_alive_stream: ArcSwapOption::empty(),
             server,
@@ -177,10 +177,17 @@ impl ClientConnection {
             }
         });
 
-
-        /*
-
-        */
+        let this = self.clone();
+        tokio::spawn(async move { // FIXME: is this okay perf-wise?
+            let this = this.clone();
+            'end: loop {
+                let data = this.read_unreliable().await.unwrap().unwrap(); // FIXME: do error handling!
+                println!("received voice traffic!");
+                for client in this.server.network_server.connections.iter() {
+                    client.send_unreliable(data.clone()).await.unwrap();
+                }
+            }
+        });
     }
 
     pub async fn send_reliable(&self, buf: &BytesMut) -> anyhow::Result<()> {
@@ -200,9 +207,13 @@ impl ClientConnection {
         Ok(())
     }
 
-    pub fn send_unreliable(&self, buf: Bytes) -> anyhow::Result<()> {
-        self.conn.write().unwrap().connection.send_datagram(buf)?;
+    pub async fn send_unreliable(&self, buf: Bytes) -> anyhow::Result<()> {
+        self.conn.write().await.connection.send_datagram(buf)?;
         Ok(())
+    }
+
+    pub async fn read_unreliable(&self) -> Option<Result<Bytes, ConnectionError>> {
+        self.conn.write().await.datagrams.next().await
     }
 
     async fn send_keep_alive(&self, data: KeepAlive) -> anyhow::Result<()> {
@@ -244,7 +255,7 @@ impl ClientConnection {
         self.default_stream.0.lock().await.finish().await?;
         self.conn
             .write()
-            .unwrap()
+            .await
             .connection
             .close(VarInt::from_u32(err_code), reason);
         Ok(())

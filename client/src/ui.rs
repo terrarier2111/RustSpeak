@@ -3,6 +3,7 @@ use crate::render::{ColorSource, Model, TexTriple, TexTy, Vertex};
 use crate::screen_sys::ScreenSystem;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
+use atomic_float::AtomicF64;
 use fontdue::{Font, FontSettings};
 use wgpu::{Sampler, Texture, TextureView};
 use wgpu_glyph::{BuiltInLineBreaker, Extra, Layout, Section, Text};
@@ -104,15 +105,25 @@ pub enum Coloring<const VERTICES: usize> {
     Tex(Tex),
 }
 
+#[derive(Default)]
+pub struct ScrollData {
+    min_y: AtomicF64,
+    max_y: AtomicF64,
+    min_x: AtomicF64,
+    max_x: AtomicF64,
+    offset_x: AtomicF64,
+    offset_y: AtomicF64,
+}
+
+#[derive(Default)]
 pub struct Container {
     components: RwLock<Vec<UIComponent>>,
+    scroll_data: ScrollData, // FIXME: use this for scroll sliders
 }
 
 impl Container {
     pub fn new() -> Self {
-        Self {
-            components: Default::default(),
-        }
+        Default::default()
     }
 
     pub fn add(self: &Arc<Self>, component: Arc<RwLock<Box<dyn Component>>>) {

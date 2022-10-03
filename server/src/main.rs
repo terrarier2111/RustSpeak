@@ -332,7 +332,7 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                                 ip: new_conn
                                     .conn
                                     .read()
-                                    .unwrap()
+                                    .await
                                     .connection
                                     .remote_address()
                                     .ip(),
@@ -342,7 +342,7 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                                 recv_proto_ver: protocol_version,
                             }));
                         }
-                        let uuid = UserUuid::from_u256(U256::from_le_bytes(sha256(&pub_key)));
+                        let uuid = UserUuid::from_u256(U256::from_le_bytes(sha256(&pub_key))); // FIXME: SEVERE!!!!!: this won't give the same result as user.uuid below!
                         let last_security_proof = security_proofs.last().copied();
                         let security_proof_result = if let Some(level) =
                         security_level::verified_security_level(
@@ -361,7 +361,7 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                                 ip: new_conn
                                     .conn
                                     .read()
-                                    .unwrap()
+                                    .await
                                     .connection
                                     .remote_address()
                                     .ip(),
@@ -379,12 +379,30 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                                 ip: new_conn
                                     .conn
                                     .read()
-                                    .unwrap()
+                                    .await
                                     .connection
                                     .remote_address()
                                     .ip(),
                                 uuid,
                                 provided_lvl: security_proof_result,
+                            }));
+                        }
+                        if server.online_users.contains_key(&uuid) {
+                            let failure = ServerPacket::AuthResponse(AuthResponse::Failure(
+                                AuthFailure::AlreadyOnline,
+                            ));
+                            let encoded = failure.encode()?;
+                            new_conn.send_reliable(&encoded).await?;
+                            new_conn.close().await?;
+                            return Err(anyhow::Error::from(ErrorAlreadyOnline {
+                                ip: new_conn
+                                    .conn
+                                    .read()
+                                    .await
+                                    .connection
+                                    .remote_address()
+                                    .ip(),
+                                uuid,
                             }));
                         }
                         // FIXME: compare auth_id with the auth_id in our data base if this isn't the first login!
@@ -409,8 +427,8 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                             server.user_db.insert(user.clone())?;
                             user
                         };
-                        server.online_users.insert(user.uuid, User {
-                            uuid: user.uuid,
+                        server.online_users.insert(uuid, User {
+                            uuid,
                             name: RwLock::new(user.name.into()),
                             last_security_proof: user.last_security_proof,
                             last_verified_security_level: user.last_verified_security_level,
@@ -424,7 +442,7 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                         let encoded = auth.encode()?;
                         new_conn.send_reliable(&encoded).await?;
                         let keep_alive_stream = {
-                            match new_conn.conn.write().unwrap().bi_streams.next().await {
+                            match new_conn.conn.write().await.bi_streams.next().await {
                                 None => unreachable!(),
                                 Some(stream) => stream,
                             }
@@ -557,6 +575,33 @@ impl Display for ErrorAuthLowSecProof {
 }
 
 impl Error for ErrorAuthLowSecProof {}
+
+struct ErrorAlreadyOnline {
+    ip: IpAddr,
+    uuid: UserUuid,
+}
+
+impl Debug for ErrorAlreadyOnline {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("client from ")?;
+        f.write_str(self.ip.to_string().as_str())?;
+        f.write_str(" with uuid ")?;
+        f.write_str(&*format!("{:?}", self.uuid))?;
+        f.write_str(" tried to login although they were already online")
+    }
+}
+
+impl Display for ErrorAlreadyOnline {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("client from ")?;
+        f.write_str(self.ip.to_string().as_str())?;
+        f.write_str(" with uuid ")?;
+        f.write_str(&*format!("{:?}", self.uuid))?;
+        f.write_str(" tried to login although they were already online")
+    }
+}
+
+impl Error for ErrorAlreadyOnline {}
 
 struct CommandHelp();
 

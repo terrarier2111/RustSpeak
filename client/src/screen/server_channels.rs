@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use crate::Client;
 use crate::screen_sys::Screen;
 use crate::ui::Container;
@@ -10,7 +10,7 @@ pub struct ServerChannels {
 
 impl Screen for ServerChannels {
     fn on_active(&mut self, _client: &Arc<Client>) {
-
+        // self.container.add(Arc::new(RwLock::new(Box::new())));
     }
 
     fn on_deactive(&mut self, _client: &Arc<Client>) {}

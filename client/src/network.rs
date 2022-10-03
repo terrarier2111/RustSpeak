@@ -1,6 +1,6 @@
 use crate::packet::ClientPacket;
 use bytes::{Bytes, BytesMut};
-use quinn::{ClientConfig, Endpoint, NewConnection, RecvStream, SendStream, VarInt};
+use quinn::{ClientConfig, ConnectionError, Endpoint, NewConnection, RecvStream, SendStream, VarInt};
 use std::error::Error;
 use std::fs::File;
 use std::io::BufReader;
@@ -9,6 +9,7 @@ use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use arc_swap::ArcSwapOption;
+use futures_util::StreamExt;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use crate::{current_time_millis, RWBytes};
@@ -64,6 +65,10 @@ impl NetworkClient {
         Ok(())
     }
 
+    pub async fn read_unreliable(&self) -> Option<Result<Bytes, ConnectionError>> {
+        self.conn.write().unwrap().datagrams.next().await
+    }
+
     pub async fn close(&self) -> anyhow::Result<()> {
         self.close_with(0, &[]).await
     }
@@ -112,11 +117,6 @@ impl NetworkClient {
         data.send_time.write(&mut send_data)?;
         self.keep_alive_handler.load().as_ref().unwrap().stream.0.lock().await.write_all(&send_data).await?;
         Ok(())
-    }
-
-    pub async fn read_unreliable(&self) -> anyhow::Result<Bytes> {
-        // self.conn.write().unwrap().connection.
-        todo!()
     }
 }
 

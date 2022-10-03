@@ -5,6 +5,7 @@ use crate::ui::{Button, Color, ColorBox, Coloring, Container, TextBox, TextSecti
 use crate::{AddressMode, certificate, Client, DbProfile, Profile, ScreenSystem, Server};
 use std::sync::{Arc, RwLock};
 use openssl::pkey::PKey;
+use rand::Rng;
 use wgpu_glyph::{HorizontalAlign, Layout, Text, VerticalAlign};
 use crate::utils::DARK_GRAY_UI;
 
@@ -61,7 +62,9 @@ impl Screen for ServerList {
                         Coloring::Tex(_) => {}
                     }
                     button.inner_box.pos.0 += 0.1;*/
-                    let profile = DbProfile::from_bytes(client.profile_db.iter().next().unwrap().unwrap().1).unwrap();
+                    let mut profiles = client.profile_db.iter().collect::<Vec<_>>();
+                    let profile = profiles.remove(rand::thread_rng().gen_range(0..profiles.len())).unwrap().1;
+                    let profile = DbProfile::from_bytes(profile).unwrap();
                     let profile = Profile::from_existing(profile.name, profile.priv_key, profile.security_proofs);
                     client.server.store(Some(Arc::new(
                         pollster::block_on(Server::new(profile, AddressMode::V4,

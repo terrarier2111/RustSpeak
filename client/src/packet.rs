@@ -741,6 +741,7 @@ pub enum AuthFailure<'a> {
     },
     ReqSec(u8),
     OutOfDate(u64), // protocol version
+    AlreadyOnline,
     Invalid(Cow<'a, str>),
 }
 
@@ -765,6 +766,9 @@ impl RWBytes for AuthFailure<'_> {
                 Ok(Self::OutOfDate(req_ver))
             }
             3 => {
+                Ok(Self::AlreadyOnline)
+            }
+            4 => {
                 let reason = String::read(src)?;
                 Ok(Self::Invalid(Cow::from(reason)))
             }
@@ -788,6 +792,7 @@ impl RWBytes for AuthFailure<'_> {
             AuthFailure::OutOfDate(req_protocol) => {
                 dst.put_u64_le(*req_protocol);
             }
+            AuthFailure::AlreadyOnline => {}
             AuthFailure::Invalid(err) => {
                 err.write(dst)?;
             }

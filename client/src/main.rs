@@ -14,7 +14,7 @@ use crate::screen_sys::ScreenSystem;
 use crate::profile_db::{DbProfile, ProfileDb, uuid_from_pub_key};
 use crate::utils::current_time_millis;
 use arc_swap::{ArcSwap, ArcSwapOption};
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use quinn::ClientConfig;
 use ruint::aliases::U256;
 use std::fs::File;
@@ -27,6 +27,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use colored::{ColoredString, Colorize};
+use cpal::traits::{DeviceTrait, HostTrait};
 use openssl::pkey::PKey;
 use uuid::Uuid;
 use wgpu::TextureFormat;
@@ -34,10 +35,13 @@ use wgpu_biolerless::{StateBuilder, WindowSize};
 use winit::event::{ElementState, Event, MouseButton, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoopBuilder};
 use winit::window::{Window, WindowBuilder};
+use crate::audio::{Audio, AudioConfig};
 use crate::command::cli::{CLIBuilder, CmdParamStrConstraints, CommandBuilder, CommandImpl, CommandLineInterface, CommandParam, CommandParamTy, UsageBuilder};
 use crate::command::r#impl::CommandProfiles;
 use crate::security_level::generate_token_num;
 use crate::server::Server;
+use bytemuck_derive::Zeroable;
+use bytemuck_derive::Pod;
 
 mod atlas;
 mod certificate;
@@ -55,6 +59,7 @@ mod profile_db;
 mod utils;
 mod server;
 mod command;
+mod audio;
 
 // FIXME: review all the endianness related shit!
 
@@ -63,6 +68,11 @@ const RELATIVE_PROFILE_DB_PATH: &str = "user_db";
 // FIXME: can we even let tokio do this right here? do we have to run our event_loop on the main thread?
 #[tokio::main] // FIXME: is it okay to use tokio in the main thread already, don't we need it to do rendering stuff?
 async fn main() -> anyhow::Result<()> {
+    /*let cfg = cpal::default_host().default_input_device().unwrap().default_input_config().unwrap().config();
+    println!("{:?}", cfg);*/
+    for cfg in cpal::default_host().default_input_device().unwrap().supported_input_configs().unwrap().into_iter() {
+        println!("{:?}", cfg);
+    }
     let (cfg, profile_db) = load_data()?;
     let cfg = Arc::new(cfg);
     let profile_db = Arc::new(profile_db);
@@ -101,6 +111,7 @@ async fn main() -> anyhow::Result<()> {
         atlas: atlas.clone(),
         cli,
         server: ArcSwapOption::empty(),
+        audio: ArcSwap::new(Arc::new(Audio::from_cfg(&AudioConfig::new()?.unwrap())?.unwrap())),
     });
 
     let tmp = client.clone();
@@ -108,6 +119,21 @@ async fn main() -> anyhow::Result<()> {
         let client = tmp.clone();
         loop {
             client.cli.await_input(&client).unwrap(); // FIXME: handle errors properly!
+        }
+    });
+    let tmp = client.clone();
+    thread::spawn(move || {
+        let client = tmp.clone();
+        loop {
+            let client = client.clone();
+            client.audio.load().record::<f32>(move |data, info| {
+                // FIXME: handle endianness of `data`
+                let data = Bytes::copy_from_slice(bytemuck::cast_slice(data));
+                client.server.load().as_ref().unwrap().connection.send_unreliable(data).unwrap();
+                println!("send audio!");
+            }, |err| {
+                panic!("{:?}", err)
+            }).unwrap();
         }
     });
 
@@ -241,6 +267,7 @@ pub struct Client<'a> {
     pub atlas: Arc<Atlas>,
     pub cli: CommandLineInterface<'a>,
     pub server: ArcSwapOption<Server>, // FIXME: support multiple servers at once!
+    pub audio: ArcSwap<Audio>,
 }
 
 impl Client<'_> {

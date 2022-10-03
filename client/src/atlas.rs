@@ -37,6 +37,8 @@ impl AtlasId {
 
 static ATLAS_ID: AtomicUsize = AtomicUsize::new(0);
 
+// FIXME: batch updates together in order to avoid many uploads of an expensive atlas texture!
+
 pub struct Atlas {
     alloc: Mutex<AtlasAllocator>,
     alloc_map: RwLock<HashMap<String, Arc<AtlasAlloc>>>,
