@@ -60,8 +60,13 @@ impl NetworkClient {
         Ok(())
     }
 
-    pub fn send_unreliable(&self, buf: Bytes) -> anyhow::Result<()> {
-        self.conn.write().unwrap().connection.send_datagram(buf)?;
+    pub fn send_unreliable(&self, mut buf: Bytes) -> anyhow::Result<()> {
+        let max_bytes = self.conn.read().unwrap().connection.max_datagram_size().unwrap() - 25; // - 100 works | 50 also works (at least up to 2.3k keep alives)
+        let full_frames = buf.len().div_floor(max_bytes);
+        for x in 0..full_frames {
+            self.conn.write().unwrap().connection.send_datagram(buf.slice((x * max_bytes)..(x * max_bytes + max_bytes)))?;
+        }
+        self.conn.write().unwrap().connection.send_datagram(buf.slice((full_frames * max_bytes)..buf.len()))?;
         Ok(())
     }
 

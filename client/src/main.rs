@@ -1,4 +1,5 @@
 #![feature(new_uninit)]
+#![feature(int_roundings)]
 
 extern crate core;
 
@@ -35,13 +36,14 @@ use wgpu_biolerless::{StateBuilder, WindowSize};
 use winit::event::{ElementState, Event, MouseButton, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoopBuilder};
 use winit::window::{Window, WindowBuilder};
-use crate::audio::{Audio, AudioConfig};
+use crate::audio::{Audio, AudioConfig, Recorder};
 use crate::command::cli::{CLIBuilder, CmdParamStrConstraints, CommandBuilder, CommandImpl, CommandLineInterface, CommandParam, CommandParamTy, UsageBuilder};
 use crate::command::r#impl::CommandProfiles;
 use crate::security_level::generate_token_num;
 use crate::server::Server;
 use bytemuck_derive::Zeroable;
 use bytemuck_derive::Pod;
+use sfml::audio::SoundRecorderDriver;
 
 mod atlas;
 mod certificate;
@@ -125,15 +127,19 @@ async fn main() -> anyhow::Result<()> {
     thread::spawn(move || {
         let client = tmp.clone();
         loop {
-            let client = client.clone();
-            client.audio.load().record::<f32>(move |data, info| {
-                // FIXME: handle endianness of `data`
-                let data = Bytes::copy_from_slice(bytemuck::cast_slice(data));
-                client.server.load().as_ref().unwrap().connection.send_unreliable(data).unwrap();
-                println!("send audio!");
-            }, |err| {
-                panic!("{:?}", err)
-            }).unwrap();
+            if client.server.load().as_ref().is_some() { // FIXME: check for channel and make thread sleep if not on server!
+                let client = client.clone();
+                println!("in audio loop!");
+                client.audio.load().record(|data| {
+                    // FIXME: handle endianness of `data`
+                    println!("sending audio {}", data.len());
+                    let data = Bytes::copy_from_slice(bytemuck::cast_slice(data));
+                    client.server.load().as_ref().unwrap().connection.send_unreliable(data).unwrap();
+                    println!("send audio!");
+                }, || {
+                    loop {}
+                }).unwrap();
+            }
         }
     });
 

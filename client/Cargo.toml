@@ -47,5 +47,6 @@ sled = "0.34.7"
 colored = "2.0.0"
 dashmap = "5.4.0"
 atomic_float = "0.1.0"
-cpal = "0.14.0"
+cpal = { version = "0.14.0", features = ["jack"] }
+sfml = { version = "0.18.1", features = ["audio"] }
 futures-util = "0.3.24"

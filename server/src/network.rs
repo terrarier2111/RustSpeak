@@ -182,7 +182,7 @@ impl ClientConnection {
             let this = this.clone();
             'end: loop {
                 let data = this.read_unreliable().await.unwrap().unwrap(); // FIXME: do error handling!
-                println!("received voice traffic!");
+                println!("received voice traffic {}", data.len());
                 for client in this.server.network_server.connections.iter() {
                     client.send_unreliable(data.clone()).await.unwrap();
                 }

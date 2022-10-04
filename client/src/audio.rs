@@ -1,3 +1,4 @@
+use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU16, AtomicU32, AtomicU64, Ordering};
 use arc_swap::ArcSwapOption;
@@ -5,22 +6,25 @@ use cpal::{BufferSize, ChannelCount, Device, Host, InputCallbackInfo, OutputCall
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
+use sfml::audio::{SoundRecorder, SoundRecorderDriver};
+use sfml::system::Time;
 
 pub struct Audio {
-    io_src: AudioIOSource,
     stream_settings: AudioStreamSettings,
 }
 
 impl Audio {
 
     pub fn from_cfg(cfg: &AudioConfig) -> anyhow::Result<Option<Self>> {
-        let default_host = cpal::default_host();
-        let mut input_device = None;
+        // let default_host = cpal::default_host();
+        /*let mut input_device = None;
         let mut output_device = None;
         for device in default_host.devices()?.into_iter() {
-            let input = device.name()? == cfg.input_name;
-            let output = device.name()? == cfg.output_name;
+            let dev_name = device.name()?;
+            let input = dev_name == cfg.input_name;
+            let output = dev_name == cfg.output_name;
             if input && output {
+                println!("single {}", dev_name);
                 return Ok(Some(Self {
                     io_src: AudioIOSource::Single(device),
                     stream_settings: AudioStreamSettings::new(AudioMode::Mono, FrequencyQuality::Low).unwrap(),
@@ -32,6 +36,7 @@ impl Audio {
             }
             if input_device.is_some() {
                 if let Some(output_dev) = output_device {
+                    println!("multi!");
                     return Ok(Some(Audio {
                         io_src: AudioIOSource::Dual { input: input_device.unwrap(), output: output_dev, },
                         stream_settings: AudioStreamSettings::new(AudioMode::Mono, FrequencyQuality::Low).unwrap(),
@@ -39,22 +44,36 @@ impl Audio {
                 }
             }
         }
-        Ok(None)
+        Ok(None)*/
+        Ok(Some(Self {
+            // io_src: AudioIOSource::Dual { input: default_host.default_input_device().unwrap(), output: default_host.default_output_device().unwrap(), },
+            stream_settings: AudioStreamSettings::new(AudioMode::Mono, FrequencyQuality::Low).unwrap(),
+        }))
     }
 
-    pub fn record<T: Sample>(&self, handler: impl FnMut(&[T], &InputCallbackInfo) + Send + 'static, err_handler: impl FnMut(StreamError) + Send + 'static) -> anyhow::Result<Stream> {
+    pub fn record(&self, handler: impl Fn(&[i16]), tail_call: impl Fn()) -> anyhow::Result<()/*Stream*/> {
         let (audio_mode, freq_quality) = self.stream_settings.get();
-        let cfg = /*self.io_src.input().default_input_config()?.config()*/StreamConfig {
+        /*let cfg = self.io_src.input().default_input_config()?.into()/*config()*//*StreamConfig {
             channels: <AudioMode as Into<u16>>::into(audio_mode.unwrap()) as ChannelCount,
             sample_rate: SampleRate(44100), // 44.1 khZ
             buffer_size: BufferSize::Fixed(freq_quality.unwrap().into()),
-        };
+        }*/;
         // StreamConfig { channels: 2, sample_rate: SampleRate(44100), buffer_size: Default }
         // println!("{:?}", cfg);
         let stream = self.io_src.input().build_input_stream(&cfg, handler, err_handler)?;
         // self.input_stream.store(Some(Arc::new(stream)));
+        stream.play()?;
 
-        Ok(stream)
+        Ok(stream)*/
+        let mut recorder = Recorder {
+            callback: handler,
+        };
+        let mut recorder_driver = SoundRecorderDriver::new(&mut recorder);
+        recorder_driver.set_channel_count(<AudioMode as Into<u16>>::into(audio_mode.unwrap()) as u32);
+        recorder_driver.set_processing_interval(Time::milliseconds(20/*6*/));
+        recorder_driver.start(44100);
+        tail_call();
+        Ok(())
     }
 
     pub fn play_back<T: Sample>(&self, handler: impl FnMut(&mut [T], &OutputCallbackInfo) + Send + 'static, err_handler: impl FnMut(StreamError) + Send + 'static) -> anyhow::Result<()> {
@@ -64,8 +83,8 @@ impl Audio {
             sample_rate: SampleRate(44100), // 44.1 khZ
             buffer_size: BufferSize::Fixed(freq_quality.unwrap().into()),
         };
-        let stream = self.io_src.output().build_output_stream(&cfg, handler, err_handler)?;
-        stream.play()?;
+        // let stream = self.io_src.output().build_output_stream(&cfg, handler, err_handler)?;
+        // stream.play()?;
 
         Ok(())
     }
@@ -242,3 +261,16 @@ impl Into<u16> for AudioMode {
 // #[rustc_layout_scalar_valid_range_start(3)] // FIXME: do these attributes actually provide any sizable benefit in this case?
 // #[rustc_layout_scalar_valid_range_end(u16::MAX)]
 pub struct SurroundSoundChannels(u16);
+
+pub struct Recorder<F: Fn(&[i16])/* -> bool*/> {
+    // pub callback: fn(&[i16]) -> bool,
+    pub callback: F,
+}
+
+impl<F: Fn(&[i16])/* -> bool*/> SoundRecorder for Recorder<F> {
+    fn on_process_samples(&mut self, data: &[i16]) -> bool {
+        let tmp = &self.callback;
+        tmp(data);
+        true
+    }
+}
