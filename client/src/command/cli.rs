@@ -10,14 +10,14 @@ use crate::Client;
 
 // FIXME: maybe add tab completion
 
-pub struct CommandLineInterface<'a> {
-    cmds: HashMap<String, Command<'a>>,
+pub struct CommandLineInterface {
+    cmds: HashMap<String, Command>,
     prompt: Option<ColoredString>,
     help_msg: ColoredString,
 }
 
-impl<'a> CommandLineInterface<'a> {
-    pub fn new(builder: CLIBuilder<'a>) -> Self {
+impl CommandLineInterface {
+    pub fn new(builder: CLIBuilder) -> Self {
         builder.build()
     }
 
@@ -40,7 +40,7 @@ impl<'a> CommandLineInterface<'a> {
         }
     }*/
 
-    pub fn await_input(&self, client: &Arc<Client<'_>>) -> anyhow::Result<bool> {
+    pub fn await_input(&self, client: &Arc<Client>) -> anyhow::Result<bool> {
         let input = input(&self.prompt)?;
         let mut parts = input.split(" ").collect::<Vec<_>>();
         let cmd = parts.remove(0).to_lowercase();
@@ -58,18 +58,18 @@ impl<'a> CommandLineInterface<'a> {
     }
 
     #[inline(always)]
-    pub fn cmds(&self) -> &HashMap<String, Command<'a>> {
+    pub fn cmds(&self) -> &HashMap<String, Command> {
         &self.cmds
     }
 }
 
-pub struct CLIBuilder<'a> {
-    cmds: Vec<Command<'a>>,
+pub struct CLIBuilder {
+    cmds: Vec<Command>,
     prompt: Option<ColoredString>,
     help_msg: Option<ColoredString>,
 }
 
-impl<'a> CLIBuilder<'a> {
+impl CLIBuilder {
     pub fn new() -> Self {
         Self {
             cmds: vec![],
@@ -78,7 +78,7 @@ impl<'a> CLIBuilder<'a> {
         }
     }
 
-    pub fn command(mut self, cmd: CommandBuilder<'a>) -> Self {
+    pub fn command(mut self, cmd: CommandBuilder) -> Self {
         self.cmds.push(cmd.build());
         self
     }
@@ -93,7 +93,7 @@ impl<'a> CLIBuilder<'a> {
         self
     }
 
-    pub fn build(self) -> CommandLineInterface<'a> {
+    pub fn build(self) -> CommandLineInterface {
         CommandLineInterface {
             prompt: self.prompt,
             help_msg: self.help_msg.expect("a help message has to be specified before a CLI can be built"),
@@ -109,15 +109,15 @@ impl<'a> CLIBuilder<'a> {
     }
 }
 
-pub struct Command<'a> {
+pub struct Command {
     name: String,
     desc: Option<String>,
-    params: Option<UsageBuilder<'a, BuilderImmutable>>,
+    params: Option<UsageBuilder<BuilderImmutable>>,
     aliases: Vec<String>,
     cmd_impl: Box<dyn CommandImpl>,
 }
 
-impl<'a> Command<'a> {
+impl Command {
     #[inline(always)]
     pub fn name(&self) -> &String {
         &self.name
@@ -129,24 +129,24 @@ impl<'a> Command<'a> {
     }
 
     #[inline(always)]
-    pub fn params(&self) -> &Option<UsageBuilder<'a, BuilderImmutable>> {
+    pub fn params(&self) -> &Option<UsageBuilder<BuilderImmutable>> {
         &self.params
     }
 }
 
 pub trait CommandImpl: Send + Sync {
-    fn execute(&self, client: &Arc<Client<'_>>, input: &[&str]) -> anyhow::Result<()>;
+    fn execute(&self, client: &Arc<Client>, input: &[&str]) -> anyhow::Result<()>;
 }
 
-pub struct CommandBuilder<'a> {
+pub struct CommandBuilder {
     name: Option<String>,
     desc: Option<String>,
-    params: Option<UsageBuilder<'a, BuilderImmutable>>,
+    params: Option<UsageBuilder<BuilderImmutable>>,
     aliases: Vec<String>,
     cmd_impl: Option<Box<dyn CommandImpl>>,
 }
 
-impl<'a> CommandBuilder<'a> {
+impl CommandBuilder {
     pub fn new() -> Self {
         Self {
             name: None,
@@ -167,7 +167,7 @@ impl<'a> CommandBuilder<'a> {
         self
     }
 
-    pub fn params(mut self, params: UsageBuilder<'a, BuilderMutable>) -> Self {
+    pub fn params(mut self, params: UsageBuilder<BuilderMutable>) -> Self {
         self.params = Some(params.finish());
         self
     }
@@ -191,7 +191,7 @@ impl<'a> CommandBuilder<'a> {
         self
     }
 
-    fn build(self) -> Command<'a> {
+    fn build(self) -> Command {
         Command {
             name: self
                 .name
@@ -206,18 +206,18 @@ impl<'a> CommandBuilder<'a> {
     }
 }
 
-pub struct CommandParam<'a> {
-    pub name: &'a str,
-    pub ty: CommandParamTy<'a>,
+pub struct CommandParam {
+    pub name: String,
+    pub ty: CommandParamTy,
 }
 
-pub enum CommandParamTy<'a> {
-    Int(CmdParamNumConstraints<'a, usize>),
-    Float(CmdParamNumConstraints<'a, f64>),
-    String(CmdParamStrConstraints<'a>),
+pub enum CommandParamTy {
+    Int(CmdParamNumConstraints<usize>),
+    Float(CmdParamNumConstraints<f64>),
+    String(CmdParamStrConstraints),
 }
 
-impl CommandParamTy<'_> {
+impl CommandParamTy {
     pub fn as_str(&self) -> &'static str {
         match self {
             CommandParamTy::Int(_) => "integer",
@@ -227,39 +227,39 @@ impl CommandParamTy<'_> {
     }
 }
 
-impl Display for CommandParamTy<'_> {
+impl Display for CommandParamTy {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
     }
 }
 
-pub enum CmdParamNumConstraints<'a, T> {
+pub enum CmdParamNumConstraints<T> {
     Range(Range<T>),
-    Variants(&'a [T]),
+    Variants(Box<[T]>),
     None,
 }
 
-pub enum CmdParamStrConstraints<'a> {
-    Variants(&'a [&'a str]),
+pub enum CmdParamStrConstraints {
+    Variants(Box<[String]>),
     None,
 }
 
 pub struct BuilderMutable;
 pub struct BuilderImmutable;
 
-struct InnerBuilder<'a> {
-    prefix: Option<&'a str>,
-    req: Vec<CommandParam<'a>>,
-    opt: Vec<CommandParam<'a>>,
-    opt_prefixed: Vec<CommandParam<'a>>,
+struct InnerBuilder {
+    prefix: Option<String>,
+    req: Vec<CommandParam>,
+    opt: Vec<CommandParam>,
+    opt_prefixed: Vec<CommandParam>,
 }
 
-pub struct UsageBuilder<'a, M = BuilderMutable> {
-    inner: InnerBuilder<'a>,
+pub struct UsageBuilder<M = BuilderMutable> {
+    inner: InnerBuilder,
     mutability: PhantomData<M>,
 }
 
-impl<'a> UsageBuilder<'a, BuilderMutable> {
+impl UsageBuilder<BuilderMutable> {
     pub fn new() -> Self {
         Self {
             inner: InnerBuilder {
@@ -272,12 +272,12 @@ impl<'a> UsageBuilder<'a, BuilderMutable> {
         }
     }
 
-    pub fn optional_prefixed_prefix(mut self, prefix: &'a str) -> Self {
+    pub fn optional_prefixed_prefix(mut self, prefix: String) -> Self {
         self.inner.prefix = Some(prefix);
         self
     }
 
-    pub fn required(mut self, param: CommandParam<'a>) -> Self {
+    pub fn required(mut self, param: CommandParam) -> Self {
         if !self.inner.opt.is_empty() {
             panic!("you can only append required parameters before any optional parameters get appended");
         }
@@ -285,12 +285,12 @@ impl<'a> UsageBuilder<'a, BuilderMutable> {
         self
     }
 
-    pub fn optional(mut self, param: CommandParam<'a>) -> Self {
+    pub fn optional(mut self, param: CommandParam) -> Self {
         self.inner.opt.push(param);
         self
     }
 
-    pub fn optional_prefixed(mut self, param: CommandParam<'a>) -> Self {
+    pub fn optional_prefixed(mut self, param: CommandParam) -> Self {
         if self.inner.prefix.is_none() {
             panic!("a prefix has to be specified in order to add optional prefixed parameters");
         }
@@ -298,7 +298,7 @@ impl<'a> UsageBuilder<'a, BuilderMutable> {
         self
     }
 
-    fn finish(self) -> UsageBuilder<'a, BuilderImmutable> {
+    fn finish(self) -> UsageBuilder<BuilderImmutable> {
         UsageBuilder {
             inner: self.inner,
             mutability: Default::default(),
@@ -306,24 +306,24 @@ impl<'a> UsageBuilder<'a, BuilderMutable> {
     }
 }
 
-impl<'a> UsageBuilder<'a, BuilderImmutable> {
+impl UsageBuilder<BuilderImmutable> {
     #[inline(always)]
-    pub fn optional_prefixed_prefix(&self) -> &Option<&str> {
+    pub fn optional_prefixed_prefix(&self) -> &Option<String> {
         &self.inner.prefix
     }
 
     #[inline(always)]
-    pub fn required(&self) -> &Vec<CommandParam<'a>> {
+    pub fn required(&self) -> &Vec<CommandParam> {
         &self.inner.req
     }
 
     #[inline(always)]
-    pub fn optional(&self) -> &Vec<CommandParam<'a>> {
+    pub fn optional(&self) -> &Vec<CommandParam> {
         &self.inner.opt
     }
 
     #[inline(always)]
-    pub fn optional_prefixed(&self) -> &Vec<CommandParam<'a>> {
+    pub fn optional_prefixed(&self) -> &Vec<CommandParam> {
         &self.inner.opt_prefixed
     }
 }

@@ -99,10 +99,10 @@ async fn main() -> anyhow::Result<()> {
         .help_msg(ColoredString::from("This command doesn't exist").red())
         .command(CommandBuilder::new().name("profiles").desc("manage profiles via command line")
         .params(UsageBuilder::new().required(CommandParam {
-            name: "action",
-            ty: CommandParamTy::String(CmdParamStrConstraints::Variants(&["list", "create", "delete", "rename", "bump_sl"])),
+            name: "action".to_string(),
+            ty: CommandParamTy::String(CmdParamStrConstraints::Variants(Box::new(["list".to_string(), "create".to_string(), "delete".to_string(), "rename".to_string(), "bump_sl".to_string()]))),
         }).optional(CommandParam { // FIXME: add ability to make following arguments depend on the value of the previous argument (maybe by integrating the following arguments into the variants list)
-            name: "name",
+            name: "name".to_string(),
             ty: CommandParamTy::String(CmdParamStrConstraints::None),
         })).cmd_impl(Box::new(CommandProfiles()))).build();
     let client = Arc::new(Client {
@@ -132,10 +132,10 @@ async fn main() -> anyhow::Result<()> {
                 println!("in audio loop!");
                 client.audio.load().record(|data| {
                     // FIXME: handle endianness of `data`
-                    println!("sending audio {}", data.len());
+                    // println!("sending audio {}", data.len());
                     let data = Bytes::copy_from_slice(bytemuck::cast_slice(data));
-                    client.server.load().as_ref().unwrap().connection.send_unreliable(data).unwrap();
-                    println!("send audio!");
+                    pollster::block_on(client.server.load().as_ref().unwrap().connection.send_unreliable(data)).unwrap();
+                    // println!("send audio!");
                 }, || {
                     loop {}
                 }).unwrap();
@@ -264,19 +264,19 @@ pub async fn start_connect_to(
 
     Ok(client)
 }
-pub struct Client<'a> {
+pub struct Client {
     pub config: Arc<Config>,
     // FIXME: make this somehow mutable (maybe using an ArcSwap or a Mutex)
     pub profile_db: Arc<ProfileDb>,
     pub renderer: Arc<Renderer>,
     pub screen_sys: Arc<ScreenSystem>,
     pub atlas: Arc<Atlas>,
-    pub cli: CommandLineInterface<'a>,
+    pub cli: CommandLineInterface,
     pub server: ArcSwapOption<Server>, // FIXME: support multiple servers at once!
     pub audio: ArcSwap<Audio>,
 }
 
-impl Client<'_> {
+impl Client {
 
     pub fn handle_err(&self, err: anyhow::Error, err_src: ErrorSource) {
 

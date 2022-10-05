@@ -66,12 +66,12 @@ impl Screen for ServerList {
                     let profile = profiles.remove(rand::thread_rng().gen_range(0..profiles.len())).unwrap().1;
                     let profile = DbProfile::from_bytes(profile).unwrap();
                     let profile = Profile::from_existing(profile.name, profile.priv_key, profile.security_proofs);
-                    client.server.store(Some(Arc::new(
-                        pollster::block_on(Server::new(profile, AddressMode::V4,
+                    client.server.store(Some(
+                        pollster::block_on(Server::new(client.clone(), profile, AddressMode::V4,
                                     certificate::insecure_local::config(),
                                     SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 20354)),
                                     "local_test_srv")).unwrap() // FIXME: handle the error gracefully!
-                    )));
+                    ));
                 }))
             }))));
         }

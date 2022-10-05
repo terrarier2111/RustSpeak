@@ -7,7 +7,7 @@ use crate::{Client, CommandImpl, DbProfile, generate_token_num, uuid_from_pub_ke
 pub struct CommandProfiles();
 
 impl CommandImpl for CommandProfiles {
-    fn execute(&self, client: &Arc<Client<'_>>, input: &[&str]) -> anyhow::Result<()> {
+    fn execute(&self, client: &Arc<Client>, input: &[&str]) -> anyhow::Result<()> {
         match input[0] {
             "create" => {
                 if client.profile_db.get(&input[1].to_string())?.is_some() {
