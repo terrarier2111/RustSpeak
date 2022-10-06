@@ -6,7 +6,7 @@ use cpal::{BufferSize, ChannelCount, Device, Host, InputCallbackInfo, OutputCall
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
-use sfml::audio::{SoundRecorder, SoundRecorderDriver};
+use sfml::audio::{SoundRecorder, SoundRecorderDriver, SoundStatus, SoundStream, SoundStreamPlayer};
 use sfml::system::Time;
 
 pub struct Audio {
@@ -76,7 +76,7 @@ impl Audio {
         Ok(())
     }
 
-    pub fn play_back<T: Sample>(&self, handler: impl FnMut(&mut [T], &OutputCallbackInfo) + Send + 'static, err_handler: impl FnMut(StreamError) + Send + 'static) -> anyhow::Result<()> {
+    pub fn play_back(&self, data: &mut [i16]) -> anyhow::Result<()> {
         let (audio_mode, freq_quality) = self.stream_settings.get();
         let cfg = /*self.io_src.output().default_output_config()?.config()*/StreamConfig {
             channels: <AudioMode as Into<u16>>::into(audio_mode.unwrap()) as ChannelCount,
@@ -85,10 +85,40 @@ impl Audio {
         };
         // let stream = self.io_src.output().build_output_stream(&cfg, handler, err_handler)?;
         // stream.play()?;
+        let mut stream = DummyAudioStream {
+            data,
+        };
+        let mut player = SoundStreamPlayer::new(&mut stream);
+        player.play();
+        while player.status() == SoundStatus::PLAYING {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
 
         Ok(())
     }
 
+}
+
+struct DummyAudioStream<'a> {
+    data: &'a mut [i16],
+}
+
+impl SoundStream for DummyAudioStream<'_> {
+    fn get_data(&mut self) -> (&mut [i16], bool) {
+        (self.data, true)
+    }
+
+    fn seek(&mut self, offset: Time) {
+        todo!()
+    }
+
+    fn channel_count(&self) -> u32 {
+        todo!()
+    }
+
+    fn sample_rate(&self) -> u32 {
+        todo!()
+    }
 }
 
 enum AudioIOSource {

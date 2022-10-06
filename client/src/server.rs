@@ -54,8 +54,9 @@ impl Server {
         }).await.unwrap();
         let server = Arc::new(server);
         let tmp_server = server.clone();
+        let tmp_client = client.clone();
         tokio::spawn(async move {
-            let client = client.clone();
+            let client = tmp_client;
             let server = tmp_server;
             'end: loop {
                 match server.connection.read_reliable(8).await {
@@ -91,11 +92,17 @@ impl Server {
             }
         });
         let tmp_server = server.clone(); // FIXME: when we run this, this will block all other threads!
+        let tmp_client = client.clone();
         tokio::spawn(async move { // FIXME: is this okay perf-wise?
             let server = tmp_server;
+            let client = tmp_client;
             'end: loop {
-                let data = server.connection.read_unreliable().await.unwrap().unwrap(); // FIXME: do error handling!
+                let mut data = server.connection.read_unreliable().await.unwrap().unwrap(); // FIXME: do error handling!
                 println!("received voice traffic {}", data.len());
+                let mut data_vec = data.to_vec();
+                let mut data = data_vec.as_mut();
+                let mut data = bytemuck::cast_slice_mut::<u8, i16>(data);
+                client.audio.load().as_ref().play_back(data).unwrap();
             }
         });
         Ok(server.clone())

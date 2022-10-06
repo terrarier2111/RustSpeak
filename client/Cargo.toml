@@ -16,9 +16,9 @@ quinn = "0.8.5"
 rustls = { version = "0.20.6", features = [ "dangerous_configuration", "quic" ] }
 
 # rendering/graphics
-wgpu = "0.13.1"
+wgpu = "0.14"
 wgpu-biolerless = { git = "https://github.com/terrarier2111/wgpu-boilerless", features = [ "winit" ] }
-wgpu_glyph = "0.17.0"
+wgpu_glyph = { git = "https://github.com/terrarier2111/wgpu_glyph" }
 winit = "0.27.3"
 # font-kit = "0.11"
 fontdue = "0.7.2"

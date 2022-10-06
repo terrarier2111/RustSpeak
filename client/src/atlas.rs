@@ -182,7 +182,7 @@ impl Atlas {
             base_array_layer: 0,
             array_layer_count: None,
         });
-        let sampler = state.device().create_sampler(&SamplerDescriptor {
+        let sampler = state.device.create_sampler(&SamplerDescriptor {
             // FIXME: check values!
             label: None,
             address_mode_u: Default::default(),
@@ -201,7 +201,7 @@ impl Atlas {
     }
 
     fn write_tex(&self, tex: &Texture, pos: (u32, u32), size: (u32, u32), content: &[u8]) {
-        self.state.queue().write_texture(
+        self.state.queue.write_texture(
             ImageCopyTexture {
                 texture: tex,
                 mip_level: 0,

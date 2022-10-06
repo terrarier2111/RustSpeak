@@ -51,7 +51,7 @@ impl Renderer {
         ))?;
 
         glyphs.push(GlyphInfo {
-            brush: Mutex::new(GlyphBrushBuilder::using_font(font).build(state.device(), state.format())),
+            brush: Mutex::new(GlyphBrushBuilder::using_font(font).build(&state.device, state.format())),
             format: state.format(),
             staging_belt: Mutex::new(StagingBelt::new(1024)),
         });
@@ -129,7 +129,7 @@ impl Renderer {
                     for glyph in self.glyphs.lock().unwrap().iter() {
                         let mut staging_belt = glyph.staging_belt.lock().unwrap();
                         let (width, height) = self.dimensions.get();
-                        glyph.brush.lock().unwrap().draw_queued(state.device(), &mut staging_belt, &mut encoder, view, width, height);
+                        glyph.brush.lock().unwrap().draw_queued(&state.device, &mut staging_belt, &mut encoder, view, width, height).unwrap();
                         staging_belt.finish();
                     }
                     encoder
