@@ -16,13 +16,15 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 use arc_swap::ArcSwapOption;
 use tokio::sync::Mutex;
-use crate::{ClientPacket, RWBytes, Server, UserUuid};
+use uuid::Uuid;
+use crate::{ClientPacket, DEFAULT_CHANNEL_UUID, RWBytes, Server, UserUuid};
 use crate::utils::current_time_millis;
+
+const DEBUG_VOICE: bool = true;
 
 pub struct NetworkServer {
     pub endpoint: Endpoint,
     pub incoming: Mutex<Incoming>,
-    pub connections: DashMap<usize, Arc<ClientConnection>>,
 }
 
 impl NetworkServer {
@@ -42,7 +44,6 @@ impl NetworkServer {
         Ok(Self {
             endpoint: endpoint.0,
             incoming: Mutex::new(endpoint.1),
-            connections: Default::default(),
         })
     }
 
@@ -77,7 +78,6 @@ impl NetworkServer {
                     },
                 }
             };
-            let id = connection.connection.stable_id();
             let client_conn = match ClientConnection::new(server.clone(), connection, initial_stream).await {
                 Ok(val) => Arc::new(val),
                 Err(err) => {
@@ -89,8 +89,6 @@ impl NetworkServer {
                 error_handler(anyhow::Error::from(err));
                 continue 'server;
             }
-
-            self.connections.insert(id, client_conn);
         }
     }
 }
@@ -100,6 +98,7 @@ pub struct ClientConnection {
     pub conn: tokio::sync::RwLock<NewConnection>,
     pub default_stream: (Mutex<SendStream>, Mutex<RecvStream>),
     pub keep_alive_stream: ArcSwapOption<(Mutex<SendStream>, Mutex<RecvStream>)>,
+    pub channel: Uuid,
     server: Arc<Server>,
     stable_id: usize,
     // FIXME: cache buffers in order to avoid performance penalty for allocating new ones
@@ -114,6 +113,7 @@ impl ClientConnection {
             conn: tokio::sync::RwLock::new(conn),
             default_stream: (Mutex::new(send), Mutex::new(recv)),
             keep_alive_stream: ArcSwapOption::empty(),
+            channel: DEFAULT_CHANNEL_UUID, // FIXME: add possibility to allow privileged users to login into other channels than the default channel!
             server,
             stable_id,
         })
@@ -121,7 +121,7 @@ impl ClientConnection {
 
     pub async fn start_read(self: &Arc<Self>) {
         let this = self.clone();
-        tokio::spawn(async move { // FIXME: is this okay perf-wise?
+        tokio::spawn(async move {
             let this = this.clone();
             'end: loop {
                 match this.read_keep_alive().await {
@@ -140,7 +140,7 @@ impl ClientConnection {
 
         let this = self.clone();
         let server = self.server.clone();
-        tokio::spawn(async move { // FIXME: is this okay perf-wise?
+        tokio::spawn(async move {
             let server = server.clone();
             let this = this.clone();
             'end: loop {
@@ -178,13 +178,15 @@ impl ClientConnection {
         });
 
         let this = self.clone();
-        tokio::spawn(async move { // FIXME: is this okay perf-wise?
+        tokio::spawn(async move {
             let this = this.clone();
             'end: loop {
                 let data = this.read_unreliable().await.unwrap().unwrap(); // FIXME: do error handling!
                 println!("received voice traffic {}", data.len());
-                for client in this.server.network_server.connections.iter() {
-                    client.send_unreliable(data.clone()).await.unwrap();
+                for client in this.server.channels.load().get(&this.channel).unwrap().clients.read().await.iter() {
+                    if client != this.uuid.load().as_ref().unwrap().as_ref() || DEBUG_VOICE {
+                        this.server.online_users.get(client).unwrap().connection.send_unreliable(data.clone()).await.unwrap();
+                    }
                 }
             }
         });
@@ -263,7 +265,6 @@ impl ClientConnection {
 
     fn finish_up(&self) {
         if let Some(uuid) = self.uuid.load().as_ref() {
-            self.server.network_server.connections.remove(&self.stable_id);
             self.server.online_users.remove(uuid);
         }
     }

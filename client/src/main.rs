@@ -22,12 +22,13 @@ use ruint::aliases::U256;
 use std::fs::File;
 use std::mem::transmute;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{fs, io, thread};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
+use std::thread::sleep;
 use colored::{ColoredString, Colorize};
 use cpal::traits::{DeviceTrait, HostTrait};
 use openssl::pkey::PKey;
@@ -148,8 +149,12 @@ async fn main() -> anyhow::Result<()> {
                     }
                     // println!("send audio!");
                 }, || {
-                    loop {}
+                    loop {
+                        sleep(Duration::from_millis(1));
+                    }
                 }).unwrap();
+            } else {
+                sleep(Duration::from_millis(1));
             }
         }
     });
@@ -269,7 +274,6 @@ pub async fn start_connect_to(
         security_proofs: vec![],
         signed_data,
     };
-    // client.send_reliable((auth_packet as dyn RWBytes).encode());
     let mut buf = BytesMut::new();
     auth_packet.write(&mut buf)?;
 

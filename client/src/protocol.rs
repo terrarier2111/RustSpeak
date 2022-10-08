@@ -42,17 +42,6 @@ pub(crate) trait RWBytesMut /*: Sized*/ {
     fn write(&mut self, dst: &mut BytesMut) -> anyhow::Result<()>;
 }
 
-/*
-impl dyn RWBytes {
-
-    pub fn encode(&self) -> anyhow::Result<BytesMut> {
-        let mut buf = BytesMut::new();
-        self.write(&mut buf)?;
-        Ok(buf)
-    }
-
-}*/
-
 impl RWBytes for u128 {
     type Ty = Self;
 
@@ -187,8 +176,7 @@ impl RWBytes for String {
 
     fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         let len = src.get_u64_le() as usize;
-        let result = src.slice((src.len() - src.remaining())..len);
-        src.advance(len);
+        let result = src.read_slice(len);
         Ok(String::from(String::from_utf8_lossy(result.deref())))
     }
 
@@ -217,8 +205,7 @@ impl RWBytes for UserUuid {
 
     fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         const LEN: usize = 32;
-        let result = src.slice((src.len() - src.remaining())..((src.len() - src.remaining()) + LEN));
-        src.advance(LEN);
+        let result = src.read_slice(LEN);
         Ok(UserUuid::from_u256(
             U256::try_from_le_slice(result.as_ref()).unwrap(),
         ))
@@ -226,10 +213,8 @@ impl RWBytes for UserUuid {
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
         // SAFETY: This is safe as u128 allows all possible bit patterns
-        let data: [u128; 2] = unsafe { transmute(self.into_u256().to_le_bytes::<32>()) };
-        // NOTE: we are deliberately not using the "_le" extension here because we make the data LE in the line above
-        dst.put_u128(data[0]);
-        dst.put_u128(data[1]);
+        let data = self.into_u256().to_le_bytes::<32>();
+        dst.extend_from_slice(&data);
         Ok(())
     }
 }
@@ -273,8 +258,7 @@ impl<'a> RWBytes for Cow<'a, str> {
 
     fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         let len = src.get_u64_le() as usize;
-        let result = src.slice((src.len() - src.remaining())..((src.len() - src.remaining()) + len));
-        src.advance(len);
+        let result = src.read_slice(len);
         Ok(Cow::Owned(String::from_utf8(result.to_vec())?))
     }
 
@@ -427,3 +411,16 @@ impl Display for ErrorBoolConversion {
 }
 
 impl Error for ErrorBoolConversion {}
+
+pub trait ReadSlice {
+    fn read_slice(&mut self, len: usize) -> Bytes;
+}
+
+impl ReadSlice for Bytes {
+    fn read_slice(&mut self, len: usize) -> Bytes {
+        let offset = self.len() - self.remaining();
+        let slice = self.slice(offset..(offset + len));
+        self.advance(len);
+        slice
+    }
+}

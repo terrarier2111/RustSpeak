@@ -512,7 +512,7 @@ pub struct Channel {
     pub name: Arc<RwLock<String>>,
     pub desc: Arc<RwLock<String>>,
     pub perms: Arc<RwLock<ChannelPerms>>,
-    pub clients: Arc<RwLock<Vec<UserUuid>>>,
+    pub clients: Arc<tokio::sync::RwLock<Vec<UserUuid>>>,
     pub proto_clients: Arc<RwLock<Vec<RemoteProfile>>>, // FIXME: is it worth making RemoteProfiles ref-counted?
 }
 
@@ -549,7 +549,7 @@ impl RWBytes for Channel {
             desc,
             perms,
             proto_clients: clients,
-            clients: Arc::new(RwLock::new(vec![])),
+            clients: Arc::new(tokio::sync::RwLock::new(vec![])),
         })
     }
 

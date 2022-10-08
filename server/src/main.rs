@@ -8,7 +8,7 @@ use crate::cli::{
     CommandParam, CommandParamTy, UsageBuilder,
 };
 use crate::config::Config;
-use crate::network::{handle_packet, NetworkServer};
+use crate::network::{ClientConnection, handle_packet, NetworkServer};
 use crate::packet::{
     AuthFailure, AuthResponse, Channel, ChannelCreatePerms, ChannelPerms, ClientPacket,
     RemoteProfile, ServerGroup, ServerGroupPerms, ServerPacket,
@@ -248,7 +248,7 @@ async fn main() -> anyhow::Result<()> {
         );
 
     let server = Arc::new(Server {
-        server_groups: ArcSwap::new(Arc::new(server_groups)), // FIXME: load groups from database
+        server_groups: ArcSwap::new(Arc::new(server_groups)),
         channels: ArcSwap::new(Arc::new(channels)),
         online_users: Default::default(),
         network_server,
@@ -342,7 +342,7 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                                 recv_proto_ver: protocol_version,
                             }));
                         }
-                        let uuid = UserUuid::from_u256(U256::from_le_bytes(sha256(&pub_key))); // FIXME: SEVERE!!!!!: this won't give the same result as user.uuid below!
+                        let uuid = UserUuid::from_u256(U256::from_le_bytes(sha256(&pub_key)));
                         let last_security_proof = security_proofs.last().copied();
                         let security_proof_result = if let Some(level) =
                         security_level::verified_security_level(
@@ -427,13 +427,18 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                             server.user_db.insert(user.clone())?;
                             user
                         };
+                        println!("uuid_cmp: {}", uuid == user.uuid);
+                        println!("uuid: {:?}", uuid);
+                        println!("user uuid: {:?}", user.uuid);
                         server.online_users.insert(uuid, User {
                             uuid,
                             name: RwLock::new(user.name.into()),
                             last_security_proof: user.last_security_proof,
                             last_verified_security_level: user.last_verified_security_level,
                             groups: RwLock::new(user.groups.clone()),
+                            connection: new_conn.clone(),
                         });
+                        server.channels.load().get(&new_conn.channel).unwrap().clients.write().await.push(uuid); // FIXME: remove the user from the channel again later on!
                         let auth = ServerPacket::AuthResponse(AuthResponse::Success {
                             server_groups: server_groups.cloned().collect::<Vec<_>>(), // FIXME: try getting rid of this clone!
                             own_groups: user.groups,
@@ -468,7 +473,6 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
 }
 
 pub struct Server {
-    // pub server_groups: DashMap<Uuid, ServerGroup>,
     pub server_groups: ArcSwap<HashMap<Uuid, Arc<ServerGroup>>>,
     pub channels: ArcSwap<HashMap<Uuid, Channel>>,
     pub online_users: DashMap<UserUuid, User>, // FIXME: add a timed cache for offline users
@@ -486,6 +490,7 @@ pub struct User {
     pub last_security_proof: U256,
     pub last_verified_security_level: u8,
     pub groups: RwLock<Vec<Uuid>>,
+    pub connection: Arc<ClientConnection>,
     // FIXME: add individual user perms
 }
 
