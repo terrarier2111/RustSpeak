@@ -217,7 +217,7 @@ impl RWBytes for UserUuid {
 
     fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         const LEN: usize = 32;
-        let result = src.slice((src.len() - src.remaining())..LEN);
+        let result = src.slice((src.len() - src.remaining())..((src.len() - src.remaining()) + LEN));
         src.advance(LEN);
         Ok(UserUuid::from_u256(
             U256::try_from_le_slice(result.as_ref()).unwrap(),
@@ -273,7 +273,7 @@ impl<'a> RWBytes for Cow<'a, str> {
 
     fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         let len = src.get_u64_le() as usize;
-        let result = src.slice((src.len() - src.remaining())..len);
+        let result = src.slice((src.len() - src.remaining())..((src.len() - src.remaining()) + len));
         src.advance(len);
         Ok(Cow::Owned(String::from_utf8(result.to_vec())?))
     }

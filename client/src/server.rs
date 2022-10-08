@@ -1,9 +1,12 @@
+use std::alloc::{alloc, Layout};
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::ptr;
+use std::ptr::slice_from_raw_parts_mut;
 use std::sync::Arc;
 use std::time::Duration;
 use arc_swap::ArcSwap;
-use bytes::Buf;
+use bytes::{Buf, buf};
 use openssl::pkey::PKey;
 use uuid::Uuid;
 use crate::{AddressMode, Channel, Client, ClientConfig, ClientPacket, NetworkClient, Profile, PROTOCOL_VERSION, RWBytes};
@@ -100,8 +103,23 @@ impl Server {
                 let mut data = server.connection.read_unreliable().await.unwrap().unwrap(); // FIXME: do error handling!
                 println!("received voice traffic {}", data.len());
                 let mut data_vec = data.to_vec();
-                let mut data = data_vec.as_mut();
-                let mut data = bytemuck::cast_slice_mut::<u8, i16>(data);
+                let len = data_vec.len();
+                let mut data = if data_vec.as_ptr().is_aligned_to(2) {
+                    data_vec.as_mut_ptr()
+                } else {
+                    // realloc to make the allocation aligned to 2 bytes
+                    let mut new_alloc = unsafe { alloc(Layout::from_size_align(len, 2).unwrap()) };
+                    if !new_alloc.is_null() {
+                        unsafe {
+                            ptr::copy_nonoverlapping(data_vec.as_ptr(), new_alloc, len);
+                        }
+                        new_alloc
+                    } else {
+                        unreachable!()
+                    }
+                };
+                let mut data = unsafe { slice_from_raw_parts_mut::<i16>(data.cast::<i16>(), len / 2).as_mut().unwrap() };
+                // let mut data = bytemuck::cast_slice_mut::<u8, i16>(data);
                 client.audio.load().as_ref().play_back(data).unwrap();
             }
         });

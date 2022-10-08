@@ -1,5 +1,6 @@
 #![feature(new_uninit)]
 #![feature(int_roundings)]
+#![feature(pointer_is_aligned)]
 
 extern crate core;
 
@@ -66,6 +67,7 @@ mod audio;
 // FIXME: review all the endianness related shit!
 
 const RELATIVE_PROFILE_DB_PATH: &str = "user_db";
+const VOICE_THRESHOLD: i16 = 50/*100*/; // 0-6 even occurs in idle (if nobody is near the input device)
 
 // FIXME: can we even let tokio do this right here? do we have to run our event_loop on the main thread?
 #[tokio::main] // FIXME: is it okay to use tokio in the main thread already, don't we need it to do rendering stuff?
@@ -118,14 +120,14 @@ async fn main() -> anyhow::Result<()> {
 
     let tmp = client.clone();
     thread::spawn(move || {
-        let client = tmp.clone();
+        let client = tmp;
         loop {
             client.cli.await_input(&client).unwrap(); // FIXME: handle errors properly!
         }
     });
     let tmp = client.clone();
     thread::spawn(move || {
-        let client = tmp.clone();
+        let client = tmp;
         loop {
             if client.server.load().as_ref().is_some() { // FIXME: check for channel and make thread sleep if not on server!
                 let client = client.clone();
@@ -133,8 +135,17 @@ async fn main() -> anyhow::Result<()> {
                 client.audio.load().record(|data| {
                     // FIXME: handle endianness of `data`
                     // println!("sending audio {}", data.len());
-                    let data = Bytes::copy_from_slice(bytemuck::cast_slice(data));
-                    pollster::block_on(client.server.load().as_ref().unwrap().connection.send_unreliable(data)).unwrap();
+                    let empty = data.iter().all(|x| *x == 0);
+                    if !empty {
+                        let max = data.iter().max().unwrap().abs();
+                        let min = data.iter().min().unwrap().abs();
+                        let max_diff = min.max(max);
+                        if max_diff > VOICE_THRESHOLD {
+                            println!("max diff: {}", max_diff);
+                            let data = Bytes::copy_from_slice(bytemuck::cast_slice(data));
+                            pollster::block_on(client.server.load().as_ref().unwrap().connection.send_unreliable::<2>(data)).unwrap();
+                        }
+                    }
                     // println!("send audio!");
                 }, || {
                     loop {}

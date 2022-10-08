@@ -424,7 +424,7 @@ impl RWBytes for ClientUpdateServerGroups {
 
 pub struct RemoteProfile {
     pub name: String,
-    pub uuid: Uuid,
+    pub uuid: UserUuid,
     pub server_groups: Vec<Uuid>,
 }
 
@@ -433,7 +433,7 @@ impl RWBytes for RemoteProfile {
 
     fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         let name = String::read(src)?;
-        let uuid = Uuid::read(src)?;
+        let uuid = UserUuid::read(src)?;
         let server_groups = Vec::<Uuid>::read(src)?;
 
         Ok(Self {
@@ -453,7 +453,7 @@ impl RWBytes for RemoteProfile {
 }
 
 pub struct Channel {
-    pub(crate) id: u64,
+    pub(crate) id: Uuid,
     pub(crate) password: bool, // FIXME: add capability to hide users if a password is set
     pub(crate) name: String,
     pub(crate) desc: String,
@@ -465,7 +465,7 @@ impl RWBytes for Channel {
     type Ty = Self;
 
     fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
-        let id = u64::read(src)?;
+        let id = Uuid::read(src)?;
         let password = bool::read(src)?;
         let name = String::read(src)?;
         let desc = String::read(src)?;

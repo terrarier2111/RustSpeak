@@ -1,13 +1,16 @@
 use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU16, AtomicU32, AtomicU64, Ordering};
+use std::time::Duration;
 use arc_swap::ArcSwapOption;
 use cpal::{BufferSize, ChannelCount, Device, Host, InputCallbackInfo, OutputCallbackInfo, Sample, SampleRate, Stream, StreamConfig, StreamError};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
-use sfml::audio::{SoundRecorder, SoundRecorderDriver, SoundStatus, SoundStream, SoundStreamPlayer};
+use sfml::audio::{Music, Sound, SoundBuffer, SoundRecorder, SoundRecorderDriver, SoundStatus, SoundStream, SoundStreamPlayer};
 use sfml::system::Time;
+
+const SAMPLE_RATE: u32 = 44100 / 4; // 44.1kHz
 
 pub struct Audio {
     stream_settings: AudioStreamSettings,
@@ -71,28 +74,26 @@ impl Audio {
         let mut recorder_driver = SoundRecorderDriver::new(&mut recorder);
         recorder_driver.set_channel_count(<AudioMode as Into<u16>>::into(audio_mode.unwrap()) as u32);
         recorder_driver.set_processing_interval(Time::milliseconds(20/*6*/));
-        recorder_driver.start(44100);
+        recorder_driver.start(SAMPLE_RATE);
         tail_call();
         Ok(())
     }
 
-    pub fn play_back(&self, data: &mut [i16]) -> anyhow::Result<()> {
+    pub fn play_back(&self, data: &[i16]) -> anyhow::Result<()> {
         let (audio_mode, freq_quality) = self.stream_settings.get();
         let cfg = /*self.io_src.output().default_output_config()?.config()*/StreamConfig {
             channels: <AudioMode as Into<u16>>::into(audio_mode.unwrap()) as ChannelCount,
-            sample_rate: SampleRate(44100), // 44.1 khZ
+            sample_rate: SampleRate(SAMPLE_RATE),
             buffer_size: BufferSize::Fixed(freq_quality.unwrap().into()),
         };
         // let stream = self.io_src.output().build_output_stream(&cfg, handler, err_handler)?;
         // stream.play()?;
-        let mut stream = DummyAudioStream {
-            data,
-        };
-        let mut player = SoundStreamPlayer::new(&mut stream);
-        player.play();
-        while player.status() == SoundStatus::PLAYING {
-            std::thread::sleep(std::time::Duration::from_millis(1));
-        }
+        let tmp: u16 = cfg.channels.into();
+        let sound_buffer = SoundBuffer::from_samples(data, tmp as u32, SAMPLE_RATE)?;
+        let mut sound = Sound::with_buffer(&sound_buffer);
+        sound.play();
+        println!("playing...");
+        std::thread::sleep(Duration::from_micros(sound_buffer.duration().as_microseconds() as u64));
 
         Ok(())
     }
@@ -101,6 +102,7 @@ impl Audio {
 
 struct DummyAudioStream<'a> {
     data: &'a mut [i16],
+    channels: u32,
 }
 
 impl SoundStream for DummyAudioStream<'_> {
@@ -113,11 +115,11 @@ impl SoundStream for DummyAudioStream<'_> {
     }
 
     fn channel_count(&self) -> u32 {
-        todo!()
+        self.channels
     }
 
     fn sample_rate(&self) -> u32 {
-        todo!()
+        SAMPLE_RATE
     }
 }
 
