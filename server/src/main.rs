@@ -53,6 +53,7 @@ mod security_level;
 mod server_group_db;
 mod user_db;
 mod utils;
+mod atomic_boxed_doubly_linked_list;
 
 // FIXME: review all the endianness related shit!
 
