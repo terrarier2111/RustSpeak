@@ -1,8 +1,14 @@
 use std::mem::{ManuallyDrop, transmute};
+use std::ptr;
 use std::ptr::{addr_of_mut, null_mut};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicPtr, AtomicU8, fence, Ordering};
 use parking_lot::Mutex;
+
+// this is better for cases where we DON'T care much about removal of nodes during traversal:
+// https://www.codeproject.com/Articles/723555/A-Lock-Free-Doubly-Linked-List
+// this is better if we DO:
+// https://scholar.google.com/citations?view_op=view_citation&hl=de&user=RJmBj1wAAAAJ&citation_for_view=RJmBj1wAAAAJ:UebtZRa9Y70C
 
 pub struct AtomicBoxedDoublyLinkedList<T> {
     header_node: AtomicPtr<Arc<AtomicBoxedDoublyLinkedListNode<T>>>,
@@ -47,28 +53,27 @@ impl<T> Drop for AtomicBoxedDoublyLinkedList<T> {
 
 pub struct AtomicBoxedDoublyLinkedListNode<T> {
     val: T,
-    left: AtomicPtr<Arc<AtomicBoxedDoublyLinkedListNode<T>>>,
-    right: AtomicPtr<Arc<AtomicBoxedDoublyLinkedListNode<T>>>,
+    left: Link<T>,
+    right: Link<T>,
     state: AtomicU8,
 }
 
 impl<T> AtomicBoxedDoublyLinkedListNode<T> {
 
     #[inline]
-    pub fn get(&self) -> &T {
-        &self.val
+    pub fn get(&self) -> Option<&T> {
+        if self.right.get().1 {
+            return None;
+        }
+        Some(&self.val)
     }
 
     // FIXME: should we maybe consume Arc<Self> here?
-    /// Returns the value that's currently the currently valid next value
-    /// it is not ensured that no write operation is being currently performed on this node
     pub fn next(&self) -> Option<Arc<AtomicBoxedDoublyLinkedListNode<T>>> {
         unsafe { self.right.load(Ordering::Acquire).as_ref() }.map(|x| x.clone())
     }
 
     // FIXME: should we maybe consume Arc<Self> here?
-    /// Returns the value that's currently the currently valid next value
-    /// it is not ensured that no write operation is being currently performed on this node
     pub fn prev(&self) -> Option<Arc<AtomicBoxedDoublyLinkedListNode<T>>> {
         unsafe { self.left.load(Ordering::Acquire).as_ref() }.map(|x| x.clone())
     }
@@ -85,6 +90,13 @@ impl<T> AtomicBoxedDoublyLinkedListNode<T> {
             right.left.store(left, Ordering::Release);
         }
 
+        /*
+        loop {
+            let left = self.left.load(Ordering::Relaxed);
+            if left.left.load(Ordering::Relaxed).
+        }
+        */
+
         unsafe { addr_of_mut!(self).drop_in_place() } // drop the arc
     }
 
@@ -93,8 +105,8 @@ impl<T> AtomicBoxedDoublyLinkedListNode<T> {
         let right = self.right.load(Ordering::Acquire);
         let mut node = Arc::new(AtomicBoxedDoublyLinkedListNode {
             val,
-            left: AtomicPtr::new(this),
-            right: AtomicPtr::new(right),
+            left: Link(AtomicPtr::new(this)),
+            right: Link(AtomicPtr::new(right)),
             state: Default::default(),
         });
         let node_ptr = addr_of_mut!(node);
@@ -106,6 +118,20 @@ impl<T> AtomicBoxedDoublyLinkedListNode<T> {
         let ret = node.clone();
         let _ = ManuallyDrop::new(node); // leak a single reference
         ret
+    }
+
+    fn correct_prev(&self, prev_data: *mut Arc<AtomicBoxedDoublyLinkedListNode<T>>) -> *mut Arc<AtomicBoxedDoublyLinkedListNode<T>> {
+        let mut last_link = None;
+        loop {
+            let link_1 = self.left.get();
+            if link_1.1 {
+                break;
+            }
+            let prev_2 = prev_data.right.get(); // DeRefLink(&prev.next)
+            if prev_2.1 {
+
+            }
+        }
     }
 
 }
@@ -151,4 +177,38 @@ impl NodeState {
         self.set_bit(Self::ADDING, val);
     }
 
+}
+
+struct Link<T> {
+    ptr: AtomicPtr<Arc<AtomicBoxedDoublyLinkedListNode<T>>>,
+}
+
+impl<T> Link<T> {
+    const MARKER: usize = 1 << 63;
+    fn get(&self) -> (*mut Arc<AtomicBoxedDoublyLinkedListNode<T>>, bool) {
+        let raw_ptr = self.ptr.load(Ordering::Relaxed);
+        (ptr::from_exposed_addr_mut(raw_ptr.expose_addr() & (!Self::MARKER)), (raw_ptr.expose_addr() & Self::MARKER) != 0)
+    }
+
+    fn set_mark(&self) {
+        loop {
+            let (node, marker) = self.get();
+            const CAS_ORDERING: Ordering = Ordering::SeqCst;
+            if marker || self.ptr.compare_exchange(node, ptr::from_exposed_addr_mut(node.expose_addr() | Self::MARKER), CAS_ORDERING, strongest_failure_ordering(CAS_ORDERING)).is_ok(){
+                break;
+            }
+        }
+    }
+}
+
+#[inline]
+#[cfg(target_has_atomic = "8")]
+fn strongest_failure_ordering(order: Ordering) -> Ordering {
+    match order {
+        Ordering::Release => Ordering::Relaxed,
+        Ordering::Relaxed => Ordering::Relaxed,
+        Ordering::SeqCst => Ordering::SeqCst,
+        Ordering::Acquire => Ordering::Acquire,
+        Ordering::AcqRel => Ordering::Acquire,
+    }
 }

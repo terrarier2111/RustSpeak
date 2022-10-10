@@ -1,6 +1,7 @@
 #![feature(new_uninit)]
 #![feature(int_roundings)]
 #![feature(once_cell)]
+#![feature(strict_provenance)]
 
 use crate::channel_db::{ChannelDb, ChannelDbEntry};
 use crate::cli::{
