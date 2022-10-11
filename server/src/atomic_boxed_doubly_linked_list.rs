@@ -102,7 +102,7 @@ impl<T> AtomicBoxedDoublyLinkedListNode<T> {
 
     pub fn add(mut self: Arc<Self>, val: T) -> Arc<AtomicBoxedDoublyLinkedListNode<T>> {
         let this = addr_of_mut!(self);
-        let right = self.right.load(Ordering::Acquire);
+        let (right, _) = self.right.get();
         let mut node = Arc::new(AtomicBoxedDoublyLinkedListNode {
             val,
             left: Link(AtomicPtr::new(this)),
@@ -110,6 +110,10 @@ impl<T> AtomicBoxedDoublyLinkedListNode<T> {
             state: Default::default(),
         });
         let node_ptr = addr_of_mut!(node);
+        loop {
+            let next = this.right.get();
+            node.left.set_addr()
+        }
         if let Some(right) = unsafe { right.as_ref() } {
             right.left.store(node_ptr, Ordering::Release);
         } else {
@@ -120,6 +124,7 @@ impl<T> AtomicBoxedDoublyLinkedListNode<T> {
         ret
     }
 
+    /*
     fn correct_prev(&self, prev_data: *mut Arc<AtomicBoxedDoublyLinkedListNode<T>>) -> *mut Arc<AtomicBoxedDoublyLinkedListNode<T>> {
         let mut last_link = None;
         loop {
@@ -132,7 +137,7 @@ impl<T> AtomicBoxedDoublyLinkedListNode<T> {
 
             }
         }
-    }
+    }*/
 
 }
 
@@ -185,6 +190,8 @@ struct Link<T> {
 
 impl<T> Link<T> {
     const MARKER: usize = 1 << 63;
+    const CAS_ORDERING: Ordering = Ordering::SeqCst;
+
     fn get(&self) -> (*mut Arc<AtomicBoxedDoublyLinkedListNode<T>>, bool) {
         let raw_ptr = self.ptr.load(Ordering::Relaxed);
         (ptr::from_exposed_addr_mut(raw_ptr.expose_addr() & (!Self::MARKER)), (raw_ptr.expose_addr() & Self::MARKER) != 0)
@@ -193,11 +200,29 @@ impl<T> Link<T> {
     fn set_mark(&self) {
         loop {
             let (node, marker) = self.get();
-            const CAS_ORDERING: Ordering = Ordering::SeqCst;
-            if marker || self.ptr.compare_exchange(node, ptr::from_exposed_addr_mut(node.expose_addr() | Self::MARKER), CAS_ORDERING, strongest_failure_ordering(CAS_ORDERING)).is_ok(){
+            if marker || self.ptr.compare_exchange(node, ptr::from_exposed_addr_mut(node.expose_addr() | Self::MARKER), Self::CAS_ORDERING, strongest_failure_ordering(Self::CAS_ORDERING)).is_ok(){
                 break;
             }
         }
+    }
+
+    fn set_addr(&self, new: *mut Arc<AtomicBoxedDoublyLinkedListNode<T>>) {
+        loop {
+            let (node, marker) = self.get();
+            // FIXME: do we need to be able to retain the old MARKER?
+            if marker || self.ptr.compare_exchange(node, new, Self::CAS_ORDERING, strongest_failure_ordering(Self::CAS_ORDERING)).is_ok() {
+                break;
+            }
+        }
+    }
+
+    unsafe fn set_unsafe(&self, new: *mut Arc<AtomicBoxedDoublyLinkedListNode<T>>, marker: bool) {
+        let marker = if marker {
+            Self::MARKER
+        } else {
+            0
+        };
+        self.ptr.store(ptr::from_exposed_addr_mut(new.expose_addr() | marker), Self::CAS_ORDERING);
     }
 }
 
