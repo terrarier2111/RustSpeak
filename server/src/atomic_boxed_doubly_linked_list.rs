@@ -1,4 +1,5 @@
-use std::mem::{ManuallyDrop, transmute};
+use std::mem::{ManuallyDrop, MaybeUninit, transmute};
+use std::ops::Deref;
 use std::ptr;
 use std::ptr::{addr_of_mut, null_mut};
 use std::sync::Arc;
@@ -17,11 +18,10 @@ pub struct AtomicBoxedDoublyLinkedList<T> {
 impl<T> AtomicBoxedDoublyLinkedList<T> {
 
     pub fn push_head(&self, val: T) -> Arc<AtomicBoxedDoublyLinkedListNode<T>> {
-        let mut node = Arc::new(AtomicBoxedDoublyLinkedListNode {
+        /*let mut node = Arc::new(AtomicBoxedDoublyLinkedListNode {
             val,
             left: Default::default(),
             right: Default::default(),
-            state: Default::default()
         });
         let node_ptr = addr_of_mut!(node);
         let _ = self.header_node.fetch_update(Ordering::Release, Ordering::Acquire, move |curr_head| {
@@ -33,14 +33,16 @@ impl<T> AtomicBoxedDoublyLinkedList<T> {
         }).unwrap();
         let ret = node.clone();
         let _ = ManuallyDrop::new(node); // leak node to increase strong reference count
-        ret
+        ret*/
+        todo!()
     }
 
     pub fn remove_head(&self) -> Option<Arc<AtomicBoxedDoublyLinkedListNode<T>>> {
-        let old_header = self.header_node.fetch_update(Ordering::Release, Ordering::Acquire, move |curr_header| {
+        /*let old_header = self.header_node.fetch_update(Ordering::Release, Ordering::Acquire, move |curr_header| {
             Some(curr_header.right.load(Ordering::Acquire))
         }).unwrap();
-        unsafe { old_header.as_ref() }.map(|x| x.clone())
+        unsafe { old_header.as_ref() }.map(|x| x.clone())*/
+        todo!()
     }
 
 }
@@ -61,12 +63,13 @@ impl<T> AtomicBoxedDoublyLinkedListNode<T> {
 
     #[inline]
     pub fn get(&self) -> Option<&T> {
-        if self.right.get().1 {
+        if self.right.get().get_marker() {
             return None;
         }
         Some(&self.val)
     }
 
+    /*
     // FIXME: should we maybe consume Arc<Self> here?
     pub fn next(&self) -> Option<Arc<AtomicBoxedDoublyLinkedListNode<T>>> {
         unsafe { self.right.load(Ordering::Acquire).as_ref() }.map(|x| x.clone())
@@ -75,9 +78,9 @@ impl<T> AtomicBoxedDoublyLinkedListNode<T> {
     // FIXME: should we maybe consume Arc<Self> here?
     pub fn prev(&self) -> Option<Arc<AtomicBoxedDoublyLinkedListNode<T>>> {
         unsafe { self.left.load(Ordering::Acquire).as_ref() }.map(|x| x.clone())
-    }
+    }*/
 
-    pub fn remove(mut self: Arc<Self>) {
+    pub fn remove(mut self: Arc<Self>) -> Option<> {
         /*let mut state = NodeState(self.state.load(Ordering::AcqRel));
 
         let right = self.right.load(Ordering::Acquire);
@@ -95,13 +98,142 @@ impl<T> AtomicBoxedDoublyLinkedListNode<T> {
             if left.left.load(Ordering::Relaxed).
         }
         */
+        let prev;
+        let mut next;
+        loop {
+            next = self.right.get();
+            if next.get_marker() {
+                return None;
+            }
+            if self.right.try_set_addr_full(next.ptr, next.get_ptr(), true) {
+                loop {
+                    prev = self.left.get();
+                    if prev.get_marker() || self.left.try_set_addr_full(prev.ptr, prev.get_ptr(), true) {
+                        break;
+                    }
+                }
+                prev = pr
+            }
+        }
 
 
 
         unsafe { addr_of_mut!(self).drop_in_place() } // drop the arc
     }
 
-    pub fn add_after(mut self: Arc<Self>, val: T) -> Arc<AtomicBoxedDoublyLinkedListNode<T>> {
+}
+
+struct Link<T> {
+    ptr: AtomicPtr<Arc<AtomicBoxedDoublyLinkedListNode<T>>>,
+}
+
+impl<T> Link<T> {
+    const MARKER: usize = 1 << 63;
+    const CAS_ORDERING: Ordering = Ordering::SeqCst;
+
+    /*fn get(&self) -> (*mut Arc<AtomicBoxedDoublyLinkedListNode<T>>, bool) {
+        let raw_ptr = self.ptr.load(Ordering::Relaxed);
+        (ptr::from_exposed_addr_mut(raw_ptr.expose_addr() & (!Self::MARKER)), (raw_ptr.expose_addr() & Self::MARKER) != 0)
+    }
+
+    fn get_raw(&self) -> *mut Arc<AtomicBoxedDoublyLinkedListNode<T>> {
+        self.ptr.load(Ordering::Relaxed)
+    }*/
+    
+    fn get(&self) -> LinkContent<T> {
+        LinkContent {
+            ptr: self.ptr.load(Ordering::Relaxed),
+        }
+    }
+
+    fn set_mark(&self) {
+        loop {
+            let node = self.get();
+            let node_ptr = node.get_ptr();
+            if node.get_marker() || self.ptr.compare_exchange(node_ptr, ptr::from_exposed_addr_mut(node_ptr.expose_addr() | Self::MARKER), Self::CAS_ORDERING, strongest_failure_ordering(Self::CAS_ORDERING)).is_ok(){
+                break;
+            }
+        }
+    }
+
+    fn set_addr(&self, new: *mut Arc<AtomicBoxedDoublyLinkedListNode<T>>) {
+        loop {
+            let node = self.get();
+            // FIXME: do we need to be able to retain the old MARKER?
+            if node.get_marker() || self.try_set_addr_full(node.get_ptr(), new, false) {
+                break;
+            }
+        }
+    }
+
+    fn try_set_addr_full(&self, old: *mut Arc<AtomicBoxedDoublyLinkedListNode<T>>, new: *mut Arc<AtomicBoxedDoublyLinkedListNode<T>>, set_marker: bool) -> bool {
+        self.ptr.compare_exchange(old, if set_marker { ptr::from_exposed_addr_mut(new.expose_addr() | Self::MARKER) } else { new }, Self::CAS_ORDERING, strongest_failure_ordering(Self::CAS_ORDERING)).is_ok()
+    }
+
+    unsafe fn set_unsafe(&self, new: *mut Arc<AtomicBoxedDoublyLinkedListNode<T>>, marker: bool) {
+        let marker = if marker {
+            Self::MARKER
+        } else {
+            0
+        };
+        self.ptr.store(ptr::from_exposed_addr_mut(new.expose_addr() | marker), Self::CAS_ORDERING);
+    }
+
+    #[inline]
+    const fn invalid() -> Self {
+        Self {
+            ptr: AtomicPtr::new(null_mut()),
+        }
+    }
+
+    /// tries to update the
+    /// prev pointer of a node and then return a reference to a possibly
+    /// logically previous node
+    fn correct_prev(&self, node: *mut Arc<AtomicBoxedDoublyLinkedListNode<T>>) -> Option<Link<T>> {
+        let mut prev = RefSource::Ref(self);
+        let node = LinkContent {
+            ptr: node,
+        };
+        let mut last_link: Option<RefSource<Link<T>>> = None;
+        loop {
+            let link_1 = unsafe { node.get_ptr().as_ref().unwrap() }.left.get();
+            if link_1.get_marker() {
+                break;
+            }
+            let mut prev_2 = unsafe { prev.get_ref().get().get_ptr().as_ref() }.unwrap().right.get();
+            if prev_2.get_marker() {
+                if let Some(last_link) = last_link.take() {
+                    unsafe { prev.get().get_ptr().as_ref() }.unwrap().left.set_mark();
+                    unsafe { last_link.get_ref().get().get_ptr().as_ref().unwrap() }.right.try_set_addr_full(prev.get().ptr, prev_2.get_ptr(), false);
+                    prev = last_link;
+                    continue;
+                }
+                prev_2 = unsafe { prev.get().get_ptr().as_ref() }.unwrap().left.get();
+                continue;
+            }
+            if prev_2 != node {
+                last_link = Some(prev);
+                prev = RefSource::Instance(Link {
+                    ptr: AtomicPtr::new(prev_2.ptr),
+                });
+                continue;
+            }
+
+            if unsafe { node.get_ptr().as_ref().unwrap() }.left.try_set_addr_full(link_1.ptr, prev.get().get_ptr(), false) {
+                if unsafe { prev.get().get_ptr().as_ref() }.unwrap().left.get().get_marker() {
+                    continue;
+                }
+                break;
+            }
+
+        }
+        match prev {
+            RefSource::Ref(_) => None,
+            RefSource::Instance(inst) => Some(inst),
+        }
+    }
+
+    pub fn add_after(&self, val: T) -> Arc<AtomicBoxedDoublyLinkedListNode<T>> {
         let mut node = Arc::new(AtomicBoxedDoublyLinkedListNode {
             val,
             left: Link::invalid(),
@@ -125,24 +257,25 @@ impl<T> AtomicBoxedDoublyLinkedListNode<T> {
         ret
     }
 
-    fn inner_add_after(mut self: Arc<Self>, mut node: Arc<AtomicBoxedDoublyLinkedListNode<T>>) {
-        let this = addr_of_mut!(self);
+    fn inner_add_after(&self, mut node: Arc<AtomicBoxedDoublyLinkedListNode<T>>) {
+        let this = self.get().get_ptr();
+        let slf = unsafe { this.as_ref() }.unwrap();
         let node_ptr = addr_of_mut!(node);
         loop {
-            let next = this.right.get();
+            let next = unsafe { this.as_ref() }.unwrap().right.get();
             unsafe { node.left.set_unsafe(this, false); }
-            unsafe { node.right.set_unsafe(next.0, false); }
-            if self.right.try_set_addr_full(next.0, node_ptr) {
+            unsafe { node.right.set_unsafe(next.get_ptr(), false); }
+            if slf.right.try_set_addr_full(next.get_ptr(), node_ptr, false) {
                 break;
             }
-            if self.right.get().1 {
-                return self.insert_before(val);
+            if slf.right.get().get_marker() {
+                return self.inner_add_before(node);
             }
         }
-        // let _prev = self.correct_prev(next);
+        let _ = self.correct_prev(node_ptr);
     }
 
-    pub fn add_before(mut self: Arc<Self>, val: T) -> Arc<AtomicBoxedDoublyLinkedListNode<T>> {
+    pub fn add_before(&self, val: T) -> Arc<AtomicBoxedDoublyLinkedListNode<T>> {
         let mut node = Arc::new(AtomicBoxedDoublyLinkedListNode {
             val,
             left: Link::invalid(),
@@ -156,157 +289,34 @@ impl<T> AtomicBoxedDoublyLinkedListNode<T> {
         ret
     }
 
-    fn inner_add_before(mut self: Arc<Self>, mut node: Arc<AtomicBoxedDoublyLinkedListNode<T>>) {
-        let this = addr_of_mut!(self);
+    fn inner_add_before(&self, mut node: Arc<AtomicBoxedDoublyLinkedListNode<T>>) {
+        let this = self.get().get_ptr();
+        let slf = unsafe { this.as_ref() }.unwrap();
         let node_ptr = addr_of_mut!(node);
-        let mut prev = self.left.get().0;
+        let mut prev = RefSource::Ref(&slf.left);
         let mut cursor = this;
+        let mut next = cursor;
         loop {
-            while self.right.get().1 {
+            while self.right.get().get_marker() {
                 // cursor.next();
-                // prev = prev.correct_prev(cursor);
-            }
-            unsafe { self.left.set_unsafe(prev, false); }
-            unsafe { self.right.set_unsafe(cursor, false); }
-            if unsafe { prev.as_ref().unwrap() }.right.try_set_addr_full(cursor, node_ptr) {
-                break;
-            }
-            // prev = prev.correct_prev(cursor);
-        }
-        // let _ = prev.correct_prev(next);
-    }
-
-}
-
-#[derive(Copy, Clone)]
-#[repr(transparent)]
-struct NodeState(u8);
-
-impl NodeState {
-
-    const DESTROYING: u8 = 1 << 0;
-    const ADDING: u8 = 1 << 1;
-
-    fn from_raw(raw: u8) -> Self {
-        NodeState(raw)
-    }
-
-    fn to_raw(self) -> u8 {
-        self.0
-    }
-
-    fn is_destroying(&self) -> self {
-        (self.0 & Self::DESTROYING) != 0
-    }
-
-    fn is_adding(&self) -> self {
-        (self.0 & Self::ADDING) != 0
-    }
-
-    fn set_bit(&mut self, flag: u8, val: bool) {
-        if val {
-            self.0 &= u8::MAX & (!flag);
-        } else {
-            self.0 |= flag;
-        }
-    }
-
-    fn set_destroying(&mut self, val: bool) {
-        self.set_bit(Self::DESTROYING, val);
-    }
-
-    fn set_adding(&mut self, val: bool) {
-        self.set_bit(Self::ADDING, val);
-    }
-
-}
-
-struct Link<T> {
-    ptr: AtomicPtr<Arc<AtomicBoxedDoublyLinkedListNode<T>>>,
-}
-
-impl<T> Link<T> {
-    const MARKER: usize = 1 << 63;
-    const CAS_ORDERING: Ordering = Ordering::SeqCst;
-
-    fn get(&self) -> (*mut Arc<AtomicBoxedDoublyLinkedListNode<T>>, bool) {
-        let raw_ptr = self.ptr.load(Ordering::Relaxed);
-        (ptr::from_exposed_addr_mut(raw_ptr.expose_addr() & (!Self::MARKER)), (raw_ptr.expose_addr() & Self::MARKER) != 0)
-    }
-
-    fn get_raw(&self) -> *mut Arc<AtomicBoxedDoublyLinkedListNode<T>> {
-        self.ptr.load(Ordering::Relaxed)
-    }
-
-    fn set_mark(&self) {
-        loop {
-            let (node, marker) = self.get();
-            if marker || self.ptr.compare_exchange(node, ptr::from_exposed_addr_mut(node.expose_addr() | Self::MARKER), Self::CAS_ORDERING, strongest_failure_ordering(Self::CAS_ORDERING)).is_ok(){
-                break;
-            }
-        }
-    }
-
-    fn set_addr(&self, new: *mut Arc<AtomicBoxedDoublyLinkedListNode<T>>) {
-        loop {
-            let (node, marker) = self.get();
-            // FIXME: do we need to be able to retain the old MARKER?
-            if marker || self.try_set_addr_full(node, new) {
-                break;
-            }
-        }
-    }
-
-    fn try_set_addr_full(&self, old: *mut Arc<AtomicBoxedDoublyLinkedListNode<T>>, new: *mut Arc<AtomicBoxedDoublyLinkedListNode<T>>) -> bool {
-        self.ptr.compare_exchange(old, new, Self::CAS_ORDERING, strongest_failure_ordering(Self::CAS_ORDERING)).is_ok()
-    }
-
-    unsafe fn set_unsafe(&self, new: *mut Arc<AtomicBoxedDoublyLinkedListNode<T>>, marker: bool) {
-        let marker = if marker {
-            Self::MARKER
-        } else {
-            0
-        };
-        self.ptr.store(ptr::from_exposed_addr_mut(new.expose_addr() | marker), Self::CAS_ORDERING);
-    }
-
-    #[inline]
-    const fn invalid<T>() -> Self {
-        Self {
-            ptr: Default::default(),
-        }
-    }
-
-    fn correct_prev(mut prev: &Link<T>, node: *mut Arc<AtomicBoxedDoublyLinkedListNode<T>>) -> *mut Arc<AtomicBoxedDoublyLinkedListNode<T>> {
-        let mut last_link: Option<Arc<AtomicBoxedDoublyLinkedListNode<T>>> = None;
-        loop {
-            let link_1 = unsafe { node.as_ref().unwrap() }.left.get();
-            if link_1.1 {
-                break;
-            }
-            let mut prev_2 = prev.get().0.right.get();
-            if prev_2.1 {
-                if let Some(last_link) = last_link.take() {
-                    prev.get().0.left.set_mark();
-                    last_link.right.try_set_addr_full(prev.get_raw(), prev_2.0); // FIXME: does `this` have to contain the MARKER as well?
-                    // prev = last_link;
-                    continue;
+                if let Some(updated) = prev.correct_prev(cursor) {
+                    prev = RefSource::Instance(updated);
                 }
-                prev_2 = prev.get().0.left.get();
-                continue;
             }
-            /*if prev_2 != node {
-                last_link = Some(prev);
-                prev = prev_2;
-                continue;
+            next = cursor;
+            let prev_val = prev.get_ref().get();
+            unsafe { node.left.set_unsafe(prev_val.get_ptr(), false); }
+            unsafe { node.right.set_unsafe(cursor, false); }
+            if unsafe { prev_val.get_ptr().as_ref().unwrap() }.right.try_set_addr_full(cursor, node_ptr, false) {
+                break;
             }
-
-            if node.left.try_set_addr_full(node.left.get_raw(), link_1, prev) {
-
-            }*/
-
+            if let Some(updated) = prev.correct_prev(cursor) {
+                prev = RefSource::Instance(updated);
+            }
         }
+        let _ = prev.correct_prev(next);
     }
+
 }
 
 #[inline]
@@ -318,5 +328,65 @@ fn strongest_failure_ordering(order: Ordering) -> Ordering {
         Ordering::SeqCst => Ordering::SeqCst,
         Ordering::Acquire => Ordering::Acquire,
         Ordering::AcqRel => Ordering::Acquire,
+        _ => unreachable!(),
+    }
+}
+
+#[derive(Copy, Clone)]
+struct LinkContent<T> {
+    ptr: *mut Arc<AtomicBoxedDoublyLinkedListNode<T>>,
+}
+
+impl<T> LinkContent<T> {
+    const MARKER: usize = 1 << 63;
+
+    fn get_marker(&self) -> bool {
+        (self.ptr.expose_addr() & Self::MARKER) != 0
+    }
+
+    fn get_ptr(&self) -> *mut Arc<AtomicBoxedDoublyLinkedListNode<T>> {
+        ptr::from_exposed_addr_mut(self.ptr.expose_addr() & (!Self::MARKER))
+    }
+}
+
+impl<T> PartialEq for LinkContent<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.ptr.expose_addr() == other.ptr.expose_addr()
+    }
+}
+
+enum RefSource<'a, T> {
+    Ref(&'a T),
+    Instance(T),
+}
+
+impl<'a, T> RefSource<'a, T> {
+
+    fn get_ref(&self) -> &T {
+        match self {
+            RefSource::Ref(rf) => rf,
+            RefSource::Instance(inst) => inst,
+        }
+    }
+
+}
+
+impl<'a, T> Deref for RefSource<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            RefSource::Ref(rf) => rf,
+            RefSource::Instance(inst) => inst,
+        }
+    }
+}
+
+impl<'a, T> AsRef<T> for RefSource<'a, T> {
+    fn as_ref(&self) -> &T {
+        match self {
+            RefSource::Ref(rf) => rf,
+            RefSource::Instance(inst) => inst,
+        }
     }
 }
