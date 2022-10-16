@@ -119,6 +119,52 @@ impl<T> AtomicBoxedDoublyLinkedListNode<T> {
 
 
         unsafe { addr_of_mut!(self).drop_in_place() } // drop the arc
+        todo!()
+    }
+
+    /// tries to update the
+    /// prev pointer of a node and then return a reference to a possibly
+    /// logically previous node
+    fn correct_prev(mut self: Arc<Self>, node: *mut Arc<AtomicBoxedDoublyLinkedListNode<T>>) -> Option<Link<T>> {
+        let this = addr_of_mut!(self);
+        let mut prev = this;
+        let mut last_link: Option<*mut Arc<AtomicBoxedDoublyLinkedListNode<T>>> = None;
+        loop {
+            let link_1 = unsafe { node.as_ref().unwrap() }.left.get();
+            if link_1.get_marker() {
+                break;
+            }
+            let mut prev_2 = unsafe { prev.as_ref() }.unwrap().right.get();
+            if prev_2.get_marker() {
+                if let Some(last_link) = last_link.take() {
+                    unsafe { prev.as_ref() }.unwrap().left.set_mark();
+                    unsafe { last_link.get_ref().get().get_ptr().as_ref().unwrap() }.right.try_set_addr_full(prev, prev_2.get_ptr(), false);
+                    prev = last_link;
+                    continue;
+                }
+                prev_2 = unsafe { prev.get().get_ptr().as_ref() }.unwrap().left.get();
+                continue;
+            }
+            if prev_2.ptr != node {
+                last_link = Some(prev);
+                prev = RefSource::Instance(Link {
+                    ptr: AtomicPtr::new(prev_2.ptr),
+                });
+                continue;
+            }
+
+            if unsafe { node.as_ref().unwrap() }.left.try_set_addr_full(link_1.ptr, prev.get().get_ptr(), false) {
+                if unsafe { prev.get().get_ptr().as_ref() }.unwrap().left.get().get_marker() {
+                    continue;
+                }
+                break;
+            }
+
+        }
+        match prev {
+            RefSource::Ref(_) => None,
+            RefSource::Instance(inst) => Some(inst),
+        }
     }
 
 }
@@ -183,53 +229,6 @@ impl<T> Link<T> {
     const fn invalid() -> Self {
         Self {
             ptr: AtomicPtr::new(null_mut()),
-        }
-    }
-
-    /// tries to update the
-    /// prev pointer of a node and then return a reference to a possibly
-    /// logically previous node
-    fn correct_prev(&self, node: *mut Arc<AtomicBoxedDoublyLinkedListNode<T>>) -> Option<Link<T>> {
-        let mut prev = RefSource::Ref(self);
-        let node = LinkContent {
-            ptr: node,
-        };
-        let mut last_link: Option<RefSource<Link<T>>> = None;
-        loop {
-            let link_1 = unsafe { node.get_ptr().as_ref().unwrap() }.left.get();
-            if link_1.get_marker() {
-                break;
-            }
-            let mut prev_2 = unsafe { prev.get_ref().get().get_ptr().as_ref() }.unwrap().right.get();
-            if prev_2.get_marker() {
-                if let Some(last_link) = last_link.take() {
-                    unsafe { prev.get().get_ptr().as_ref() }.unwrap().left.set_mark();
-                    unsafe { last_link.get_ref().get().get_ptr().as_ref().unwrap() }.right.try_set_addr_full(prev.get().ptr, prev_2.get_ptr(), false);
-                    prev = last_link;
-                    continue;
-                }
-                prev_2 = unsafe { prev.get().get_ptr().as_ref() }.unwrap().left.get();
-                continue;
-            }
-            if prev_2 != node {
-                last_link = Some(prev);
-                prev = RefSource::Instance(Link {
-                    ptr: AtomicPtr::new(prev_2.ptr),
-                });
-                continue;
-            }
-
-            if unsafe { node.get_ptr().as_ref().unwrap() }.left.try_set_addr_full(link_1.ptr, prev.get().get_ptr(), false) {
-                if unsafe { prev.get().get_ptr().as_ref() }.unwrap().left.get().get_marker() {
-                    continue;
-                }
-                break;
-            }
-
-        }
-        match prev {
-            RefSource::Ref(_) => None,
-            RefSource::Instance(inst) => Some(inst),
         }
     }
 
