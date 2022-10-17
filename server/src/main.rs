@@ -2,6 +2,7 @@
 #![feature(int_roundings)]
 #![feature(once_cell)]
 #![feature(strict_provenance)]
+#![feature(adt_const_params)]
 
 use crate::channel_db::{ChannelDb, ChannelDbEntry};
 use crate::cli::{
