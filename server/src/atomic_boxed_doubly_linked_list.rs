@@ -39,17 +39,17 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedList<T, NODE_KIND> {
             left: Link { ptr: AtomicPtr::new(ptr::from_exposed_addr_mut(self.header_addr().expose_addr() | HEAD_OR_TAIL_MARKER)) },
             right: Link { ptr: AtomicPtr::new(ptr::from_exposed_addr_mut(self.tail_addr().expose_addr() | HEAD_OR_TAIL_MARKER)) },
         });
-        loop {
+        'main: loop {
             let head = self.header_node.load(Self::ENDS_ORDERING);
             if let Some(head) = unsafe { head.as_ref() } {
                 head.clone().inner_add_before(node.clone());
-            } else {
+            } else if self.tail_node.load(Self::ENDS_ORDERING).is_null() { // FIXME: can we remove this check? - this is strongly linked with the FIXME in the else below
                 let node_addr = addr_of_mut!(node);
                 if self.header_node.compare_exchange(null_mut(), node_addr, Ordering::SeqCst, strongest_failure_ordering(Ordering::SeqCst)).is_ok() { // TODO: try loosening this ordering!
                     if self.tail_node.compare_exchange(null_mut(), node_addr, Ordering::SeqCst, strongest_failure_ordering(Ordering::SeqCst)).is_ok() { // TODO: try loosening this ordering!
                         break;
                     } else {
-                        // FIXME: handle this case properly!
+                        // FIXME: verify that doing nothing is okay here. - this is strongly linked with the FIXME in the else if above
                     }
                 }
             }
