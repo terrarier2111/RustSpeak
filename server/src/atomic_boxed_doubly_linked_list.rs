@@ -25,18 +25,21 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedList<T, NODE_KIND> {
     const ENDS_ORDERING: Ordering = Ordering::SeqCst;
 
     #[inline]
-    fn header_addr(&self) -> *const AtomicPtr<Node<T, NODE_KIND>> { // FIXME: is this safe - because we are later casting between const and mut pointers?
+    fn header_addr(&self) -> *const AtomicPtr<Node<T, NODE_KIND>> {
         addr_of!(self.header_node)
     }
 
     #[inline]
-    fn tail_addr(&self) -> *const AtomicPtr<Node<T, NODE_KIND>> { // FIXME: is this safe - because we are later casting between const and mut pointers?
+    fn tail_addr(&self) -> *const AtomicPtr<Node<T, NODE_KIND>> {
         addr_of!(self.tail_node)
     }
 
     pub fn push_head(&self, val: T) -> Node<T, NODE_KIND> {
         let mut node = Aligned(Arc::new(AtomicDoublyLinkedListNode {
             val,
+            // SAFETY: constructing a `mut` ptr to the header and tail is valid here because
+            // when actually using the pointers we check that they either aren't the tail or header pointer
+            // and if they are, we cast them back to `const` ptrs and perform operations on them
             left: Link { ptr: AtomicPtr::new(ptr::from_exposed_addr_mut(self.header_addr().expose_addr() | HEAD_OR_TAIL_MARKER)) },
             right: Link { ptr: AtomicPtr::new(ptr::from_exposed_addr_mut(self.tail_addr().expose_addr() | HEAD_OR_TAIL_MARKER)) },
         }));
@@ -79,22 +82,6 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedList<T, NODE_KIND> {
 
     /*
     pub fn push_tail(&self, val: T) -> Arc<AtomicDoublyLinkedListNode<T>> {
-        /*let mut node = Arc::new(AtomicBoxedDoublyLinkedListNode {
-            val,
-            left: Default::default(),
-            right: Default::default(),
-        });
-        let node_ptr = addr_of_mut!(node);
-        let _ = self.header_node.fetch_update(Ordering::Release, Ordering::Acquire, move |curr_head| {
-            if let Some(curr_head) = unsafe { curr_head.as_ref() } {
-                curr_head.left.store(node_ptr, Ordering::Release);
-            }
-            node.right.store(curr_head, Ordering::Release); // FIXME: is it okay to do this inside the fetch_update?
-            Some(node_ptr)
-        }).unwrap();
-        let ret = node.clone();
-        let _ = ManuallyDrop::new(node); // leak node to increase strong reference count
-        ret*/
         let new_node = AtomicDoublyLinkedListNode {
             val,
             left: Link::invalid(),
@@ -178,15 +165,11 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, fals
         loop {
             next = self.right.get();
             if next.get_deletion_marker() {
-                // FIXME: do we need to drop the arc here as well?
+                // FIXME: do we need to drop the arc here as well? - we probably don't because the deletion marker on next (probably) means that this(`self`) node is already being deleted
                 return None;
             }
-            let next_no_del_mark = if next.get_head_or_tail_marker() {
-                ptr::from_exposed_addr_mut(next.get_ptr().expose_addr() | HEAD_OR_TAIL_MARKER)
-            } else {
-                next.get_ptr()
-            };
-            if self.right.try_set_addr_full::<true>(next.ptr, next_no_del_mark) { // TODO: we could probably simply insert the raw next ptr instead of doing weird things with it.
+            if self.right.try_set_addr_full::<true>(next.ptr, next.ptr) { // FIXME: we can't set the delete flag on the tail or header links right now, but that could accidentally happen here
+                                                                                   // FIXME: in order to fix this we need to support the DELETED marker on header and tail links
                 loop {
                     prev = self.left.get();
                     if prev.get_deletion_marker() || self.left.try_set_addr_full::<true>(prev.ptr, prev.get_ptr()) {
@@ -197,24 +180,24 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, fals
                     ptr: unsafe { prev.get_ptr().as_ref() }.unwrap().clone().correct_prev(next.get_ptr()),
                 };
                 if prev.get_head_or_tail_marker() {
-                    let head = unsafe { prev.get_ptr().cast::<AtomicPtr<Node<T, NODE_KIND>>>().as_ref() }.unwrap();
+                    let head = unsafe { prev.get_ptr().cast_const().cast::<AtomicPtr<Node<T, NODE_KIND>>>().as_ref() }.unwrap();
                     let new_head = if next.get_head_or_tail_marker() {
                         null_mut()
                     } else {
                         next.get_ptr()
                     };
                     head.compare_exchange(this, new_head, Ordering::SeqCst, strongest_failure_ordering(Ordering::SeqCst)); // TODO: try loosening this ordering!
-                    // FIXME: do we have to handle the failure of the above operation specially somehow?
+                    // FIXME: do we have to handle the failure of the above operation specially somehow? - we probably have to loop on failure, also the tail handling IS NOT ALLOWED to continue before the header `issues` got resolved
                 }
                 if next.get_head_or_tail_marker() {
-                    let tail = unsafe { next.get_ptr().cast::<AtomicPtr<Node<T, NODE_KIND>>>().as_ref() }.unwrap();
+                    let tail = unsafe { next.get_ptr().cast_const().cast::<AtomicPtr<Node<T, NODE_KIND>>>().as_ref() }.unwrap();
                     let new_tail = if prev.get_head_or_tail_marker() {
                         null_mut()
                     } else {
                         prev.get_ptr()
                     };
                     tail.compare_exchange(this, new_tail, Ordering::SeqCst, strongest_failure_ordering(Ordering::SeqCst)); // TODO: try loosening this ordering!
-                    // FIXME: do we have to handle the failure of the above operation specially somehow?
+                    // FIXME: do we have to handle the failure of the above operation specially somehow? - we probably have to loop on failure
                 }
                 println!("left del: {}", self.left.get().get_deletion_marker());
                 println!("right del: {}", self.left.get().get_deletion_marker());
@@ -236,9 +219,6 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, fals
     }
 
     pub fn add_after(mut self: Aligned<A4, Arc<Self>>, val: T) -> Node<T, NODE_KIND> {
-        /*if self.right.get().get_head_or_tail_marker() {
-            return self.add_before(val);
-        }*/
         let mut node = Aligned(Arc::new(AtomicDoublyLinkedListNode {
             val,
             left: Link::invalid(),
@@ -269,7 +249,7 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, fals
             };
             unsafe { node.right.set_unsafe::<false>(node_right); }
             if next.get_head_or_tail_marker() {
-                let tail = unsafe { next.get_ptr().cast::<AtomicPtr<Node<T, NODE_KIND>>>().as_ref() }.unwrap();
+                let tail = unsafe { next.get_ptr().cast_const().cast::<AtomicPtr<Node<T, NODE_KIND>>>().as_ref() }.unwrap();
                 if tail.compare_exchange(this, node_ptr, Ordering::SeqCst, strongest_failure_ordering(Ordering::SeqCst)).is_ok() { // TODO: can we relax this ordering a bit?
                     break;
                 }
@@ -310,13 +290,12 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, fals
                 let node_left = ptr::from_exposed_addr_mut(left.get_ptr().expose_addr() | HEAD_OR_TAIL_MARKER);
                 unsafe { node.left.set_unsafe::<false>(node_left); }
                 unsafe { node.right.set_unsafe::<false>(this); }
-                let header = unsafe { left.get_ptr().cast::<AtomicPtr<Node<T, NODE_KIND>>>().as_ref() }.unwrap();
+                let header = unsafe { left.get_ptr().cast_const().cast::<AtomicPtr<Node<T, NODE_KIND>>>().as_ref() }.unwrap();
                 if header.compare_exchange(this, node_ptr, Ordering::SeqCst, strongest_failure_ordering(Ordering::SeqCst)).is_ok() { // TODO: can we relax this ordering a bit?
-                    // let _ = prev.get_ref().correct_prev(this);
-                    // FIXME: we have to do some sort of correction for this node's left link
+                    // we have to do a correction for this node's left link
+                    let _ = unsafe { node_ptr.as_ref() }.unwrap().correct_prev(this);
                     return;
                 }
-                // return self.inner_add_after(node);
             }
             let mut prev = self.left.get().get_ptr();
             let cursor = this;
@@ -378,7 +357,11 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, fals
             let mut prev_2 = unsafe { prev.as_ref() }.unwrap().right.get();
             if prev_2.get_deletion_marker() {
                 if let Some(last_link) = last_link.take() {
-                    unsafe { prev.as_ref() }.unwrap().left.set_deletion_mark();
+                    if unsafe { prev.as_ref() }.unwrap().left.get().get_head_or_tail_marker() {
+                        // FIXME: do debugging with this (and remove it if extensive debugging doesn't yield any results)
+                        unreachable!("modified header node!");
+                    }
+                    unsafe { prev.as_ref() }.unwrap().left.set_deletion_mark(); // FIXME: can this happen on the header node?
                     unsafe { last_link.as_ref().unwrap() }.right.try_set_addr_full::<false>(prev, prev_2.get_ptr());
                     prev = last_link;
                     continue;
@@ -410,8 +393,9 @@ impl<T, const NODE_KIND: NodeKind, const DELETED: bool> AtomicDoublyLinkedListNo
 
     /// checks whether the node is detached from the list or not
     pub fn is_detached(&self) -> bool {
-        // FIXME: can we assume that the node is detached if DELETED is true? - we probably can, but in all cases we have to check for left's validity to ensure that we can return false
-        self.left.is_invalid()
+        // we can assume that the node is detached if DELETED is true,
+        // but in all cases other than `DELETED = true` we have to check for left's validity to ensure that we can return false
+        DELETED || self.left.is_invalid()
     }
 
     #[inline]
