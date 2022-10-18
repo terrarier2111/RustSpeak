@@ -1,9 +1,10 @@
 use std::mem::{ManuallyDrop, MaybeUninit, transmute};
 use std::ops::Deref;
 use std::ptr;
-use std::ptr::{addr_of_mut, null_mut};
+use std::ptr::{addr_of, addr_of_mut, null_mut};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicPtr, AtomicU8, fence, Ordering};
+use aligned::{A4, Aligned};
 use parking_lot::Mutex;
 
 // this is better for cases where we DON'T care much about removal of nodes during traversal:
@@ -12,9 +13,9 @@ use parking_lot::Mutex;
 // https://scholar.google.com/citations?view_op=view_citation&hl=de&user=RJmBj1wAAAAJ&citation_for_view=RJmBj1wAAAAJ:UebtZRa9Y70C
 
 pub struct AtomicDoublyLinkedList<T, const NODE_KIND: NodeKind = { NodeKind::Bound }> {
-    header_node: AtomicPtr<Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>>>,
+    header_node: AtomicPtr<Node<T, NODE_KIND>>,
     // in the header node itself, the left field points to the `header_node` field of the list itself, so we don't have to maintain a reference count
-    tail_node: AtomicPtr<Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>>>,
+    tail_node: AtomicPtr<Node<T, NODE_KIND>>,
     // in the tail node itself, the right field points to the `tail_node` field of the list itself, so we don't have to maintain a reference count
     // TODO: also add tail_node functions (where possible) (just to complement the header_node)
 }
@@ -24,32 +25,34 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedList<T, NODE_KIND> {
     const ENDS_ORDERING: Ordering = Ordering::SeqCst;
 
     #[inline]
-    fn header_addr(&self) -> *mut AtomicPtr<Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>>> {
-        addr_of_mut!(self.header_node)
+    fn header_addr(&self) -> *const AtomicPtr<Node<T, NODE_KIND>> { // FIXME: is this safe - because we are later casting between const and mut pointers?
+        addr_of!(self.header_node)
     }
 
     #[inline]
-    fn tail_addr(&self) -> *mut AtomicPtr<Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>>> {
-        addr_of_mut!(self.tail_node)
+    fn tail_addr(&self) -> *const AtomicPtr<Node<T, NODE_KIND>> { // FIXME: is this safe - because we are later casting between const and mut pointers?
+        addr_of!(self.tail_node)
     }
 
-    pub fn push_head(&self, val: T) -> Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>> {
-        let node = Arc::new(AtomicDoublyLinkedListNode {
+    pub fn push_head(&self, val: T) -> Node<T, NODE_KIND> {
+        let mut node = Aligned(Arc::new(AtomicDoublyLinkedListNode {
             val,
             left: Link { ptr: AtomicPtr::new(ptr::from_exposed_addr_mut(self.header_addr().expose_addr() | HEAD_OR_TAIL_MARKER)) },
             right: Link { ptr: AtomicPtr::new(ptr::from_exposed_addr_mut(self.tail_addr().expose_addr() | HEAD_OR_TAIL_MARKER)) },
-        });
+        }));
         'main: loop {
             let head = self.header_node.load(Self::ENDS_ORDERING);
             if let Some(head) = unsafe { head.as_ref() } {
                 head.clone().inner_add_before(node.clone());
-            } else if self.tail_node.load(Self::ENDS_ORDERING).is_null() { // FIXME: can we remove this check? - this is strongly linked with the FIXME in the else below
+            } else {
                 let node_addr = addr_of_mut!(node);
                 if self.header_node.compare_exchange(null_mut(), node_addr, Ordering::SeqCst, strongest_failure_ordering(Ordering::SeqCst)).is_ok() { // TODO: try loosening this ordering!
+                    // we can just assume that the following check will succeed because of the properties
+                    // the update order leads to (that the right node will always be updated first)
+                    // which enables us to deduce that if the header_node could be updated successfully that the tail_node
+                    // can automatically be updated as well
                     if self.tail_node.compare_exchange(null_mut(), node_addr, Ordering::SeqCst, strongest_failure_ordering(Ordering::SeqCst)).is_ok() { // TODO: try loosening this ordering!
                         break;
-                    } else {
-                        // FIXME: verify that doing nothing is okay here. - this is strongly linked with the FIXME in the else if above
                     }
                 }
             }
@@ -62,11 +65,11 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedList<T, NODE_KIND> {
         node
     }
 
-    pub fn remove_head(&self) -> Option<Arc<AtomicDoublyLinkedListNode<T, NODE_KIND, true>>> {
+    pub fn remove_head(&self) -> Option<Node<T, NODE_KIND, true>> {
         loop {
             if let Some(head) = unsafe { self.header_node.load(Self::ENDS_ORDERING).as_ref() } {
                 if let Some(val) = head.clone().remove() {
-                    return Some(val);
+                    return Some(Aligned(val));
                 }
             } else {
                 return None;
@@ -148,7 +151,7 @@ impl<T, const NODE_KIND: NodeKind> Drop for AtomicDoublyLinkedList<T, NODE_KIND>
 }
 
 #[derive(Copy, Clone, Default, Debug, Eq, PartialEq)]
-enum NodeKind {
+pub enum NodeKind {
     /// nodes of this kind will remain inside the list, even if the
     /// reference returned by the add function gets dropped
     #[default]
@@ -158,7 +161,8 @@ enum NodeKind {
     Unbound,
 }
 
-// FIXME: we have to ensure, that the first 2 bits aren't used - a possible solution would be to use the `aligned` crate: https://docs.rs/aligned/latest/aligned/
+// we have to ensure, that the first 2 bits of this tye's pointer aren't used,
+// in order to accomplish this we are always using this type in combination with Aligned<4, Self>
 pub struct AtomicDoublyLinkedListNode<T, const NODE_KIND: NodeKind = { NodeKind::Bound }, const DELETED: bool = false> { // TODO: change the bool here into an enum!
     val: T,
     left: Link<T, NODE_KIND>,
@@ -167,9 +171,9 @@ pub struct AtomicDoublyLinkedListNode<T, const NODE_KIND: NodeKind = { NodeKind:
 
 impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, false> {
 
-    pub fn remove(mut self: Arc<Self>) -> Option<Arc<AtomicDoublyLinkedListNode<T, NODE_KIND, true>>> {
+    pub fn remove(mut self: Aligned<A4, Arc<Self>>) -> Option<Arc<AtomicDoublyLinkedListNode<T, NODE_KIND, true>>> {
         let this = addr_of_mut!(self);
-        let prev;
+        let mut prev;
         let mut next;
         loop {
             next = self.right.get();
@@ -190,10 +194,10 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, fals
                     }
                 }
                 prev = LinkContent {
-                    ptr: unsafe { prev.get_ptr().as_ref() }.unwrap().correct_prev(next.get_ptr()),
+                    ptr: unsafe { prev.get_ptr().as_ref() }.unwrap().clone().correct_prev(next.get_ptr()),
                 };
                 if prev.get_head_or_tail_marker() {
-                    let head = unsafe { prev.get_ptr().cast::<AtomicPtr<Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>>>>().as_ref() }.unwrap();
+                    let head = unsafe { prev.get_ptr().cast::<AtomicPtr<Node<T, NODE_KIND>>>().as_ref() }.unwrap();
                     let new_head = if next.get_head_or_tail_marker() {
                         null_mut()
                     } else {
@@ -203,7 +207,7 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, fals
                     // FIXME: do we have to handle the failure of the above operation specially somehow?
                 }
                 if next.get_head_or_tail_marker() {
-                    let tail = unsafe { next.get_ptr().cast::<AtomicPtr<Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>>>>().as_ref() }.unwrap();
+                    let tail = unsafe { next.get_ptr().cast::<AtomicPtr<Node<T, NODE_KIND>>>().as_ref() }.unwrap();
                     let new_tail = if prev.get_head_or_tail_marker() {
                         null_mut()
                     } else {
@@ -231,15 +235,15 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, fals
         }
     }
 
-    pub fn add_after(mut self: Arc<Self>, val: T) -> Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>> {
+    pub fn add_after(mut self: Aligned<A4, Arc<Self>>, val: T) -> Node<T, NODE_KIND> {
         /*if self.right.get().get_head_or_tail_marker() {
             return self.add_before(val);
         }*/
-        let mut node = Arc::new(AtomicDoublyLinkedListNode {
+        let mut node = Aligned(Arc::new(AtomicDoublyLinkedListNode {
             val,
             left: Link::invalid(),
             right: Link::invalid(),
-        });
+        }));
 
         self.inner_add_after(node.clone());
 
@@ -250,7 +254,7 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, fals
         node
     }
 
-    fn inner_add_after(mut self: Arc<Self>, mut node: Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>>) {
+    fn inner_add_after(mut self: Aligned<A4, Arc<Self>>, mut node: Node<T, NODE_KIND>) {
         let this = addr_of_mut!(self);
         let node_ptr = addr_of_mut!(node);
         loop {
@@ -265,7 +269,7 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, fals
             };
             unsafe { node.right.set_unsafe::<false>(node_right); }
             if next.get_head_or_tail_marker() {
-                let tail = unsafe { next.get_ptr().cast::<AtomicPtr<Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>>>>().as_ref() }.unwrap();
+                let tail = unsafe { next.get_ptr().cast::<AtomicPtr<Node<T, NODE_KIND>>>().as_ref() }.unwrap();
                 if tail.compare_exchange(this, node_ptr, Ordering::SeqCst, strongest_failure_ordering(Ordering::SeqCst)).is_ok() { // TODO: can we relax this ordering a bit?
                     break;
                 }
@@ -279,12 +283,12 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, fals
         let _ = self.correct_prev(node_ptr);
     }
 
-    pub fn add_before(mut self: Arc<Self>, val: T) -> Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>> {
-        let mut node = Arc::new(AtomicDoublyLinkedListNode {
+    pub fn add_before(mut self: Aligned<A4, Arc<Self>>, val: T) -> Node<T, NODE_KIND> {
+        let mut node = Aligned(Arc::new(AtomicDoublyLinkedListNode {
             val,
             left: Link::invalid(),
             right: Link::invalid(),
-        });
+        }));
 
         self.inner_add_before(node.clone());
 
@@ -295,7 +299,7 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, fals
         node
     }
 
-    fn inner_add_before(mut self: Arc<Self>, mut node: Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>>) {
+    fn inner_add_before(mut self: Aligned<A4, Arc<Self>>, mut node: Node<T, NODE_KIND>) {
         let this = addr_of_mut!(self);
         let node_ptr = addr_of_mut!(node);
         loop {
@@ -303,10 +307,10 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, fals
             if left.get_head_or_tail_marker() {
                 // we detected that we are the header node, so we try to set the header's right node to this one
                 // set the head and the head marker as the new node's prev(left) node
-                let node_left = ptr::from_exposed_addr_mut(prev.expose_addr() | HEAD_OR_TAIL_MARKER);
+                let node_left = ptr::from_exposed_addr_mut(left.get_ptr().expose_addr() | HEAD_OR_TAIL_MARKER);
                 unsafe { node.left.set_unsafe::<false>(node_left); }
                 unsafe { node.right.set_unsafe::<false>(this); }
-                let header = unsafe { left.get_ptr().cast::<AtomicPtr<Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>>>>().as_ref() }.unwrap();
+                let header = unsafe { left.get_ptr().cast::<AtomicPtr<Node<T, NODE_KIND>>>().as_ref() }.unwrap();
                 if header.compare_exchange(this, node_ptr, Ordering::SeqCst, strongest_failure_ordering(Ordering::SeqCst)).is_ok() { // TODO: can we relax this ordering a bit?
                     // let _ = prev.get_ref().correct_prev(this);
                     // FIXME: we have to do some sort of correction for this node's left link
@@ -319,8 +323,8 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, fals
             let /*mut */next = cursor;
             loop {
                 while self.right.get().get_deletion_marker() {
-                    unsafe { cursor.as_ref() }.unwrap().next();
-                    prev = prev.correct_prev(cursor);
+                    unsafe { cursor.as_ref() }.unwrap().clone().next();
+                    prev = unsafe { prev.as_ref() }.unwrap().clone().correct_prev(cursor);
                 }
                 // next = cursor;
                 unsafe { node.left.set_unsafe::<false>(prev); }
@@ -328,9 +332,9 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, fals
                 if unsafe { prev.as_ref().unwrap() }.right.try_set_addr_full::<false>(cursor, node_ptr) {
                     break;
                 }
-                prev = unsafe { prev.as_ref() }.unwrap().correct_prev(cursor);
+                prev = unsafe { prev.as_ref() }.unwrap().clone().correct_prev(cursor);
             }
-            let _ = unsafe { prev.as_ref() }.unwrap().correct_prev(next);
+            let _ = unsafe { prev.as_ref() }.unwrap().clone().correct_prev(next);
         }
     }
 
@@ -340,7 +344,7 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, fals
     /// Note, that there are additional deletion checks
     /// being performed before setting the next node.
     /// This method returns true as long as the tail node isn't reached.
-    fn next(mut self: Arc<Self>) -> bool {
+    fn next(mut self: Aligned<A4, Arc<Self>>) -> bool {
         let mut cursor = addr_of_mut!(self);
         loop {
             let next = unsafe { cursor.as_ref() }.unwrap().right.get();
@@ -363,9 +367,9 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, fals
 
     /// tries to update the prev pointer of a node and then return a reference to a possibly
     /// logically previous node
-    fn correct_prev(mut self: Arc<Self>, node: *mut Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>>) -> *mut Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>> {
+    fn correct_prev(mut self: Aligned<A4, Arc<Self>>, node: NodePtr<T, NODE_KIND>) -> NodePtr<T, NODE_KIND> {
         let mut prev = addr_of_mut!(self);
-        let mut last_link: Option<*mut Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>>> = None;
+        let mut last_link: Option<NodePtr<T, NODE_KIND>> = None;
         loop {
             let link_1 = unsafe { node.as_ref().unwrap() }.left.get();
             if link_1.get_deletion_marker() {
@@ -431,11 +435,11 @@ impl<T, const NODE_KIND: NodeKind, const DELETED: bool> AtomicDoublyLinkedListNo
 
 }
 
-const DELETION_MARKER: usize = 1 << 63;
-const HEAD_OR_TAIL_MARKER: usize = 1 << 62;
+const DELETION_MARKER: usize = 1 << 1/*63*/;
+const HEAD_OR_TAIL_MARKER: usize = 1 << 0/*62*/;
 
 struct Link<T, const NODE_KIND: NodeKind = { NodeKind::Bound }> {
-    ptr: AtomicPtr<Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>>>,
+    ptr: AtomicPtr<Node<T, NODE_KIND>>,
 }
 
 impl<T, const NODE_KIND: NodeKind> Link<T, NODE_KIND> {
@@ -456,11 +460,11 @@ impl<T, const NODE_KIND: NodeKind> Link<T, NODE_KIND> {
         }
     }
 
-    fn try_set_addr_full<const SET_DELETION_MARKER: bool>(&self, old: *mut Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>>, new: *mut Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>>) -> bool {
+    fn try_set_addr_full<const SET_DELETION_MARKER: bool>(&self, old: NodePtr<T, NODE_KIND>, new: NodePtr<T, NODE_KIND>) -> bool {
         self.ptr.compare_exchange(old, if SET_DELETION_MARKER { ptr::from_exposed_addr_mut(new.expose_addr() | DELETION_MARKER) } else { new }, Self::CAS_ORDERING, strongest_failure_ordering(Self::CAS_ORDERING)).is_ok()
     }
 
-    unsafe fn set_unsafe<const SET_DELETION_MARKER: bool>(&self, new: *mut Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>>) {
+    unsafe fn set_unsafe<const SET_DELETION_MARKER: bool>(&self, new: NodePtr<T, NODE_KIND>) {
         let marker = if SET_DELETION_MARKER {
             DELETION_MARKER
         } else {
@@ -501,7 +505,7 @@ fn strongest_failure_ordering(order: Ordering) -> Ordering {
 
 #[derive(Copy, Clone)]
 struct LinkContent<T, const NODE_KIND: NodeKind = { NodeKind::Bound }> {
-    ptr: *mut Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>>,
+    ptr: NodePtr<T, NODE_KIND>,
 }
 
 impl<T, const NODE_KIND: NodeKind> LinkContent<T, NODE_KIND> {
@@ -513,7 +517,7 @@ impl<T, const NODE_KIND: NodeKind> LinkContent<T, NODE_KIND> {
         (self.ptr.expose_addr() & HEAD_OR_TAIL_MARKER) != 0
     }
 
-    fn get_ptr(&self) -> *mut Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>> {
+    fn get_ptr(&self) -> NodePtr<T, NODE_KIND> {
         ptr::from_exposed_addr_mut(self.ptr.expose_addr() & (!(DELETION_MARKER | HEAD_OR_TAIL_MARKER)))
     }
 }
@@ -523,3 +527,6 @@ impl<T, const NODE_KIND: NodeKind> PartialEq for LinkContent<T, NODE_KIND> {
         self.ptr.expose_addr() == other.ptr.expose_addr()
     }
 }
+
+type NodePtr<T, const NODE_KIND: NodeKind, const REMOVED: bool = false> = *mut Node<T, NODE_KIND, REMOVED>;
+type Node<T, const NODE_KIND: NodeKind, const REMOVED: bool = false> = Aligned<A4, Arc<AtomicDoublyLinkedListNode<T, NODE_KIND, REMOVED>>>;

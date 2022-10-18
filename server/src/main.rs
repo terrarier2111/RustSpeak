@@ -3,6 +3,7 @@
 #![feature(once_cell)]
 #![feature(strict_provenance)]
 #![feature(adt_const_params)]
+#![feature(arbitrary_self_types)]
 
 use crate::channel_db::{ChannelDb, ChannelDbEntry};
 use crate::cli::{
