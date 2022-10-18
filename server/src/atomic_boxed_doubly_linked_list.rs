@@ -13,10 +13,10 @@ use parking_lot::Mutex;
 
 pub struct AtomicDoublyLinkedList<T, const NODE_KIND: NodeKind = { NodeKind::Bound }> {
     header_node: AtomicPtr<Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>>>,
-    // TODO: in the header node itself, the left field should point to the list itself, so we don't have to maintain a reference count
-
+    // in the header node itself, the left field points to the `header_node` field of the list itself, so we don't have to maintain a reference count
     tail_node: AtomicPtr<Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>>>,
-    // FIXME: also add a tail_node (just to complement the header_node)
+    // in the tail node itself, the right field points to the `tail_node` field of the list itself, so we don't have to maintain a reference count
+    // TODO: also add tail_node functions (where possible) (just to complement the header_node)
 }
 
 impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedList<T, NODE_KIND> {
@@ -34,22 +34,6 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedList<T, NODE_KIND> {
     }
 
     pub fn push_head(&self, val: T) -> Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>> {
-        /*let mut node = Arc::new(AtomicBoxedDoublyLinkedListNode {
-            val,
-            left: Default::default(),
-            right: Default::default(),
-        });
-        let node_ptr = addr_of_mut!(node);
-        let _ = self.header_node.fetch_update(Ordering::Release, Ordering::Acquire, move |curr_head| {
-            if let Some(curr_head) = unsafe { curr_head.as_ref() } {
-                curr_head.left.store(node_ptr, Ordering::Release);
-            }
-            node.right.store(curr_head, Ordering::Release); // FIXME: is it okay to do this inside the fetch_update?
-            Some(node_ptr)
-        }).unwrap();
-        let ret = node.clone();
-        let _ = ManuallyDrop::new(node); // leak node to increase strong reference count
-        ret*/
         let node = Arc::new(AtomicDoublyLinkedListNode {
             val,
             left: Link { ptr: AtomicPtr::new(ptr::from_exposed_addr_mut(self.header_addr().expose_addr() | HEAD_OR_TAIL_MARKER)) },
@@ -61,8 +45,8 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedList<T, NODE_KIND> {
                 head.clone().inner_add_before(node.clone());
             } else {
                 let node_addr = addr_of_mut!(node);
-                if self.header_node.compare_exchange(null_mut(), node_addr, Ordering::SeqCst, strongest_failure_ordering(Ordering::SeqCst)).is_ok() {
-                    if self.tail_node.compare_exchange(null_mut(), node_addr, Ordering::SeqCst, strongest_failure_ordering(Ordering::SeqCst)).is_ok() {
+                if self.header_node.compare_exchange(null_mut(), node_addr, Ordering::SeqCst, strongest_failure_ordering(Ordering::SeqCst)).is_ok() { // TODO: try loosening this ordering!
+                    if self.tail_node.compare_exchange(null_mut(), node_addr, Ordering::SeqCst, strongest_failure_ordering(Ordering::SeqCst)).is_ok() { // TODO: try loosening this ordering!
                         break;
                     } else {
                         // FIXME: handle this case properly!
@@ -70,7 +54,11 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedList<T, NODE_KIND> {
                 }
             }
         }
-        // FIXME: leak one reference to node to make it stay in the list even when the reference that gets returned is dropped
+        if NODE_KIND == NodeKind::Bound {
+            // leak one reference to node to make it stay in the list even when the reference that gets returned is dropped
+            let ret = node.clone();
+            let _ = ManuallyDrop::new(ret); // leak a single reference
+        }
         node
     }
 
@@ -148,13 +136,17 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedList<T, NODE_KIND> {
 
 }
 
-impl<T> Drop for AtomicDoublyLinkedList<T> {
+impl<T, const NODE_KIND: NodeKind> Drop for AtomicDoublyLinkedList<T, NODE_KIND> {
     fn drop(&mut self) {
-        // FIXME: destroy entire list!
+        // remove all nodes in the list, when the list gets dropped,
+        // this makes sure that all the nodes' state is consistent
+        // and correct
+        while !self.is_empty() {
+            self.remove_head();
+        }
     }
 }
 
-// FIXME: add NodeKind as a const static parameter to the list itself (and not to the individual nodes)
 #[derive(Copy, Clone, Default, Debug, Eq, PartialEq)]
 enum NodeKind {
     /// nodes of this kind will remain inside the list, even if the
@@ -167,7 +159,7 @@ enum NodeKind {
 }
 
 // FIXME: we have to ensure, that the first 2 bits aren't used - a possible solution would be to use the `aligned` crate: https://docs.rs/aligned/latest/aligned/
-pub struct AtomicDoublyLinkedListNode<T, const NODE_KIND: NodeKind = { NodeKind::Bound }, const DELETED: bool = false> { // FIXME: change the bool here into an enum!
+pub struct AtomicDoublyLinkedListNode<T, const NODE_KIND: NodeKind = { NodeKind::Bound }, const DELETED: bool = false> { // TODO: change the bool here into an enum!
     val: T,
     left: Link<T, NODE_KIND>,
     right: Link<T, NODE_KIND>,
@@ -190,7 +182,7 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, fals
             } else {
                 next.get_ptr()
             };
-            if self.right.try_set_addr_full::<true>(next.ptr, next_no_del_mark) { // FIXME: we could probably simply insert the raw next ptr instead of doing weird things with it.
+            if self.right.try_set_addr_full::<true>(next.ptr, next_no_del_mark) { // TODO: we could probably simply insert the raw next ptr instead of doing weird things with it.
                 loop {
                     prev = self.left.get();
                     if prev.get_deletion_marker() || self.left.try_set_addr_full::<true>(prev.ptr, prev.get_ptr()) {
@@ -207,7 +199,7 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, fals
                     } else {
                         next.get_ptr()
                     };
-                    head.compare_exchange(this, new_head, Ordering::SeqCst, strongest_failure_ordering(Ordering::SeqCst)); // FIXME: try loosening this ordering!
+                    head.compare_exchange(this, new_head, Ordering::SeqCst, strongest_failure_ordering(Ordering::SeqCst)); // TODO: try loosening this ordering!
                     // FIXME: do we have to handle the failure of the above operation specially somehow?
                 }
                 if next.get_head_or_tail_marker() {
@@ -217,7 +209,7 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, fals
                     } else {
                         prev.get_ptr()
                     };
-                    tail.compare_exchange(this, new_tail, Ordering::SeqCst, strongest_failure_ordering(Ordering::SeqCst)); // FIXME: try loosening this ordering!
+                    tail.compare_exchange(this, new_tail, Ordering::SeqCst, strongest_failure_ordering(Ordering::SeqCst)); // TODO: try loosening this ordering!
                     // FIXME: do we have to handle the failure of the above operation specially somehow?
                 }
                 println!("left del: {}", self.left.get().get_deletion_marker());
@@ -274,7 +266,7 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, fals
             unsafe { node.right.set_unsafe::<false>(node_right); }
             if next.get_head_or_tail_marker() {
                 let tail = unsafe { next.get_ptr().cast::<AtomicPtr<Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>>>>().as_ref() }.unwrap();
-                if tail.compare_exchange(this, node_ptr, Ordering::SeqCst, strongest_failure_ordering(Ordering::SeqCst)).is_ok() { // FIXME: can we relax this ordering a bit?
+                if tail.compare_exchange(this, node_ptr, Ordering::SeqCst, strongest_failure_ordering(Ordering::SeqCst)).is_ok() { // TODO: can we relax this ordering a bit?
                     break;
                 }
             } else if self.right.try_set_addr_full::<false>(next.get_ptr(), node_ptr) {
@@ -288,9 +280,6 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, fals
     }
 
     pub fn add_before(mut self: Arc<Self>, val: T) -> Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>> {
-        /*if self.left.get().get_head_or_tail_marker() {
-            return self.add_after(val);
-        }*/
         let mut node = Arc::new(AtomicDoublyLinkedListNode {
             val,
             left: Link::invalid(),
@@ -309,47 +298,56 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, fals
     fn inner_add_before(mut self: Arc<Self>, mut node: Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>>) {
         let this = addr_of_mut!(self);
         let node_ptr = addr_of_mut!(node);
-        let mut prev = RefSource::Ref(&self.left);
-        let mut cursor = this;
-        let mut next = cursor;
         loop {
-            while self.right.get().get_deletion_marker() {
-                let cursor_ref = unsafe { cursor.as_ref() }.unwrap();
-                if !cursor_ref.right.get().get_head_or_tail_marker() {
-                    cursor_ref.next();
+            let left = self.left.get();
+            if left.get_head_or_tail_marker() {
+                // we detected that we are the header node, so we try to set the header's right node to this one
+                // set the head and the head marker as the new node's prev(left) node
+                let node_left = ptr::from_exposed_addr_mut(prev.expose_addr() | HEAD_OR_TAIL_MARKER);
+                unsafe { node.left.set_unsafe::<false>(node_left); }
+                unsafe { node.right.set_unsafe::<false>(this); }
+                let header = unsafe { left.get_ptr().cast::<AtomicPtr<Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>>>>().as_ref() }.unwrap();
+                if header.compare_exchange(this, node_ptr, Ordering::SeqCst, strongest_failure_ordering(Ordering::SeqCst)).is_ok() { // TODO: can we relax this ordering a bit?
+                    // let _ = prev.get_ref().correct_prev(this);
+                    // FIXME: we have to do some sort of correction for this node's left link
+                    return;
                 }
-                prev = RefSource::Instance(prev.correct_prev(cursor));
+                // return self.inner_add_after(node);
             }
-            next = cursor;
-            let prev_val = prev.get_ref().get();
-            let node_left = if prev_val.get_head_or_tail_marker() {
-                // if `self` refers to the head node, set the head and the head marker as the new node's
-                // prev(left) node
-                ptr::from_exposed_addr_mut(prev_val.get_ptr().expose_addr() | HEAD_OR_TAIL_MARKER)
-            } else {
-                prev_val.get_ptr()
-            };
-            unsafe { node.left.set_unsafe::<false>(node_left); }
-            unsafe { node.right.set_unsafe::<false>(cursor); }
-            if prev_val.get_head_or_tail_marker() {
-                let header = unsafe { prev_val.get_ptr().cast::<AtomicPtr<Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>>>>().as_ref() }.unwrap();
-                if header.compare_exchange(this, node_ptr, Ordering::SeqCst, strongest_failure_ordering(Ordering::SeqCst)).is_ok() { // FIXME: can we relax this ordering a bit?
+            let mut prev = self.left.get().get_ptr();
+            let cursor = this;
+            let /*mut */next = cursor;
+            loop {
+                while self.right.get().get_deletion_marker() {
+                    unsafe { cursor.as_ref() }.unwrap().next();
+                    prev = prev.correct_prev(cursor);
+                }
+                // next = cursor;
+                unsafe { node.left.set_unsafe::<false>(prev); }
+                unsafe { node.right.set_unsafe::<false>(cursor); }
+                if unsafe { prev.as_ref().unwrap() }.right.try_set_addr_full::<false>(cursor, node_ptr) {
                     break;
                 }
-            } else if unsafe { prev_val.get_ptr().as_ref().unwrap() }.right.try_set_addr_full::<false>(cursor, node_ptr) {
-                break;
+                prev = unsafe { prev.as_ref() }.unwrap().correct_prev(cursor);
             }
-            if let Some(updated) = prev.correct_prev(cursor) {
-                prev = RefSource::Instance(updated);
-            }
+            let _ = unsafe { prev.as_ref() }.unwrap().correct_prev(next);
         }
-        let _ = prev.get_ref().correct_prev(next);
     }
 
+    /// Tries to set the current node's right link
+    /// to its following node.
+    /// In pseudocode: self.right = self.right.right;
+    /// Note, that there are additional deletion checks
+    /// being performed before setting the next node.
+    /// This method returns true as long as the tail node isn't reached.
     fn next(mut self: Arc<Self>) -> bool {
         let mut cursor = addr_of_mut!(self);
         loop {
             let next = unsafe { cursor.as_ref() }.unwrap().right.get();
+            if next.get_head_or_tail_marker() {
+                // check if the cursor is the tail, if so - return false
+                return false;
+            }
             let marker = unsafe { next.get_ptr().as_ref() }.unwrap().right.get().get_deletion_marker();
             if marker && unsafe { cursor.as_ref() }.unwrap().right.get().ptr == next.get_ptr() {
                 unsafe { next.get_ptr().as_ref() }.unwrap().left.set_deletion_mark();
@@ -357,7 +355,7 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, fals
                 continue;
             }
             cursor = next.get_ptr();
-            if !marker && !next.get_head_or_tail_marker() {
+            if !marker && !unsafe { next.get_ptr().as_ref() }.unwrap().right.get().get_head_or_tail_marker() {
                 return true;
             }
         }
@@ -433,13 +431,8 @@ impl<T, const NODE_KIND: NodeKind, const DELETED: bool> AtomicDoublyLinkedListNo
 
 }
 
-/*
-unsafe fn deref_node_ptr<T, const NODE_KIND: NodeKind>(node: *mut Arc<AtomicDoublyLinkedListNode<T>>) -> &Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>> {
-    node.cast().as_ref().unwrap()
-}*/
-
 const DELETION_MARKER: usize = 1 << 63;
-const HEAD_OR_TAIL_MARKER: usize = 1 << 62; // FIXME: implement and use this!
+const HEAD_OR_TAIL_MARKER: usize = 1 << 62;
 
 struct Link<T, const NODE_KIND: NodeKind = { NodeKind::Bound }> {
     ptr: AtomicPtr<Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>>>,
@@ -462,17 +455,6 @@ impl<T, const NODE_KIND: NodeKind> Link<T, NODE_KIND> {
             }
         }
     }
-
-    /*
-    fn set_addr(&self, new: *mut Arc<AtomicDoublyLinkedListNode<T>>) {
-        loop {
-            let node = self.get();
-            // FIXME: do we need to be able to retain the old MARKER?
-            if node.get_deletion_marker() || self.try_set_addr_full::<false>(node.get_ptr(), new) {
-                break;
-            }
-        }
-    }*/
 
     fn try_set_addr_full<const SET_DELETION_MARKER: bool>(&self, old: *mut Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>>, new: *mut Arc<AtomicDoublyLinkedListNode<T, NODE_KIND>>) -> bool {
         self.ptr.compare_exchange(old, if SET_DELETION_MARKER { ptr::from_exposed_addr_mut(new.expose_addr() | DELETION_MARKER) } else { new }, Self::CAS_ORDERING, strongest_failure_ordering(Self::CAS_ORDERING)).is_ok()
@@ -539,41 +521,5 @@ impl<T, const NODE_KIND: NodeKind> LinkContent<T, NODE_KIND> {
 impl<T, const NODE_KIND: NodeKind> PartialEq for LinkContent<T, NODE_KIND> {
     fn eq(&self, other: &Self) -> bool {
         self.ptr.expose_addr() == other.ptr.expose_addr()
-    }
-}
-
-enum RefSource<'a, T> {
-    Ref(&'a T),
-    Instance(T),
-}
-
-impl<'a, T> RefSource<'a, T> {
-
-    fn get_ref(&self) -> &T {
-        match self {
-            RefSource::Ref(rf) => rf,
-            RefSource::Instance(inst) => inst,
-        }
-    }
-
-}
-
-impl<'a, T> Deref for RefSource<'a, T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            RefSource::Ref(rf) => rf,
-            RefSource::Instance(inst) => inst,
-        }
-    }
-}
-
-impl<'a, T> AsRef<T> for RefSource<'a, T> {
-    fn as_ref(&self) -> &T {
-        match self {
-            RefSource::Ref(rf) => rf,
-            RefSource::Instance(inst) => inst,
-        }
     }
 }
