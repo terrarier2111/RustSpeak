@@ -43,7 +43,7 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedList<T, NODE_KIND> {
             left: Link { ptr: AtomicPtr::new(ptr::from_exposed_addr_mut(self.header_addr().expose_addr() | HEAD_OR_TAIL_MARKER)) },
             right: Link { ptr: AtomicPtr::new(ptr::from_exposed_addr_mut(self.tail_addr().expose_addr() | HEAD_OR_TAIL_MARKER)) },
         }));
-        'main: loop {
+        loop {
             let head = self.header_node.load(Self::ENDS_ORDERING);
             if let Some(head) = unsafe { head.as_ref() } {
                 head.clone().inner_add_before(node.clone());
@@ -72,7 +72,7 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedList<T, NODE_KIND> {
         loop {
             if let Some(head) = unsafe { self.header_node.load(Self::ENDS_ORDERING).as_ref() } {
                 if let Some(val) = head.clone().remove() {
-                    return Some(Aligned(val));
+                    return Some(val);
                 }
             } else {
                 return None;
@@ -158,7 +158,7 @@ pub struct AtomicDoublyLinkedListNode<T, const NODE_KIND: NodeKind = { NodeKind:
 
 impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, false> {
 
-    pub fn remove(mut self: Aligned<A4, Arc<Self>>) -> Option<Arc<AtomicDoublyLinkedListNode<T, NODE_KIND, true>>> {
+    pub fn remove(mut self: Aligned<A4, Arc<Self>>) -> Option<Node<T, NODE_KIND, true>> {
         let this = addr_of_mut!(self);
         let mut prev;
         let mut next;
@@ -293,11 +293,11 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, fals
                 let header = unsafe { left.get_ptr().cast_const().cast::<AtomicPtr<Node<T, NODE_KIND>>>().as_ref() }.unwrap();
                 if header.compare_exchange(this, node_ptr, Ordering::SeqCst, strongest_failure_ordering(Ordering::SeqCst)).is_ok() { // TODO: can we relax this ordering a bit?
                     // we have to do a correction for this node's left link
-                    let _ = unsafe { node_ptr.as_ref() }.unwrap().correct_prev(this);
+                    let _ = unsafe { node_ptr.as_ref() }.unwrap().clone().correct_prev(this);
                     return;
                 }
             }
-            let mut prev = self.left.get().get_ptr();
+            let mut prev = left.get_ptr();
             let cursor = this;
             let /*mut */next = cursor;
             loop {
@@ -334,7 +334,14 @@ impl<T, const NODE_KIND: NodeKind> AtomicDoublyLinkedListNode<T, NODE_KIND, fals
             let marker = unsafe { next.get_ptr().as_ref() }.unwrap().right.get().get_deletion_marker();
             if marker && unsafe { cursor.as_ref() }.unwrap().right.get().ptr == next.get_ptr() {
                 unsafe { next.get_ptr().as_ref() }.unwrap().left.set_deletion_mark();
-                unsafe { cursor.as_ref() }.unwrap().right.try_set_addr_full::<false>(next.ptr, unsafe { next.get_ptr().as_ref() }.unwrap().right.get().get_ptr());
+                let new_right = unsafe { next.get_ptr().as_ref() }.unwrap().right.get();
+                // retain everything except for the deletion marker
+                let new_right = if new_right.get_head_or_tail_marker() {
+                    ptr::from_exposed_addr_mut(new_right.get_ptr().expose_addr() | HEAD_OR_TAIL_MARKER)
+                } else {
+                    new_right.get_ptr()
+                };
+                unsafe { cursor.as_ref() }.unwrap().right.try_set_addr_full::<false>(next.ptr, new_right);
                 continue;
             }
             cursor = next.get_ptr();
