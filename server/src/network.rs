@@ -20,6 +20,8 @@ use uuid::Uuid;
 use crate::{ClientPacket, DEFAULT_CHANNEL_UUID, RWBytes, Server, UserUuid};
 use crate::utils::current_time_millis;
 
+// FIXME: look at: https://gitlab.com/veloren/veloren/-/issues/749 and https://gitlab.com/veloren/veloren/-/issues/1728
+
 const DEBUG_VOICE: bool = true;
 
 pub struct NetworkServer {
