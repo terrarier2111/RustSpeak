@@ -4,6 +4,8 @@
 #![feature(strict_provenance)]
 #![feature(adt_const_params)]
 #![feature(arbitrary_self_types)]
+#![feature(const_result_drop)]
+#![feature(const_option)]
 
 use crate::channel_db::{ChannelDb, ChannelDbEntry};
 use crate::cli::{
@@ -20,7 +22,6 @@ use crate::protocol::{RWBytes, UserUuid, PROTOCOL_VERSION};
 use crate::server_group_db::{ServerGroupDb, ServerGroupEntry};
 use crate::user_db::{DbUser, UserDb};
 use crate::utils::LIGHT_GRAY;
-use arc_swap::ArcSwap;
 use bytes::Buf;
 use colored::{Color, ColoredString, Colorize};
 use dashmap::DashMap;
@@ -42,6 +43,7 @@ use std::future::Future;
 use std::task::{Context, Poll};
 use futures::{FutureExt, StreamExt};
 use futures::task::noop_waker_ref;
+use swap_arc::SwapArc;
 use tokio::{join, select};
 use uuid::Uuid;
 
@@ -56,7 +58,8 @@ mod security_level;
 mod server_group_db;
 mod user_db;
 mod utils;
-mod atomic_boxed_doubly_linked_list;
+mod conc_once_cell;
+mod sized_box;
 
 // FIXME: review all the endianness related shit!
 
@@ -252,8 +255,8 @@ async fn main() -> anyhow::Result<()> {
         );
 
     let server = Arc::new(Server {
-        server_groups: ArcSwap::new(Arc::new(server_groups)),
-        channels: ArcSwap::new(Arc::new(channels)),
+        server_groups: tokio::sync::RwLock::new(server_groups),
+        channels: tokio::sync::RwLock::new(channels),
         online_users: Default::default(),
         network_server,
         config,
@@ -413,9 +416,9 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                         // FIXME: insert data send the proper data back!
                         new_conn.uuid.store(Some(Arc::new(uuid)));
                         println!("{} ({:?}) successfully connected", name, uuid);
-                        let channels = server.channels.load();
+                        let channels = server.channels.read().await;
                         let channels = channels.values();
-                        let server_groups = server.server_groups.load();
+                        let server_groups = server.server_groups.read().await;
                         let server_groups = server_groups.values();
                         let channels = channels.cloned().collect::<Vec<_>>();
                         let user = if let Some(user) = server.user_db.get(&uuid)? {
@@ -436,13 +439,13 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                         println!("user uuid: {:?}", user.uuid);
                         server.online_users.insert(uuid, User {
                             uuid,
-                            name: RwLock::new(user.name.into()),
+                            name: SwapArc::new(Arc::new(user.name.into())),
                             last_security_proof: user.last_security_proof,
                             last_verified_security_level: user.last_verified_security_level,
                             groups: RwLock::new(user.groups.clone()),
                             connection: new_conn.clone(),
                         });
-                        server.channels.load().get(&new_conn.channel).unwrap().clients.write().await.push(uuid); // FIXME: remove the user from the channel again later on!
+                        server.channels.read().await.get(&new_conn.channel).unwrap().clients.write().await.push(uuid); // FIXME: remove the user from the channel again later on!
                         let auth = ServerPacket::AuthResponse(AuthResponse::Success {
                             server_groups: server_groups.cloned().collect::<Vec<_>>(), // FIXME: try getting rid of this clone!
                             own_groups: user.groups,
@@ -456,7 +459,7 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                                 Some(stream) => stream,
                             }
                         }?;
-                        new_conn.keep_alive_stream.store(Some(Arc::new((tokio::sync::Mutex::new(keep_alive_stream.0), tokio::sync::Mutex::new(keep_alive_stream.1)))));
+                        new_conn.keep_alive_stream.try_init((tokio::sync::Mutex::new(keep_alive_stream.0), tokio::sync::Mutex::new(keep_alive_stream.1)));
                         new_conn.start_read().await;
                     } else {
                         let failure = ServerPacket::AuthResponse(AuthResponse::Failure(
@@ -477,8 +480,8 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
 }
 
 pub struct Server {
-    pub server_groups: ArcSwap<HashMap<Uuid, Arc<ServerGroup>>>,
-    pub channels: ArcSwap<HashMap<Uuid, Channel>>,
+    pub server_groups: tokio::sync::RwLock<HashMap<Uuid, Arc<ServerGroup>>>,
+    pub channels: tokio::sync::RwLock<HashMap<Uuid, Channel>>,
     pub online_users: DashMap<UserUuid, User>, // FIXME: add a timed cache for offline users
     pub network_server: NetworkServer,
     pub config: Config, // FIXME: make this mutable somehow
@@ -490,7 +493,7 @@ pub struct Server {
 
 pub struct User {
     pub uuid: UserUuid,
-    pub name: RwLock<String>,
+    pub name: SwapArc<String>,
     pub last_security_proof: U256,
     pub last_verified_security_level: u8,
     pub groups: RwLock<Vec<Uuid>>,
@@ -672,7 +675,7 @@ impl CommandImpl for CommandOnlineUsers {
         println!("There are {} users online:", server.online_users.len());
         println!("Name   UUID   SecLevel");
         for user in server.online_users.iter() {
-            println!("{} | {:?} | {}", user.name.read().unwrap(), user.uuid, user.last_verified_security_level);
+            println!("{} | {:?} | {}", user.name.load(), user.uuid, user.last_verified_security_level);
         }
         Ok(())
     }

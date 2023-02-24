@@ -14,10 +14,11 @@ use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};
 use std::time::Duration;
-use arc_swap::ArcSwapOption;
+use swap_arc::SwapArcOption;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 use crate::{ClientPacket, DEFAULT_CHANNEL_UUID, RWBytes, Server, UserUuid};
+use crate::conc_once_cell::ConcurrentOnceCell;
 use crate::utils::current_time_millis;
 
 // FIXME: look at: https://gitlab.com/veloren/veloren/-/issues/749 and https://gitlab.com/veloren/veloren/-/issues/1728
@@ -96,10 +97,10 @@ impl NetworkServer {
 }
 
 pub struct ClientConnection {
-    pub uuid: ArcSwapOption<UserUuid>,
+    pub uuid: SwapArcOption<UserUuid>,
     pub conn: tokio::sync::RwLock<NewConnection>,
     pub default_stream: (Mutex<SendStream>, Mutex<RecvStream>),
-    pub keep_alive_stream: ArcSwapOption<(Mutex<SendStream>, Mutex<RecvStream>)>,
+    pub keep_alive_stream: ConcurrentOnceCell<(Mutex<SendStream>, Mutex<RecvStream>)>,
     pub channel: Uuid,
     server: Arc<Server>,
     stable_id: usize,
@@ -111,10 +112,10 @@ impl ClientConnection {
         let (send, recv) = bi_conn;
         let stable_id = conn.connection.stable_id();
         Ok(Self {
-            uuid: ArcSwapOption::empty(),
+            uuid: SwapArcOption::empty(),
             conn: tokio::sync::RwLock::new(conn),
             default_stream: (Mutex::new(send), Mutex::new(recv)),
-            keep_alive_stream: ArcSwapOption::empty(),
+            keep_alive_stream: ConcurrentOnceCell::new(),
             channel: DEFAULT_CHANNEL_UUID, // FIXME: add possibility to allow privileged users to login into other channels than the default channel!
             server,
             stable_id,
@@ -185,7 +186,7 @@ impl ClientConnection {
             'end: loop {
                 let data = this.read_unreliable().await.unwrap().unwrap(); // FIXME: do error handling!
                 println!("received voice traffic {}", data.len());
-                for client in this.server.channels.load().get(&this.channel).unwrap().clients.read().await.iter() {
+                for client in this.server.channels.read().await.get(&this.channel).unwrap().clients.read().await.iter() {
                     if client != this.uuid.load().as_ref().unwrap().as_ref() || DEBUG_VOICE {
                         this.server.online_users.get(client).unwrap().connection.send_unreliable(data.clone()).await.unwrap();
                     }
@@ -224,13 +225,13 @@ impl ClientConnection {
         let mut send_data = BytesMut::with_capacity(8 + 8 + 4);
         data.id.write(&mut send_data)?;
         data.send_time.write(&mut send_data)?;
-        self.keep_alive_stream.load().as_ref().unwrap().0.lock().await.write_all(&send_data).await?;
+        self.keep_alive_stream.get().as_ref().unwrap().0.lock().await.write_all(&send_data).await?;
         Ok(())
     }
 
     pub async fn read_keep_alive(&self) -> anyhow::Result<KeepAlive> {
-        let mut buf = [0; 8 + 8 + 4]; // FIXME: use a cached buffer in order to avoid reallocation
-        self.keep_alive_stream.load().as_ref().unwrap().1.lock().await.read_exact(&mut buf).await?;
+        let mut buf = [0; 8 + 8 + 4];
+        self.keep_alive_stream.get().as_ref().unwrap().1.lock().await.read_exact(&mut buf).await?;
         let mut buf = Bytes::from(buf.to_vec());
 
         let ret = KeepAlive {
