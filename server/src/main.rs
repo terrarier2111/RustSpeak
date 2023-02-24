@@ -340,7 +340,6 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                                     .conn
                                     .read()
                                     .await
-                                    .connection
                                     .remote_address()
                                     .ip(),
                                 uuid: UserUuid::from_u256(U256::from_le_bytes(sha256(
@@ -369,7 +368,6 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                                     .conn
                                     .read()
                                     .await
-                                    .connection
                                     .remote_address()
                                     .ip(),
                                 uuid,
@@ -387,7 +385,6 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                                     .conn
                                     .read()
                                     .await
-                                    .connection
                                     .remote_address()
                                     .ip(),
                                 uuid,
@@ -406,7 +403,6 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                                     .conn
                                     .read()
                                     .await
-                                    .connection
                                     .remote_address()
                                     .ip(),
                                 uuid,
@@ -453,12 +449,7 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                         });
                         let encoded = auth.encode()?;
                         new_conn.send_reliable(&encoded).await?;
-                        let keep_alive_stream = {
-                            match new_conn.conn.write().await.bi_streams.next().await {
-                                None => unreachable!(),
-                                Some(stream) => stream,
-                            }
-                        }?;
+                        let keep_alive_stream = new_conn.conn.write().await.accept_bi().await?;
                         new_conn.keep_alive_stream.try_init((tokio::sync::Mutex::new(keep_alive_stream.0), tokio::sync::Mutex::new(keep_alive_stream.1)));
                         new_conn.start_read().await;
                     } else {

@@ -2,7 +2,7 @@ use crate::packet::ServerPacket;
 use bytes::{Buf, Bytes, BytesMut};
 use dashmap::DashMap;
 use futures::StreamExt;
-use quinn::{ConnectionError, Endpoint, IdleTimeout, Incoming, NewConnection, ReadExact, ReadExactError, RecvStream, SendStream, ServerConfig, TransportConfig, VarInt};
+use quinn::{Connection, ConnectionError, Endpoint, IdleTimeout, ReadExactError, RecvStream, SendStream, ServerConfig, TransportConfig, VarInt};
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::error::Error;
@@ -27,7 +27,6 @@ const DEBUG_VOICE: bool = true;
 
 pub struct NetworkServer {
     pub endpoint: Endpoint,
-    pub incoming: Mutex<Incoming>,
 }
 
 impl NetworkServer {
@@ -45,8 +44,7 @@ impl NetworkServer {
         let endpoint = Endpoint::server(config, address_mode.local(port))?;
 
         Ok(Self {
-            endpoint: endpoint.0,
-            incoming: Mutex::new(endpoint.1),
+            endpoint,
         })
     }
 
@@ -60,7 +58,7 @@ impl NetworkServer {
         error_handler: E,
         server: Arc<Server>,
     ) {
-        'server: while let Some(conn) = self.incoming.lock().await.next().await {
+        'server: while let Some(conn) = self.endpoint.accept().await {
             // FIXME: here we are holding on a mutex across await boundaries
             let mut connection = match conn.await {
                 Ok(val) => val,
@@ -70,14 +68,11 @@ impl NetworkServer {
                 }
             };
             let initial_stream = {
-                match connection.bi_streams.next().await {
-                    None => unreachable!(),
-                    Some(stream) => match stream {
-                        Ok(stream) => stream,
-                        Err(err) => {
-                            error_handler(anyhow::Error::from(err));
-                            continue 'server;
-                        }
+                match connection.accept_bi().await {
+                    Ok(stream) => stream,
+                    Err(err) => {
+                        error_handler(anyhow::Error::from(err));
+                        continue 'server;
                     },
                 }
             };
@@ -98,7 +93,7 @@ impl NetworkServer {
 
 pub struct ClientConnection {
     pub uuid: SwapArcOption<UserUuid>,
-    pub conn: tokio::sync::RwLock<NewConnection>,
+    pub conn: tokio::sync::RwLock<Connection>,
     pub default_stream: (Mutex<SendStream>, Mutex<RecvStream>),
     pub keep_alive_stream: ConcurrentOnceCell<(Mutex<SendStream>, Mutex<RecvStream>)>,
     pub channel: Uuid,
@@ -108,9 +103,9 @@ pub struct ClientConnection {
 }
 
 impl ClientConnection {
-    async fn new(server: Arc<Server>, conn: NewConnection, bi_conn: (SendStream, RecvStream)) -> anyhow::Result<ClientConnection> {
+    async fn new(server: Arc<Server>, conn: Connection, bi_conn: (SendStream, RecvStream)) -> anyhow::Result<ClientConnection> {
         let (send, recv) = bi_conn;
-        let stable_id = conn.connection.stable_id();
+        let stable_id = conn.stable_id();
         Ok(Self {
             uuid: SwapArcOption::empty(),
             conn: tokio::sync::RwLock::new(conn),
@@ -184,7 +179,7 @@ impl ClientConnection {
         tokio::spawn(async move {
             let this = this.clone();
             'end: loop {
-                let data = this.read_unreliable().await.unwrap().unwrap(); // FIXME: do error handling!
+                let data = this.read_unreliable().await.unwrap(); // FIXME: do error handling!
                 println!("received voice traffic {}", data.len());
                 for client in this.server.channels.read().await.get(&this.channel).unwrap().clients.read().await.iter() {
                     if client != this.uuid.load().as_ref().unwrap().as_ref() || DEBUG_VOICE {
@@ -213,12 +208,12 @@ impl ClientConnection {
     }
 
     pub async fn send_unreliable(&self, buf: Bytes) -> anyhow::Result<()> {
-        self.conn.write().await.connection.send_datagram(buf)?;
+        self.conn.write().await.send_datagram(buf)?;
         Ok(())
     }
 
-    pub async fn read_unreliable(&self) -> Option<Result<Bytes, ConnectionError>> {
-        self.conn.write().await.datagrams.next().await
+    pub async fn read_unreliable(&self) -> Result<Bytes, ConnectionError> {
+        self.conn.write().await.read_datagram().await
     }
 
     async fn send_keep_alive(&self, data: KeepAlive) -> anyhow::Result<()> {
@@ -261,7 +256,6 @@ impl ClientConnection {
         self.conn
             .write()
             .await
-            .connection
             .close(VarInt::from_u32(err_code), reason);
         Ok(())
     }

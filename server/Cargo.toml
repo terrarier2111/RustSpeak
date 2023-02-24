@@ -15,7 +15,7 @@ serde_derive = "1.0.144"
 serde_json = "1.0.85"
 # networking
 tokio = { version = "1.20.1", features = ["full"] }
-quinn = "0.8.5"
+quinn = "0.9.3"
 rustls = { version = "0.20.6", features = [ "dangerous_configuration", "quic" ] }
 rcgen = "0.10.0"
 rustls-pemfile = "1.0.1"
