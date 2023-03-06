@@ -19,10 +19,12 @@ pub const PROTOCOL_VERSION: u64 = 1;
 pub struct UserUuid(U256);
 
 impl UserUuid {
+    #[inline]
     pub fn from_u256(raw: U256) -> Self {
         Self(raw)
     }
 
+    #[inline]
     pub fn into_u256(self) -> U256 {
         self.0
     }
@@ -311,7 +313,6 @@ impl RWBytes for AtomicBool {
     }
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
-        // FIXME: is this ordering okay?
         self.load(Ordering::Acquire).write(dst)
     }
 }

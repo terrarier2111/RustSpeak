@@ -42,7 +42,7 @@ impl<T> Drop for ConcurrentOnceCell<T> {
     fn drop(&mut self) {
         let ptr = *self.ptr.get_mut();
         if !ptr.is_null() {
-            unsafe { ptr.read(); }
+            unsafe { ptr.drop_in_place(); }
         }
     }
 }

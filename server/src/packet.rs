@@ -19,6 +19,7 @@ use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use swap_arc::SwapArc;
 use uuid::Uuid;
 
 const PRIVATE_KEY_LEN_BITS: u32 = 4096;
@@ -509,10 +510,10 @@ pub struct Channel {
     pub uuid: Uuid,
     pub password: AtomicBool,
     // pub hide_users_if_pw: AtomicBool, // FIXME: add capability to hide users if a password is set
-    pub name: Arc<RwLock<String>>,
-    pub desc: Arc<RwLock<String>>,
-    pub perms: Arc<RwLock<ChannelPerms>>,
-    pub clients: Arc<tokio::sync::RwLock<Vec<UserUuid>>>,
+    pub name: Arc<SwapArc<String>>,
+    pub desc: Arc<SwapArc<String>>,
+    pub perms: Arc<SwapArc<ChannelPerms>>,
+    pub clients: Arc<tokio::sync::RwLock<Vec<UserUuid>>>, // FIXME: try making this lock free!
     pub proto_clients: Arc<RwLock<Vec<RemoteProfile>>>, // FIXME: is it worth making RemoteProfiles ref-counted?
 }
 
@@ -537,9 +538,9 @@ impl RWBytes for Channel {
     fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
         let uuid = Uuid::read(src, client_key)?;
         let password = AtomicBool::new(bool::read(src, client_key)?);
-        let name = Arc::new(RwLock::new(String::read(src, client_key)?));
-        let desc = Arc::new(RwLock::new(String::read(src, client_key)?));
-        let perms = Arc::new(RwLock::new(ChannelPerms::read(src, client_key)?));
+        let name = Arc::new(SwapArc::new(Arc::new(String::read(src, client_key)?)));
+        let desc = Arc::new(SwapArc::new(Arc::new(String::read(src, client_key)?)));
+        let perms = Arc::new(SwapArc::new(Arc::new(ChannelPerms::read(src, client_key)?)));
         let clients = Arc::new(RwLock::new(Vec::<RemoteProfile>::read(src, client_key)?));
 
         Ok(Self {

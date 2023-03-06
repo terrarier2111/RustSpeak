@@ -60,6 +60,7 @@ mod user_db;
 mod utils;
 mod conc_once_cell;
 mod sized_box;
+mod conc_vec;
 
 // FIXME: review all the endianness related shit!
 
@@ -116,9 +117,9 @@ async fn main() -> anyhow::Result<()> {
         .map(|entry| Channel {
             uuid: Uuid::from_u128(entry.id),
             password: AtomicBool::new(entry.password),
-            name: Arc::new(RwLock::new(entry.name.to_string())),
-            desc: Arc::new(RwLock::new(entry.desc.to_string())),
-            perms: Arc::new(RwLock::new(entry.perms)),
+            name: Arc::new(SwapArc::new(Arc::new(entry.name.to_string()))),
+            desc: Arc::new(SwapArc::new(Arc::new(entry.desc.to_string()))),
+            perms: Arc::new(SwapArc::new(Arc::new(entry.perms))),
             clients: Arc::new(Default::default()),
             proto_clients: Arc::new(Default::default()),
         })
@@ -450,7 +451,7 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                         let encoded = auth.encode()?;
                         new_conn.send_reliable(&encoded).await?;
                         let keep_alive_stream = new_conn.conn.write().await.accept_bi().await?;
-                        new_conn.keep_alive_stream.try_init((tokio::sync::Mutex::new(keep_alive_stream.0), tokio::sync::Mutex::new(keep_alive_stream.1)));
+                        let _ = new_conn.keep_alive_stream.try_init((tokio::sync::Mutex::new(keep_alive_stream.0), tokio::sync::Mutex::new(keep_alive_stream.1)));
                         new_conn.start_read().await;
                     } else {
                         let failure = ServerPacket::AuthResponse(AuthResponse::Failure(
