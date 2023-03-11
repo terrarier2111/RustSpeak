@@ -12,6 +12,10 @@ pub struct ConcurrentVec<T> {
 }
 
 const PUSH_OR_ITER_FLAG: usize = 1 << (usize::BITS - 1);
+const POP_FLAG: usize = 1 << (usize::BITS - 2);
+
+const PUSH_OR_ITER_INC: usize = 1 << 0;
+const POP_INC: usize = 1 << ((usize::BITS - 2) / 2);
 
 impl<T> ConcurrentVec<T> {
     pub fn new() -> Self {
@@ -25,6 +29,17 @@ impl<T> ConcurrentVec<T> {
     }
 
     pub fn push(&self, val: T) {
+        // inc push_or_iter counter
+        let mut curr_guard = self.guard.fetch_add(PUSH_OR_ITER_INC, Ordering::AcqRel);
+        while curr_guard & PUSH_OR_ITER_FLAG == 0 {
+            match self.guard.compare_exchange(curr_guard & !POP_FLAG, (curr_guard & !POP_FLAG) | PUSH_OR_ITER_FLAG, Ordering::AcqRel, Ordering::Acquire) {
+                Ok(_) => break,
+                Err(val) => {
+                    curr_guard = val;
+                }
+            }
+        }
+        let slot = self.push_far.fetch_add(1, Ordering::AcqRel);
 
     }
 
