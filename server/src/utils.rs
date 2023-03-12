@@ -20,10 +20,9 @@ pub fn current_time_millis() -> Duration {
 }
 
 /// prompts for input in the console with a specific message
-pub fn input(text: &Option<impl Display>) -> std::io::Result<String> {
+pub fn input<T: Display>(text: &Option<T>) -> std::io::Result<String> {
     if let Some(text) = text {
-        print!("{}", text);
-        print!(": ");
+        print!("{}: ", text);
     }
     std::io::stdout().flush()?; // because print! doesn't flush
     let mut input = String::new();
