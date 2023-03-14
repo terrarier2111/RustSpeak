@@ -17,11 +17,14 @@ pub struct ConcurrentVec<T> {
 
 const PUSH_OR_ITER_FLAG: usize = 1 << (usize::BITS - 1);
 const POP_FLAG: usize = 1 << (usize::BITS - 2);
+const REM_FLAG: usize = 1 << (usize::BITS - 3);
 
-const PUSH_OR_ITER_INC: usize = 1 << 0;
-const POP_INC: usize = 1 << ((usize::BITS - 2) / 2);
+const PUSH_INC: usize = 1 << 0;
+const ITER_INC: usize = 1 << ((usize::BITS - 3) / 3 * 1);
+const POP_INC: usize = 1 << ((usize::BITS - 3) / 3 * 2);
 
 const SCALE_FACTOR: usize = 2;
+const INITIAL_CAP: usize = 8;
 
 impl<T> ConcurrentVec<T> {
     pub fn new() -> Self {
@@ -36,7 +39,7 @@ impl<T> ConcurrentVec<T> {
 
     pub fn push(&self, val: T) {
         // inc push_or_iter counter
-        let mut curr_guard = self.guard.fetch_add(PUSH_OR_ITER_INC, Ordering::AcqRel);
+        let mut curr_guard = self.guard.fetch_add(PUSH_INC, Ordering::AcqRel);
         while curr_guard & PUSH_OR_ITER_FLAG == 0 {
             let mut backoff = Backoff::new();
             // wait until the POP_FLAG is unset
@@ -73,15 +76,51 @@ impl<T> ConcurrentVec<T> {
             } else if cap.size < slot {
                 drop(cap);
                 let mut backoff = Backoff::new();
+                // wait for the resize to be performed
                 while self.alloc.load().as_ref().unwrap().size < slot {
                     backoff.snooze();
                 }
+            }
+            let cap = self.alloc.load().as_ref().unwrap();
+            unsafe { cap.deref().ptr.add(slot).write(val); }
+        } else {
+            if slot == 0 {
+                let alloc = unsafe { alloc(Layout::array::<T>(INITIAL_CAP).unwrap()) };
+                self.alloc.store(Some(Arc::new(SizedAlloc::new(alloc.cast(), INITIAL_CAP))));
+            }
+            let mut backoff = Backoff::new();
+            // wait for the resize to be performed
+            while self.alloc.load().as_ref().is_none() {
+                backoff.snooze();
             }
         }
     }
 
     pub fn pop(&self) -> Option<T> {
 
+    }
+
+    pub fn remove(&self, idx: usize) -> Option<T> {
+        let mut backoff = Backoff::new();
+        while self.guard.compare_exchange_weak(0, REM_FLAG, Ordering::Acquire, Ordering::Relaxed).is_err() {
+            backoff.snooze();
+        }
+
+        let ret = if let Some(alloc) = self.alloc.load().deref() {
+            let val = unsafe { alloc.deref().ptr.add(idx).read() };
+            let trailing = alloc.size - idx - 1;
+            if trailing != 0 {
+                unsafe { ptr::copy(alloc.deref().ptr.add(idx + 1), alloc.deref().ptr.add(idx), trailing) };
+            }
+            self.len.store(self.len() - 1, Ordering::Release);
+            Some(val)
+        } else {
+            None
+        };
+
+        self.guard.fetch_and(!REM_FLAG, Ordering::Release);
+
+        ret
     }
 
     pub fn iter(&self) -> Iter<'_, T> {
