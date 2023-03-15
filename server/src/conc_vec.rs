@@ -39,7 +39,7 @@ impl<T> ConcurrentVec<T> {
 
     pub fn push(&self, val: T) {
         // inc push_or_iter counter
-        let mut curr_guard = self.guard.fetch_add(PUSH_INC, Ordering::AcqRel);
+        let mut curr_guard = self.guard.fetch_add(PUSH_INC, Ordering::Acquire);
         while curr_guard & PUSH_OR_ITER_FLAG == 0 {
             let mut backoff = Backoff::new();
             // wait until the POP_FLAG is unset
@@ -93,6 +93,10 @@ impl<T> ConcurrentVec<T> {
             while self.alloc.load().as_ref().is_none() {
                 backoff.snooze();
             }
+        }
+        let guard_end = self.guard.fetch_sub(PUSH_INC, Ordering::Release);
+        if (guard_end & !PUSH_OR_ITER_FLAG) == 0 {
+            let _ = self.guard.compare_exchange(PUSH_OR_ITER_FLAG, 0, Ordering::Release, Ordering::Relaxed);
         }
     }
 
