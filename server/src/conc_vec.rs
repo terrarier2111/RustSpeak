@@ -15,13 +15,16 @@ pub struct ConcurrentVec<T> {
     guard: AtomicUsize,
 }
 
-const PUSH_OR_ITER_FLAG: usize = 1 << (usize::BITS - 1);
-const POP_FLAG: usize = 1 << (usize::BITS - 2);
-const REM_FLAG: usize = 1 << (usize::BITS - 3);
+const PUSH_OR_ITER_FLAG: usize = 1 << (usize::BITS as usize - 1);
+const POP_FLAG: usize = 1 << (usize::BITS as usize - 2);
+const REM_FLAG: usize = 1 << (usize::BITS as usize - 3);
 
 const PUSH_INC: usize = 1 << 0;
-const ITER_INC: usize = 1 << ((usize::BITS - 3) / 3 * 1);
-const POP_INC: usize = 1 << ((usize::BITS - 3) / 3 * 2);
+const ITER_INC: usize = 1 << ((usize::BITS as usize - 3) / 3 * 1);
+const POP_INC: usize = 1 << ((usize::BITS as usize - 3) / 3 * 2);
+const PUSH_INC_BITS: usize = (ITER_INC - PUSH_INC) >> 1; // leave the msb free (always 0), so we have a buffer
+const ITER_INC_BITS: usize = (POP_INC - ITER_INC) >> 1; // leave the msb free (always 0), so we have a buffer
+const POP_INC_BITS: usize = ((usize::BITS as usize - 3) - POP_INC) >> 1; // leave the msb free (always 0), so we have a buffer
 
 const SCALE_FACTOR: usize = 2;
 const INITIAL_CAP: usize = 8;
@@ -45,7 +48,7 @@ impl<T> ConcurrentVec<T> {
             // wait until the POP_FLAG is unset
             while curr_guard & POP_FLAG != 0 {
                 backoff.snooze();
-                curr_guard = self.guard.load(Ordering::Acquire); // FIXME: can't this be relaxed?
+                curr_guard = self.guard.load(Ordering::Acquire);
             }
             match self.guard.compare_exchange(curr_guard, (curr_guard & !POP_FLAG) | PUSH_OR_ITER_FLAG, Ordering::AcqRel, Ordering::Acquire) {
                 Ok(_) => break,
@@ -94,9 +97,19 @@ impl<T> ConcurrentVec<T> {
                 backoff.snooze();
             }
         }
-        let guard_end = self.guard.fetch_sub(PUSH_INC, Ordering::Release);
-        if (guard_end & !PUSH_OR_ITER_FLAG) == 0 {
-            let _ = self.guard.compare_exchange(PUSH_OR_ITER_FLAG, 0, Ordering::Release, Ordering::Relaxed);
+        let mut guard_end = self.guard.fetch_sub(PUSH_INC, Ordering::Release);
+        while (guard_end & !PUSH_OR_ITER_FLAG) == 0 {
+            // get rid of the flag if there are no more on-going pushes or iterations
+            match self.guard.compare_exchange(PUSH_OR_ITER_FLAG, 0, Ordering::Release, Ordering::Relaxed) {
+                Ok(_) => break,
+                Err(err) => {
+                    if (err & (PUSH_INC_BITS | ITER_INC_BITS)) != 0 {
+                        // somebody else will unset the flag
+                        break;
+                    }
+                    guard_end = err;
+                }
+            }
         }
     }
 
