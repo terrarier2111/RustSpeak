@@ -19,12 +19,10 @@ const PUSH_OR_ITER_FLAG: usize = 1 << (usize::BITS as usize - 1);
 const POP_FLAG: usize = 1 << (usize::BITS as usize - 2);
 const REM_FLAG: usize = 1 << (usize::BITS as usize - 3);
 
-const PUSH_INC: usize = 1 << 0;
-const ITER_INC: usize = 1 << ((usize::BITS as usize - 3) / 3 * 1);
-const POP_INC: usize = 1 << ((usize::BITS as usize - 3) / 3 * 2);
-const PUSH_INC_BITS: usize = (ITER_INC - PUSH_INC) >> 1; // leave the msb free (always 0), so we have a buffer
-const ITER_INC_BITS: usize = (POP_INC - ITER_INC) >> 1; // leave the msb free (always 0), so we have a buffer
-const POP_INC_BITS: usize = ((usize::BITS as usize - 3) - POP_INC) >> 1; // leave the msb free (always 0), so we have a buffer
+const PUSH_OR_ITER_INC: usize = 1 << 0;
+const POP_INC: usize = 1 << ((usize::BITS as usize - 3) / 2);
+const PUSH_OR_ITER_INC_BITS: usize = (POP_INC - PUSH_OR_ITER_INC) >> 2; // leave the two msb free (always 0), so we have a buffer
+const POP_INC_BITS: usize = ((usize::BITS as usize - 3) - POP_INC) >> 2; // leave the two msb free (always 0), so we have a buffer
 
 const SCALE_FACTOR: usize = 2;
 const INITIAL_CAP: usize = 8;
@@ -42,7 +40,7 @@ impl<T> ConcurrentVec<T> {
 
     pub fn push(&self, val: T) {
         // inc push_or_iter counter
-        let mut curr_guard = self.guard.fetch_add(PUSH_INC, Ordering::Acquire);
+        let mut curr_guard = self.guard.fetch_add(PUSH_OR_ITER_INC, Ordering::Acquire);
         while curr_guard & PUSH_OR_ITER_FLAG == 0 {
             let mut backoff = Backoff::new();
             // wait until the POP_FLAG is unset
@@ -57,7 +55,23 @@ impl<T> ConcurrentVec<T> {
                 }
             }
         }
-        let slot = self.push_far.fetch_add(1, Ordering::AcqRel);
+        let pop_far = self.pop_far.load(Ordering::Acquire);
+        let push_far = self.push_far.fetch_add(1, Ordering::AcqRel);
+        let slot = push_far - pop_far;
+
+        // check if we have hit the soft guard bit, if so, recover
+        if push_far == (1 << (usize::BITS - 2)) {
+            // recover by decreasing the current counter
+            self.pop_far.store(0, Ordering::Release);
+            self.push_far.fetch_sub(pop_far, Ordering::Release);
+        }
+
+        // check if we have hit the hard guard bit, if so, abort.
+        if push_far >= (1 << (usize::BITS - 1)) {
+            // we can't recover safely anymore because the vec grew too quickly.
+            abort();
+        }
+
         if let Some(cap) = self.alloc.load().as_ref() {
             let size = cap.size;
             if size == slot {
@@ -97,16 +111,13 @@ impl<T> ConcurrentVec<T> {
                 backoff.snooze();
             }
         }
-        let mut guard_end = self.guard.fetch_sub(PUSH_INC, Ordering::Release);
-        while (guard_end & !PUSH_OR_ITER_FLAG) == 0 {
+        let mut guard_end = self.guard.fetch_sub(PUSH_OR_ITER_INC, Ordering::Release);
+        // check if somebody else will unset the flag
+        while (guard_end & (PUSH_OR_ITER_INC_BITS)) == 0 {
             // get rid of the flag if there are no more on-going pushes or iterations
-            match self.guard.compare_exchange(PUSH_OR_ITER_FLAG, 0, Ordering::Release, Ordering::Relaxed) {
+            match self.guard.compare_exchange(PUSH_OR_ITER_FLAG, guard_end, Ordering::Release, Ordering::Relaxed) {
                 Ok(_) => break,
                 Err(err) => {
-                    if (err & (PUSH_INC_BITS | ITER_INC_BITS)) != 0 {
-                        // somebody else will unset the flag
-                        break;
-                    }
                     guard_end = err;
                 }
             }
