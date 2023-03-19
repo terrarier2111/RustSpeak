@@ -43,12 +43,12 @@ impl<T> ConcurrentVec<T> {
         let mut curr_guard = self.guard.fetch_add(PUSH_OR_ITER_INC, Ordering::Acquire);
         while curr_guard & PUSH_OR_ITER_FLAG == 0 {
             let mut backoff = Backoff::new();
-            // wait until the POP_FLAG is unset
-            while curr_guard & POP_FLAG != 0 {
+            // wait until the POP_FLAG and REM_FLAG are unset
+            while curr_guard & (POP_FLAG | REM_FLAG) != 0 {
                 backoff.snooze();
                 curr_guard = self.guard.load(Ordering::Acquire);
             }
-            match self.guard.compare_exchange(curr_guard, (curr_guard & !POP_FLAG) | PUSH_OR_ITER_FLAG, Ordering::AcqRel, Ordering::Acquire) {
+            match self.guard.compare_exchange(curr_guard, (curr_guard & !(POP_FLAG | REM_FLAG)) | PUSH_OR_ITER_FLAG, Ordering::AcqRel, Ordering::Acquire) {
                 Ok(_) => break,
                 Err(val) => {
                     curr_guard = val;
@@ -152,7 +152,26 @@ impl<T> ConcurrentVec<T> {
     }
 
     pub fn iter(&self) -> Iter<'_, T> {
-
+        // inc push_or_iter counter
+        let mut curr_guard = self.guard.fetch_add(PUSH_OR_ITER_INC, Ordering::Acquire);
+        while curr_guard & PUSH_OR_ITER_FLAG == 0 {
+            let mut backoff = Backoff::new();
+            // wait until the POP_FLAG and REM_FLAG are unset
+            while curr_guard & (POP_FLAG | REM_FLAG) != 0 {
+                backoff.snooze();
+                curr_guard = self.guard.load(Ordering::Acquire);
+            }
+            match self.guard.compare_exchange(curr_guard, (curr_guard & !(POP_FLAG | REM_FLAG)) | PUSH_OR_ITER_FLAG, Ordering::AcqRel, Ordering::Acquire) {
+                Ok(_) => break,
+                Err(val) => {
+                    curr_guard = val;
+                }
+            }
+        }
+        Iter {
+            parent: self,
+            idx: 0,
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -167,7 +186,7 @@ impl<T> ConcurrentVec<T> {
 
 impl<T> Drop for ConcurrentVec<T> {
     fn drop(&mut self) {
-        if let Some(alloc) = self.alloc.get_mut() {
+        if let Some(alloc) = self.alloc.load().as_ref() {
             alloc.set_partially_init(*self.len.get_mut());
         }
     }
@@ -218,6 +237,22 @@ impl<'a, T> Iterator for Iter<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        todo!()
+        let len = self.parent.len.load(Ordering::Acquire);
+        if len <= self.idx {
+            return None;
+        }
+
+        let ret = unsafe { self.parent.alloc.load().as_ref().unwrap().deref().ptr.add(self.idx) };
+
+        self.idx += 1;
+
+        Some(unsafe { ret.as_ref().unwrap() })
+    }
+}
+
+impl<'a, T> Drop for Iter<'a, T> {
+    fn drop(&mut self) {
+        // decrement the `push_or_iter` counter
+        self.parent.guard.fetch_sub(PUSH_OR_ITER_INC, Ordering::Release);
     }
 }
