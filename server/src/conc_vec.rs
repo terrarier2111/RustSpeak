@@ -22,7 +22,7 @@ const LOCK_FLAG: usize = 1 << (usize::BITS as usize - 3);
 const PUSH_OR_ITER_INC: usize = 1 << 0;
 const POP_INC: usize = 1 << ((usize::BITS as usize - 3) / 2);
 const PUSH_OR_ITER_INC_BITS: usize = (POP_INC - PUSH_OR_ITER_INC) >> 2; // leave the two msb free (always 0), so we have a buffer
-const POP_INC_BITS: usize = ((usize::BITS as usize - 3) - POP_INC) >> 2; // leave the two msb free (always 0), so we have a buffer
+const POP_INC_BITS: usize = ((1 << (usize::BITS as usize - 3)) - POP_INC) >> 2; // leave the two msb free (always 0), so we have a buffer
 
 const SCALE_FACTOR: usize = 2;
 const INITIAL_CAP: usize = 8;
@@ -83,24 +83,27 @@ impl<T> ConcurrentVec<T> {
                 unsafe fn resize<T>(slf: &ConcurrentVec<T>, size: usize, old_alloc: *mut T, slot: usize) {
                     // wait until all previous writes finished
                     let mut backoff = Backoff::new();
-                    while slf.len.load(Ordering::Acquire) != slot - 1 {
+                    while slf.len.load(Ordering::Acquire) != slot {
                         backoff.snooze();
                     }
                     let alloc = unsafe { alloc(Layout::array::<T>(size * SCALE_FACTOR).unwrap()) }.cast();
                     unsafe { ptr::copy_nonoverlapping(old_alloc, alloc, size); }
                     slf.alloc.store(Some(Arc::new(SizedAlloc::new(alloc.cast(), size * SCALE_FACTOR))));
+
+                    let mut backoff = Backoff::new();
+                    // wait for the resize to be performed
+                    while slf.alloc.load().as_ref().as_ref().unwrap().size <= slot {
+                        backoff.snooze();
+                    }
                 }
             } else if cap.size < slot {
                 drop(cap);
                 let mut backoff = Backoff::new();
                 // wait for the resize to be performed
-                while self.alloc.load().as_ref().as_ref().unwrap().size < slot {
+                while self.alloc.load().as_ref().as_ref().unwrap().size <= slot {
                     backoff.snooze();
                 }
             }
-            let cap = self.alloc.load();
-            let cap = cap.as_ref().clone().unwrap();
-            unsafe { cap.deref().ptr.add(slot).write(val); }
         } else {
             if slot == 0 {
                 let alloc = unsafe { alloc(Layout::array::<T>(INITIAL_CAP).unwrap()) };
@@ -112,7 +115,18 @@ impl<T> ConcurrentVec<T> {
                 backoff.snooze();
             }
         }
-        let mut guard_end = self.guard.fetch_sub(PUSH_OR_ITER_INC, Ordering::Release);
+        loop {
+            let cap = self.alloc.load();
+            let cap = cap.as_ref().as_ref().unwrap();
+            if cap.size <= slot {
+                continue;
+            }
+            unsafe { cap.deref().ptr.add(slot).write(val); }
+            self.len.fetch_add(1, Ordering::Release);
+            break;
+        }
+
+        let mut guard_end = self.guard.fetch_sub(PUSH_OR_ITER_INC, Ordering::Release) - PUSH_OR_ITER_INC;
         // check if somebody else will unset the flag
         while guard_end & PUSH_OR_ITER_INC_BITS == 0 && guard_end & PUSH_OR_ITER_FLAG != 0 {
             // get rid of the flag if there are no more on-going pushes or iterations
@@ -144,7 +158,9 @@ impl<T> ConcurrentVec<T> {
         }
         let push_far = self.push_far.load(Ordering::Acquire);
         let pop_far = self.pop_far.fetch_add(1, Ordering::AcqRel);
-        let slot = push_far - pop_far;
+        // the idx of the last inhabited element (take the pushed counter and subtract the popped counter from it,
+        // and subtract 1 from it in order to adjust for converting from count to index)
+        let slot = push_far - pop_far - 1;
 
         // check if we have hit the hard guard bit, if so, abort.
         if push_far >= (1 << (usize::BITS - 1)) {
@@ -159,7 +175,7 @@ impl<T> ConcurrentVec<T> {
         } else {
             None
         };
-        let mut guard_end = self.guard.fetch_sub(POP_INC, Ordering::Release);
+        let mut guard_end = self.guard.fetch_sub(POP_INC, Ordering::Release) - POP_INC;
         // check if somebody else will unset the flag
         while guard_end & POP_INC_BITS == 0 && guard_end & POP_FLAG != 0 {
             // get rid of the flag if there are no more on-going pushes or iterations
