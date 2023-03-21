@@ -17,7 +17,7 @@ pub struct ConcurrentVec<T> {
 
 const PUSH_OR_ITER_FLAG: usize = 1 << (usize::BITS as usize - 1);
 const POP_FLAG: usize = 1 << (usize::BITS as usize - 2);
-const REM_FLAG: usize = 1 << (usize::BITS as usize - 3);
+const LOCK_FLAG: usize = 1 << (usize::BITS as usize - 3);
 
 const PUSH_OR_ITER_INC: usize = 1 << 0;
 const POP_INC: usize = 1 << ((usize::BITS as usize - 3) / 2);
@@ -43,12 +43,12 @@ impl<T> ConcurrentVec<T> {
         let mut curr_guard = self.guard.fetch_add(PUSH_OR_ITER_INC, Ordering::Acquire);
         while curr_guard & PUSH_OR_ITER_FLAG == 0 {
             let mut backoff = Backoff::new();
-            // wait until the POP_FLAG and REM_FLAG are unset
-            while curr_guard & (POP_FLAG | REM_FLAG) != 0 {
+            // wait until the POP_FLAG and LOCK_FLAG are unset
+            while curr_guard & (POP_FLAG | LOCK_FLAG) != 0 {
                 backoff.snooze();
                 curr_guard = self.guard.load(Ordering::Acquire);
             }
-            match self.guard.compare_exchange(curr_guard, (curr_guard & !(POP_FLAG | REM_FLAG)) | PUSH_OR_ITER_FLAG, Ordering::AcqRel, Ordering::Acquire) {
+            match self.guard.compare_exchange(curr_guard, (curr_guard & !(POP_FLAG | LOCK_FLAG)) | PUSH_OR_ITER_FLAG, Ordering::AcqRel, Ordering::Acquire) {
                 Ok(_) => break,
                 Err(val) => {
                     curr_guard = val;
@@ -56,7 +56,7 @@ impl<T> ConcurrentVec<T> {
             }
         }
         let pop_far = self.pop_far.load(Ordering::Acquire);
-        let push_far = self.push_far.fetch_add(1, Ordering::AcqRel);
+        let push_far = self.push_far.fetch_add(1, Ordering::Acquire);
         let slot = push_far - pop_far;
 
         // check if we have hit the soft guard bit, if so, recover
@@ -113,9 +113,9 @@ impl<T> ConcurrentVec<T> {
         }
         let mut guard_end = self.guard.fetch_sub(PUSH_OR_ITER_INC, Ordering::Release);
         // check if somebody else will unset the flag
-        while (guard_end & (PUSH_OR_ITER_INC_BITS)) == 0 {
+        while guard_end & PUSH_OR_ITER_INC_BITS == 0 && guard_end & PUSH_OR_ITER_FLAG != 0 {
             // get rid of the flag if there are no more on-going pushes or iterations
-            match self.guard.compare_exchange(PUSH_OR_ITER_FLAG, guard_end, Ordering::Release, Ordering::Relaxed) {
+            match self.guard.compare_exchange(guard_end, guard_end & !PUSH_OR_ITER_FLAG, Ordering::Release, Ordering::Relaxed) {
                 Ok(_) => break,
                 Err(err) => {
                     guard_end = err;
@@ -125,12 +125,57 @@ impl<T> ConcurrentVec<T> {
     }
 
     pub fn pop(&self) -> Option<T> {
+        // dec pop counter
+        let mut curr_guard = self.guard.fetch_add(POP_INC, Ordering::Acquire);
+        while curr_guard & POP_FLAG == 0 {
+            let mut backoff = Backoff::new();
+            // wait until the PUSH_OR_ITER_FLAG and LOCK_FLAG are unset
+            while curr_guard & (PUSH_OR_ITER_FLAG | LOCK_FLAG) != 0 {
+                backoff.snooze();
+                curr_guard = self.guard.load(Ordering::Acquire);
+            }
+            match self.guard.compare_exchange(curr_guard, curr_guard | POP_FLAG, Ordering::Acquire, Ordering::Acquire) {
+                Ok(_) => break,
+                Err(val) => {
+                    curr_guard = val;
+                }
+            }
+        }
+        let push_far = self.push_far.load(Ordering::Acquire);
+        let pop_far = self.pop_far.fetch_add(1, Ordering::AcqRel);
+        let slot = push_far - pop_far;
 
+        // check if we have hit the hard guard bit, if so, abort.
+        if push_far >= (1 << (usize::BITS - 1)) {
+            // we can't recover safely anymore because the vec grew too quickly.
+            abort();
+        }
+
+        let ret = if let Some(cap) = self.alloc.load().as_ref() {
+            let val = unsafe { cap.deref().ptr.add(slot).read() };
+            self.len.fetch_sub(1, Ordering::Release);
+            Some(val)
+        } else {
+            None
+        };
+        let mut guard_end = self.guard.fetch_sub(POP_INC, Ordering::Release);
+        // check if somebody else will unset the flag
+        while guard_end & POP_INC_BITS == 0 && guard_end & POP_FLAG != 0 {
+            // get rid of the flag if there are no more on-going pushes or iterations
+            match self.guard.compare_exchange(guard_end, guard_end & !POP_FLAG, Ordering::Release, Ordering::Relaxed) {
+                Ok(_) => break,
+                Err(err) => {
+                    guard_end = err;
+                }
+            }
+        }
+
+        ret
     }
 
     pub fn remove(&self, idx: usize) -> Option<T> {
         let mut backoff = Backoff::new();
-        while self.guard.compare_exchange_weak(0, REM_FLAG, Ordering::Acquire, Ordering::Relaxed).is_err() {
+        while self.guard.compare_exchange_weak(0, LOCK_FLAG, Ordering::Acquire, Ordering::Relaxed).is_err() {
             backoff.snooze();
         }
 
@@ -146,9 +191,64 @@ impl<T> ConcurrentVec<T> {
             None
         };
 
-        self.guard.fetch_and(!REM_FLAG, Ordering::Release);
+        self.guard.fetch_and(!LOCK_FLAG, Ordering::Release);
 
         ret
+    }
+
+    pub fn insert(&self, idx: usize, val: T) {
+        let mut backoff = Backoff::new();
+        while self.guard.compare_exchange_weak(0, LOCK_FLAG, Ordering::Acquire, Ordering::Relaxed).is_err() {
+            backoff.snooze();
+        }
+
+        if let Some(cap) = self.alloc.load().as_ref() {
+            let size = cap.size;
+            if size == slot {
+                let old_alloc = cap.deref().ptr;
+                drop(cap);
+                unsafe { resize(self, size, old_alloc, slot); }
+
+                #[cold]
+                unsafe fn resize<T>(slf: &ConcurrentVec<T>, size: usize, old_alloc: *mut T, slot: usize) {
+                    // wait until all previous writes finished
+                    let mut backoff = Backoff::new();
+                    while slf.len.load(Ordering::Acquire) != slot - 1 {
+                        backoff.snooze();
+                    }
+                    let alloc = unsafe { alloc(Layout::array::<T>(size * SCALE_FACTOR).unwrap()) };
+                    unsafe { ptr::copy_nonoverlapping(old_alloc, alloc, size); }
+                    slf.alloc.store(Some(Arc::new(SizedAlloc::new(alloc.cast(), size * SCALE_FACTOR))));
+                }
+            } else if cap.size < slot {
+                drop(cap);
+                let mut backoff = Backoff::new();
+                // wait for the resize to be performed
+                while self.alloc.load().as_ref().unwrap().size < slot {
+                    backoff.snooze();
+                }
+            }
+            let cap = self.alloc.load().as_ref().unwrap();
+            unsafe { cap.deref().ptr.add(slot).write(val); }
+        } else {
+            if slot == 0 {
+                let alloc = unsafe { alloc(Layout::array::<T>(INITIAL_CAP).unwrap()) };
+                self.alloc.store(Some(Arc::new(SizedAlloc::new(alloc.cast(), INITIAL_CAP))));
+            }
+            let mut backoff = Backoff::new();
+            // wait for the resize to be performed
+            while self.alloc.load().as_ref().is_none() {
+                backoff.snooze();
+            }
+        }
+
+        let alloc = self.alloc.load().unwrap().deref();
+        let ptr = alloc.ptr;
+        let len = self.len();
+        unsafe { ptr::copy(ptr.add(idx), ptr.add(idx).add(1), len - idx); }
+        self.len.store(len + 1, Ordering::Release);
+
+        self.guard.fetch_and(!LOCK_FLAG, Ordering::Release);
     }
 
     pub fn iter(&self) -> Iter<'_, T> {
@@ -157,11 +257,11 @@ impl<T> ConcurrentVec<T> {
         while curr_guard & PUSH_OR_ITER_FLAG == 0 {
             let mut backoff = Backoff::new();
             // wait until the POP_FLAG and REM_FLAG are unset
-            while curr_guard & (POP_FLAG | REM_FLAG) != 0 {
+            while curr_guard & (POP_FLAG | LOCK_FLAG) != 0 {
                 backoff.snooze();
                 curr_guard = self.guard.load(Ordering::Acquire);
             }
-            match self.guard.compare_exchange(curr_guard, (curr_guard & !(POP_FLAG | REM_FLAG)) | PUSH_OR_ITER_FLAG, Ordering::AcqRel, Ordering::Acquire) {
+            match self.guard.compare_exchange(curr_guard, (curr_guard & !(POP_FLAG | LOCK_FLAG)) | PUSH_OR_ITER_FLAG, Ordering::AcqRel, Ordering::Acquire) {
                 Ok(_) => break,
                 Err(val) => {
                     curr_guard = val;
