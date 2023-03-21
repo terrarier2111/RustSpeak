@@ -117,7 +117,7 @@ impl<T> ConcurrentVec<T> {
         }
         loop {
             let cap = self.alloc.load();
-            let cap = cap.as_ref().as_ref().unwrap();
+            let cap = cap.as_ref().unwrap();
             if cap.size <= slot {
                 continue;
             }
@@ -158,6 +158,12 @@ impl<T> ConcurrentVec<T> {
         }
         let push_far = self.push_far.load(Ordering::Acquire);
         let pop_far = self.pop_far.fetch_add(1, Ordering::AcqRel);
+
+        if pop_far >= push_far {
+            self.pop_far.fetch_sub(1, Ordering::Release);
+            return None;
+        }
+
         // the idx of the last inhabited element (take the pushed counter and subtract the popped counter from it,
         // and subtract 1 from it in order to adjust for converting from count to index)
         let slot = push_far - pop_far - 1;
@@ -251,7 +257,7 @@ impl<T> ConcurrentVec<T> {
         }
 
         let alloc = self.alloc.load();
-        let alloc = alloc.as_ref().as_ref().unwrap();
+        let alloc = alloc.as_ref().unwrap();
         let alloc = alloc.deref();
         let ptr = alloc.ptr;
         let len = self.len();

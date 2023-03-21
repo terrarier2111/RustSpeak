@@ -532,6 +532,18 @@ impl Clone for Channel {
     }
 }
 
+impl<T: RWBytes<Ty = T> + Send + Sync> RWBytes for SwapArc<T> {
+    type Ty = Self;
+
+    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+        Ok(SwapArc::new(Arc::new(T::read(src, client_key)?)))
+    }
+
+    fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
+        self.load().write(dst)
+    }
+}
+
 impl RWBytes for Channel {
     type Ty = Self;
 
