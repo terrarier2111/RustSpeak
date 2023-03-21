@@ -41,7 +41,7 @@ impl<T> ConcurrentVec<T> {
     pub fn push(&self, val: T) {
         // inc push_or_iter counter
         let mut curr_guard = self.guard.fetch_add(PUSH_OR_ITER_INC, Ordering::Acquire);
-        while curr_guard & PUSH_OR_ITER_FLAG == 0 {
+        while curr_guard & PUSH_OR_ITER_FLAG == 0 || curr_guard & LOCK_FLAG != 0 { // FIXME: remove the lock flag condition as soon as PUSH and ITER have separate flags.
             let mut backoff = Backoff::new();
             // wait until the POP_FLAG and LOCK_FLAG are unset
             while curr_guard & (POP_FLAG | LOCK_FLAG) != 0 {
@@ -273,12 +273,12 @@ impl<T> ConcurrentVec<T> {
         let mut curr_guard = self.guard.fetch_add(PUSH_OR_ITER_INC, Ordering::Acquire);
         while curr_guard & PUSH_OR_ITER_FLAG == 0 {
             let mut backoff = Backoff::new();
-            // wait until the POP_FLAG and REM_FLAG are unset
-            while curr_guard & (POP_FLAG | LOCK_FLAG) != 0 {
+            // wait until the POP_FLAG is unset
+            while curr_guard & POP_FLAG != 0 { // FIXME: wait for other locking reasons (which aren't resizing) as well
                 backoff.snooze();
                 curr_guard = self.guard.load(Ordering::Acquire);
             }
-            match self.guard.compare_exchange(curr_guard, (curr_guard & !(POP_FLAG | LOCK_FLAG)) | PUSH_OR_ITER_FLAG, Ordering::AcqRel, Ordering::Acquire) {
+            match self.guard.compare_exchange(curr_guard, (curr_guard & !POP_FLAG) | PUSH_OR_ITER_FLAG, Ordering::AcqRel, Ordering::Acquire) {
                 Ok(_) => break,
                 Err(val) => {
                     curr_guard = val;
