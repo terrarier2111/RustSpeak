@@ -5,7 +5,7 @@ use std::ptr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use crossbeam_utils::Backoff;
-use swap_arc::{SwapArc, SwapArcOption};
+use swap_arc::{SwapArc, SwapArcAnyMeta, SwapArcOption};
 
 pub struct ConcurrentVec<T> {
     alloc: SwapArcOption<SizedAlloc<T>>,
@@ -30,7 +30,7 @@ const INITIAL_CAP: usize = 8;
 impl<T> ConcurrentVec<T> {
     pub fn new() -> Self {
         Self {
-            alloc: SwapArcOption::empty(),
+            alloc: SwapArcAnyMeta::new(None),
             len: Default::default(),
             push_far: Default::default(),
             pop_far: Default::default(),
@@ -86,7 +86,7 @@ impl<T> ConcurrentVec<T> {
                     while slf.len.load(Ordering::Acquire) != slot - 1 {
                         backoff.snooze();
                     }
-                    let alloc = unsafe { alloc(Layout::array::<T>(size * SCALE_FACTOR).unwrap()) };
+                    let alloc = unsafe { alloc(Layout::array::<T>(size * SCALE_FACTOR).unwrap()) }.cast();
                     unsafe { ptr::copy_nonoverlapping(old_alloc, alloc, size); }
                     slf.alloc.store(Some(Arc::new(SizedAlloc::new(alloc.cast(), size * SCALE_FACTOR))));
                 }
@@ -94,11 +94,12 @@ impl<T> ConcurrentVec<T> {
                 drop(cap);
                 let mut backoff = Backoff::new();
                 // wait for the resize to be performed
-                while self.alloc.load().as_ref().unwrap().size < slot {
+                while self.alloc.load().as_ref().as_ref().unwrap().size < slot {
                     backoff.snooze();
                 }
             }
-            let cap = self.alloc.load().as_ref().unwrap();
+            let cap = self.alloc.load();
+            let cap = cap.as_ref().clone().unwrap();
             unsafe { cap.deref().ptr.add(slot).write(val); }
         } else {
             if slot == 0 {
@@ -202,39 +203,30 @@ impl<T> ConcurrentVec<T> {
             backoff.snooze();
         }
 
+        let len = self.len.load(Ordering::Acquire);
+        if len < idx {
+            panic!("Index out of bounds ({}) while len is {}.", idx, len);
+        }
+
+        let req = len + 1;
         if let Some(cap) = self.alloc.load().as_ref() {
             let size = cap.size;
-            if size == slot {
+            if size < req {
                 let old_alloc = cap.deref().ptr;
                 drop(cap);
-                unsafe { resize(self, size, old_alloc, slot); }
+                unsafe { resize(self, size, old_alloc); }
 
                 #[cold]
-                unsafe fn resize<T>(slf: &ConcurrentVec<T>, size: usize, old_alloc: *mut T, slot: usize) {
-                    // wait until all previous writes finished
-                    let mut backoff = Backoff::new();
-                    while slf.len.load(Ordering::Acquire) != slot - 1 {
-                        backoff.snooze();
-                    }
-                    let alloc = unsafe { alloc(Layout::array::<T>(size * SCALE_FACTOR).unwrap()) };
+                unsafe fn resize<T>(slf: &ConcurrentVec<T>, size: usize, old_alloc: *mut T) {
+                    let alloc = unsafe { alloc(Layout::array::<T>(size * SCALE_FACTOR).unwrap()) }.cast();
                     unsafe { ptr::copy_nonoverlapping(old_alloc, alloc, size); }
                     slf.alloc.store(Some(Arc::new(SizedAlloc::new(alloc.cast(), size * SCALE_FACTOR))));
                 }
-            } else if cap.size < slot {
-                drop(cap);
-                let mut backoff = Backoff::new();
-                // wait for the resize to be performed
-                while self.alloc.load().as_ref().unwrap().size < slot {
-                    backoff.snooze();
-                }
             }
-            let cap = self.alloc.load().as_ref().unwrap();
-            unsafe { cap.deref().ptr.add(slot).write(val); }
         } else {
-            if slot == 0 {
-                let alloc = unsafe { alloc(Layout::array::<T>(INITIAL_CAP).unwrap()) };
-                self.alloc.store(Some(Arc::new(SizedAlloc::new(alloc.cast(), INITIAL_CAP))));
-            }
+            let alloc = unsafe { alloc(Layout::array::<T>(INITIAL_CAP).unwrap()) };
+            self.alloc.store(Some(Arc::new(SizedAlloc::new(alloc.cast(), INITIAL_CAP))));
+
             let mut backoff = Backoff::new();
             // wait for the resize to be performed
             while self.alloc.load().as_ref().is_none() {
@@ -242,10 +234,13 @@ impl<T> ConcurrentVec<T> {
             }
         }
 
-        let alloc = self.alloc.load().unwrap().deref();
+        let alloc = self.alloc.load();
+        let alloc = alloc.as_ref().as_ref().unwrap();
+        let alloc = alloc.deref();
         let ptr = alloc.ptr;
         let len = self.len();
         unsafe { ptr::copy(ptr.add(idx), ptr.add(idx).add(1), len - idx); }
+        unsafe { ptr.add(idx).write(val); }
         self.len.store(len + 1, Ordering::Release);
 
         self.guard.fetch_and(!LOCK_FLAG, Ordering::Release);
@@ -310,7 +305,7 @@ impl<T> SizedAlloc<T> {
     }
 
     fn set_partially_init(&self, len: usize) {
-        if len > size {
+        if len > self.size {
             // this is not allowed
             abort();
         }
@@ -324,9 +319,12 @@ impl<T> Drop for SizedAlloc<T> {
         for x in 0..*self.len.get_mut() {
             unsafe { self.ptr.offset(x as isize).drop_in_place(); }
         }
-        unsafe { dealloc(self.ptr, Layout::array::<T>(self.size).unwrap()) };
+        unsafe { dealloc(self.ptr.cast(), Layout::array::<T>(self.size).unwrap()) };
     }
 }
+
+unsafe impl<T> Send for SizedAlloc<T> {}
+unsafe impl<T> Sync for SizedAlloc<T> {}
 
 pub struct Iter<'a, T> {
     parent: &'a ConcurrentVec<T>,
@@ -342,7 +340,7 @@ impl<'a, T> Iterator for Iter<'a, T> {
             return None;
         }
 
-        let ret = unsafe { self.parent.alloc.load().as_ref().unwrap().deref().ptr.add(self.idx) };
+        let ret = unsafe { self.parent.alloc.load().as_ref().as_ref().unwrap().deref().ptr.add(self.idx) };
 
         self.idx += 1;
 
