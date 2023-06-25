@@ -9,9 +9,7 @@ pub struct SizedBox<T> {
 }
 
 impl<T> SizedBox<T> {
-    const LAYOUT: Layout = Layout::from_size_align(size_of::<T>(), align_of::<T>())
-        .ok()
-        .unwrap(); // FIXME: can we somehow retain the error message?
+    const LAYOUT: Layout = Layout::new::<T>();
 
     pub fn new(val: T) -> Self {
         // SAFETY: The layout we provided was checked at compiletime, so it has to be initialized correctly

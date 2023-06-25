@@ -4,8 +4,8 @@
 #![feature(strict_provenance)]
 #![feature(adt_const_params)]
 #![feature(arbitrary_self_types)]
-#![feature(const_result_drop)]
 #![feature(const_option)]
+#![feature(lazy_cell)]
 
 use crate::channel_db::{ChannelDb, ChannelDbEntry};
 use crate::cli::{
@@ -36,11 +36,13 @@ use std::fmt::{Debug, Display, Formatter, Write};
 use std::fs::File;
 use std::net::IpAddr;
 use std::ops::Deref;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::{fs, thread};
 use std::future::Future;
 use std::task::{Context, Poll};
+use std::time::Duration;
+use crossbeam_utils::Backoff;
 use futures::{FutureExt, StreamExt};
 use futures::task::noop_waker_ref;
 use swap_arc::SwapArc;
@@ -73,8 +75,7 @@ const DEFAULT_CHANNEL_UUID: Uuid = Uuid::from_u128(0x0);
 
 // FIXME: take a look at: https://www.nist.gov/news-events/news/2022/07/nist-announces-first-four-quantum-resistant-cryptographic-algorithms
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
     // FIXME: use logger!
     println!("Starting up server...");
     let data_dir = dirs::config_dir().unwrap().join("RustSpeakServer/");
@@ -221,7 +222,6 @@ async fn main() -> anyhow::Result<()> {
         result
     };
     let config = Config::load_or_create(data_dir.join("config.json"))?;
-    let network_server = setup_network_server(&config)?;
 
     let cli = CLIBuilder::new()
         .prompt(ColoredString::from("RustSpeak").red())
@@ -246,6 +246,9 @@ async fn main() -> anyhow::Result<()> {
                 .params(UsageBuilder::new().required(CommandParam {
                     name: "user".to_string(),
                     ty: CommandParamTy::String(CmdParamStrConstraints::None),
+                }).optional(CommandParam {
+                    name: "action".to_string(),
+                    ty: CommandParamTy::String(CmdParamStrConstraints::Variants(&["delete", "group", "perms"])),
                 }))
                 .cmd_impl(Box::new(CommandUser())),
         )
@@ -255,36 +258,65 @@ async fn main() -> anyhow::Result<()> {
                 .cmd_impl(Box::new(CommandOnlineUsers())),
         );
 
-    let server = Arc::new(Server {
-        server_groups: tokio::sync::RwLock::new(server_groups),
-        channels: tokio::sync::RwLock::new(channels),
-        online_users: Default::default(),
-        network_server,
-        config,
-        user_db,
-        channel_db,
-        server_group_db,
-        cli: cli.build(),
-    });
-    let tmp = server.clone();
+    let main_server = Arc::new(Mutex::new(None));
+
+    let main_server_ref = main_server.clone();
     thread::spawn(move || {
-        let server = tmp.clone();
-        loop {
-            server.cli.await_input(&server).unwrap(); // FIXME: handle errors properly!
-        }
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let network_server = setup_network_server(&config).unwrap(); // FIXME: handle panics by gracefully shutting down using a panic hook!
+                let server = Arc::new(Server {
+                    server_groups: tokio::sync::RwLock::new(server_groups),
+                    channels: tokio::sync::RwLock::new(channels),
+                    online_users: Default::default(),
+                    network_server,
+                    config,
+                    user_db,
+                    channel_db,
+                    server_group_db,
+                    cli: cli.build(),
+                    shutting_down: Default::default(),
+                    shut_down: Default::default(),
+                });
+                *main_server_ref.lock().unwrap() = Some(server.clone());
+                let tmp = server.clone();
+                thread::spawn(move || {
+                    let server = tmp.clone();
+                    loop {
+                        server.cli.await_input(&server).unwrap(); // FIXME: handle errors properly!
+                    }
+                });
+                start_server(server, |err| {
+                    println!(
+                        "An error occurred while establishing a client connection: {}",
+                        err
+                    );
+                });
+            });
     });
+
+    let backoff = Backoff::new();
+    let server = loop {
+        let server = main_server.lock();
+        let server = server.unwrap();
+        if let Some(server) = server.deref() {
+            break server.clone();
+        }
+        backoff.snooze();
+    };
 
     println!(
         "Server started up successfully, waiting for inbound connections on port {}...",
         server.config.port
     );
-    start_server(server, |err| {
-        println!(
-            "An error occurred while establishing a client connection: {}",
-            err
-        );
-    })
-    .await;
+
+    while !server.shut_down.load(Ordering::Acquire) {
+        thread::sleep(Duration::from_millis(250));
+    }
+
     Ok(())
 }
 
@@ -481,6 +513,8 @@ pub struct Server {
     pub channel_db: ChannelDb,
     pub server_group_db: ServerGroupDb,
     pub cli: CommandLineInterface,
+    pub shutting_down: AtomicBool,
+    pub shut_down: AtomicBool,
 }
 
 pub struct User {
@@ -646,8 +680,16 @@ impl CommandImpl for CommandHelp {
 struct CommandShutdown();
 
 impl CommandImpl for CommandShutdown {
-    fn execute(&self, server: &Arc<Server>, input: &[&str]) -> anyhow::Result<()> {
-        todo!()
+    fn execute(&self, server: &Arc<Server>, _input: &[&str]) -> anyhow::Result<()> {
+        println!("Shutting down...");
+        server.shutting_down.store(true, Ordering::Release);
+        for user in server.online_users.iter() {
+            user.value().connection.close();
+        }
+        server.online_users.clear();
+        println!("Shutdown successfully!");
+        server.shut_down.store(true, Ordering::Release);
+        Ok(())
     }
 }
 
@@ -655,6 +697,7 @@ struct CommandUser();
 
 impl CommandImpl for CommandUser {
     fn execute(&self, server: &Arc<Server>, input: &[&str]) -> anyhow::Result<()> {
+
         todo!()
     }
 }

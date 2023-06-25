@@ -12,6 +12,7 @@ use std::mem::MaybeUninit;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
+use std::sync::atomic::AtomicUsize;
 use std::task::{Context, Poll};
 use std::time::Duration;
 use swap_arc::SwapArcOption;
@@ -99,6 +100,7 @@ pub struct ClientConnection {
     pub channel: Uuid,
     server: Arc<Server>,
     stable_id: usize,
+    last_keep_alive: AtomicUsize,
     // FIXME: cache buffers in order to avoid performance penalty for allocating new ones
 }
 
@@ -114,6 +116,7 @@ impl ClientConnection {
             channel: DEFAULT_CHANNEL_UUID, // FIXME: add possibility to allow privileged users to login into other channels than the default channel!
             server,
             stable_id,
+            last_keep_alive: Default::default(),
         })
     }
 
@@ -294,7 +297,7 @@ pub fn handle_packet(packet: ClientPacket, server: &Arc<Server>, client: &Arc<Cl
             server.online_users.remove(client.uuid.load().as_ref().unwrap()); // FIXME: verify that this can't be received before AuthRequest is handled!
         }
         ClientPacket::KeepAlive { .. } => {
-
+            // FIXME: store the keep alive value somewhere in the client
         }
         ClientPacket::UpdateClientServerGroups { .. } => {}
     }

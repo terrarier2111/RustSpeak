@@ -239,7 +239,7 @@ pub enum CmdParamNumConstraints<T> {
 }
 
 pub enum CmdParamStrConstraints {
-    Variants(Box<[String]>),
+    Variants(&'static [&'static str]),
     None,
 }
 

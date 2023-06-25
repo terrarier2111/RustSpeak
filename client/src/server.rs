@@ -108,7 +108,7 @@ impl Server {
                     data_vec.as_mut_ptr()
                 } else {
                     // realloc to make the allocation aligned to 2 bytes
-                    let mut new_alloc = unsafe { alloc(Layout::from_size_align(len, 2).unwrap()) };
+                    let mut new_alloc = unsafe { alloc(Layout::array::<u16>(len).unwrap()) };
                     if !new_alloc.is_null() {
                         unsafe {
                             ptr::copy_nonoverlapping(data_vec.as_ptr(), new_alloc, len);
@@ -118,7 +118,7 @@ impl Server {
                         unreachable!()
                     }
                 };
-                let mut data = unsafe { slice_from_raw_parts_mut::<i16>(data.cast::<i16>(), len / 2).as_mut().unwrap() };
+                let data = unsafe { slice_from_raw_parts_mut::<i16>(data.cast::<i16>(), len / 2).as_mut().unwrap() };
                 // let mut data = bytemuck::cast_slice_mut::<u8, i16>(data);
                 client.audio.load().as_ref().play_back(data).unwrap();
             }
