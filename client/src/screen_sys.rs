@@ -32,7 +32,7 @@ pub trait Screen: Send + Sync {
     fn on_deactive(&mut self, _client: &Arc<Client>);
 
     // Called every frame the screen is active
-    fn tick(&mut self, _client: &Arc<Client>, delta: f64);
+    fn tick(&mut self, _client: &Arc<Client>, _delta: f64);
 
     // Events
     fn on_scroll(&mut self, _x: f64, _y: f64) {}
