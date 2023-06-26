@@ -1,6 +1,6 @@
 use crate::packet::ClientPacket;
 use bytes::{Bytes, BytesMut};
-use quinn::{ClientConfig, Connection, ConnectionError, Datagrams, Endpoint, IncomingBiStreams, IncomingUniStreams, NewConnection, RecvStream, SendStream, VarInt};
+use quinn::{ClientConfig, Connection, ConnectionError, Endpoint, RecvStream, SendStream, VarInt};
 use std::error::Error;
 use std::fs::File;
 use std::io::BufReader;
@@ -18,9 +18,6 @@ pub struct NetworkClient {
     // FIXME: Add keep alive stream
     endpoint: Endpoint,
     connection: tokio::sync::RwLock<Connection>,
-    uni_streams: tokio::sync::RwLock<IncomingUniStreams>,
-    bi_streams: tokio::sync::RwLock<IncomingBiStreams>,
-    datagrams: tokio::sync::RwLock<Datagrams>,
     bi_conn: (Mutex<SendStream>, Mutex<RecvStream>),
     keep_alive_handler: ArcSwapOption<KeepAliveHandler>,
 }
@@ -34,16 +31,13 @@ impl NetworkClient {
     ) -> anyhow::Result<Self> {
         let endpoint = Endpoint::client(address_mode.local())?;
         let conn = endpoint.connect_with(config, server, server_name)?.await?;
-        let (send, recv) = conn.connection.open_bi().await?;
+        let (send, recv) = conn.open_bi().await?;
 
         // panic!("we got pretty far!")
 
         Ok(Self {
             endpoint,
-            connection: tokio::sync::RwLock::new(conn.connection),
-            uni_streams: tokio::sync::RwLock::new(conn.uni_streams),
-            bi_streams: tokio::sync::RwLock::new(conn.bi_streams),
-            datagrams: tokio::sync::RwLock::new(conn.datagrams),
+            connection: tokio::sync::RwLock::new(conn),
             bi_conn: (Mutex::new(send), Mutex::new(recv)),
             keep_alive_handler: ArcSwapOption::empty(),
         })
@@ -84,7 +78,7 @@ impl NetworkClient {
     }
 
     pub async fn read_unreliable(&self) -> Option<Result<Bytes, ConnectionError>> {
-        self.datagrams.write().await.next().await
+        self.connection.write()..await.next().await // FIXME: fix this!
     }
 
     pub async fn close(&self) -> anyhow::Result<()> {

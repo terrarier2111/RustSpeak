@@ -12,8 +12,8 @@ serde_derive = "1.0.144"
 serde_json = "1.0.85"
 # networking
 tokio = { version = "1.20.1", features = [ "full" ] }
-quinn = "0.8.5"
-rustls = { version = "0.20.6", features = [ "dangerous_configuration", "quic" ] }
+quinn = "0.10.1"
+rustls = { version = "0.21.1", features = [ "dangerous_configuration", "quic" ] }
 
 # rendering/graphics
 wgpu = "0.14"
@@ -33,8 +33,8 @@ bytemuck = "1.12.1"
 bytemuck_derive = "1.2.1"
 bytes = "1.2.1"
 anyhow = "1.0.62"
-pollster = "0.2.5"
-dirs = "4.0.0"
+pollster = "0.3.0"
+dirs = "5.0.1"
 openssl = { version = "0.10.41", features = ["vendored"] }
 # druid = "0.7.0" # we can't use druid as it's not ready for any real ui work
 ordinalizer = { git = "https://github.com/terrarier2111/ordinalize" }
@@ -48,5 +48,5 @@ colored = "2.0.0"
 dashmap = "5.4.0"
 atomic_float = "0.1.0"
 cpal = { version = "0.14.0", features = ["jack"] }
-sfml = { version = "0.18.1", features = ["audio"] }
+sfml = { version = "0.20.0", features = ["audio"] }
 futures-util = "0.3.24"
