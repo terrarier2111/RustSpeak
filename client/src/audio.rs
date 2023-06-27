@@ -2,7 +2,6 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU16, AtomicU32, AtomicU64, Ordering};
 use std::time::Duration;
-use arc_swap::ArcSwapOption;
 use cpal::{BufferSize, ChannelCount, Device, Host, InputCallbackInfo, OutputCallbackInfo, Sample, SampleRate, Stream, StreamConfig, StreamError};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use serde_derive::Deserialize;

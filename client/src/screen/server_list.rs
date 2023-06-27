@@ -71,7 +71,7 @@ impl Screen for ServerList {
                     if let Ok(server) = pollster::block_on(Server::new(client.clone(), profile, AddressMode::V4,
                                                                          certificate::insecure_local::config(),
                                                                          SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 20354)),
-                                                                         server_name)) {
+                                                                         server_name.to_string())) {
                         client.server.store(Some(server));
                     } else {
                         client.screen_sys.push_screen(Box::new(ConnectionFailureScreen::new(server_name.to_string())))

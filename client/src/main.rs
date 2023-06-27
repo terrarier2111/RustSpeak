@@ -15,7 +15,6 @@ use crate::screen::server_list::ServerList;
 use crate::screen_sys::ScreenSystem;
 use crate::profile_db::{DbProfile, ProfileDb, uuid_from_pub_key};
 use crate::utils::current_time_millis;
-use arc_swap::{ArcSwap, ArcSwapOption};
 use bytes::{Bytes, BytesMut};
 use quinn::ClientConfig;
 use ruint::aliases::U256;
@@ -28,6 +27,7 @@ use std::{fs, io, thread};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
+use std::ops::Deref;
 use std::thread::sleep;
 use colored::{ColoredString, Colorize};
 use cpal::traits::{DeviceTrait, HostTrait};
@@ -42,10 +42,12 @@ use crate::audio::{Audio, AudioConfig, Recorder};
 use crate::command::cli::{CLIBuilder, CmdParamStrConstraints, CommandBuilder, CommandImpl, CommandLineInterface, CommandParam, CommandParamTy, UsageBuilder};
 use crate::command::r#impl::CommandProfiles;
 use crate::security_level::generate_token_num;
-use crate::server::Server;
+use crate::server::{Server, ServerState};
 use bytemuck_derive::Zeroable;
 use bytemuck_derive::Pod;
+use pollster::FutureExt;
 use sfml::audio::SoundRecorderDriver;
+use swap_arc::{SwapArc, SwapArcOption};
 
 mod atlas;
 mod certificate;
@@ -115,8 +117,8 @@ async fn main() -> anyhow::Result<()> {
         screen_sys: screen_sys.clone(),
         atlas: atlas.clone(),
         cli,
-        server: ArcSwapOption::empty(),
-        audio: ArcSwap::new(Arc::new(Audio::from_cfg(&AudioConfig::new()?.unwrap())?.unwrap())),
+        server: SwapArcOption::empty(),
+        audio: SwapArc::new(Arc::new(Audio::from_cfg(&AudioConfig::new()?.unwrap())?.unwrap())),
     });
 
     let tmp = client.clone();
@@ -130,29 +132,35 @@ async fn main() -> anyhow::Result<()> {
     thread::spawn(move || {
         let client = tmp;
         loop {
-            if client.server.load().as_ref().is_some() { // FIXME: check for channel and make thread sleep if not on server!
-                let client = client.clone();
-                println!("in audio loop!");
-                client.audio.load().record(|data| {
-                    // FIXME: handle endianness of `data`
-                    // println!("sending audio {}", data.len());
-                    let empty = data.iter().all(|x| *x == 0);
-                    if !empty {
-                        let max = data.iter().max().unwrap().abs();
-                        let min = data.iter().min().unwrap().abs();
-                        let max_diff = min.max(max);
-                        if max_diff > VOICE_THRESHOLD {
-                            println!("max diff: {}", max_diff);
-                            let data = Bytes::copy_from_slice(bytemuck::cast_slice(data));
-                            pollster::block_on(client.server.load().as_ref().unwrap().connection.send_unreliable::<2>(data)).unwrap();
+            let server = client.server.load();
+            if let Some(server) = server.as_ref() { // FIXME: check for channel and make thread sleep if not on server!
+                if *server.state.lock().block_on().deref() == ServerState::Connected {
+                    let client = client.clone();
+                    println!("in audio loop!");
+                    client.audio.load().record(|data| {
+                        // FIXME: handle endianness of `data`
+                        // println!("sending audio {}", data.len());
+                        let empty = data.iter().all(|x| *x == 0);
+                        if !empty {
+                            let max = data.iter().max().unwrap().abs();
+                            let min = data.iter().min().unwrap().abs();
+                            let max_diff = min.max(max);
+                            if max_diff > VOICE_THRESHOLD {
+                                println!("max diff: {}", max_diff);
+                                let data = Bytes::copy_from_slice(bytemuck::cast_slice(data));
+                                let tmp_conn = client.server.load().as_ref().unwrap().connection.load();
+                                pollster::block_on(tmp_conn.as_ref().unwrap().send_unreliable::<2>(data)).unwrap();
+                            }
                         }
-                    }
-                    // println!("send audio!");
-                }, || {
-                    loop {
-                        sleep(Duration::from_millis(1));
-                    }
-                }).unwrap();
+                        // println!("send audio!");
+                    }, || {
+                        loop {
+                            sleep(Duration::from_millis(1));
+                        }
+                    }).unwrap();
+                } else {
+                    sleep(Duration::from_millis(1));
+                }
             } else {
                 sleep(Duration::from_millis(1));
             }
@@ -287,8 +295,8 @@ pub struct Client {
     pub screen_sys: Arc<ScreenSystem>,
     pub atlas: Arc<Atlas>,
     pub cli: CommandLineInterface,
-    pub server: ArcSwapOption<Server>, // FIXME: support multiple servers at once!
-    pub audio: ArcSwap<Audio>,
+    pub server: SwapArcOption<Server>, // FIXME: support multiple servers at once!
+    pub audio: SwapArc<Audio>,
 }
 
 impl Client {

@@ -61,6 +61,7 @@ impl NetworkServer {
     ) {
         'server: while let Some(conn) = self.endpoint.accept().await {
             // FIXME: here we are holding on a mutex across await boundaries
+            println!("got conn!");
             let mut connection = match conn.await {
                 Ok(val) => val,
                 Err(err) => {

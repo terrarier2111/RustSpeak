@@ -1,10 +1,10 @@
 use crate::render::TexTriple;
-use arc_swap::ArcSwap;
 use guillotiere::{size2, AllocId, Allocation, AtlasAllocator};
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
+use swap_arc::SwapArc;
 use wgpu::{
     CommandEncoder, Extent3d, FilterMode, ImageCopyTexture, ImageDataLayout, Origin3d, Sampler,
     SamplerDescriptor, Texture, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat,
@@ -42,7 +42,7 @@ static ATLAS_ID: AtomicUsize = AtomicUsize::new(0);
 pub struct Atlas {
     alloc: Mutex<AtlasAllocator>,
     alloc_map: RwLock<HashMap<String, Arc<AtlasAlloc>>>,
-    gpu_buffer: ArcSwap<TexTriple>, // FIXME: add a way to access the gpu_buffer!
+    gpu_buffer: SwapArc<TexTriple>, // FIXME: add a way to access the gpu_buffer!
     buffer_size: Size,
     state: Arc<State>,
     write_queue: Mutex<Vec<QueuedWrite>>,
@@ -60,7 +60,7 @@ impl Atlas {
         Self {
             alloc: Mutex::new(AtlasAllocator::new(size2(size.0 as i32, size.1 as i32))),
             alloc_map: Default::default(),
-            gpu_buffer: ArcSwap::new(Arc::new(tex)),
+            gpu_buffer: SwapArc::new(Arc::new(tex)),
             buffer_size: Size::new(size.0, size.1),
             state,
             write_queue: Mutex::new(vec![]),
