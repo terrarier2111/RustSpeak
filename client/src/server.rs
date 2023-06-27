@@ -13,6 +13,7 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 use crate::{AddressMode, Channel, Client, ClientConfig, ClientPacket, NetworkClient, Profile, PROTOCOL_VERSION, RWBytes};
 use crate::packet::ServerPacket;
+use crate::screen::connection_failure::ConnectionFailureScreen;
 
 pub struct Server {
     pub profile: Profile,
@@ -39,52 +40,62 @@ impl Server {
         let result = server.clone();
         tokio::spawn(async move {
             let mut state = server.state.lock().await;
-            server.connection.store(Some(Arc::new(NetworkClient::new(address_mode, config, server_addr, server_name.as_str()).await.unwrap()))); // FIXME: error handling!
-            *state = ServerState::Auth;
+            match NetworkClient::new(address_mode, config, server_addr, server_name.as_str()).await {
+                Ok(network_client) => {
+                    server.connection.store(Some(Arc::new(network_client)));
 
-            // now we have to handle auth stuff
-            let auth_packet = ClientPacket::AuthRequest {
-                protocol_version: PROTOCOL_VERSION,
-                pub_key,
-                name: profile.name,
-                security_proofs: profile.security_proofs,
-                signed_data: vec![], // FIXME: sign current time!
-            };
-            /*let auth_packet = ClientPacket::AuthRequest {
-                protocol_version: PROTOCOL_VERSION,
-                pub_key: vec![],
-                name: "TESTING".to_string(),
-                security_proofs: vec![],
-                signed_data: vec![], // FIXME: sign current time!
-            };*/
-            let mut buf = auth_packet.encode().unwrap();
-            let tmp_server = server
-                .connection.load();
-            tmp_server.as_ref().unwrap()
-                .send_reliable(&mut buf)
-                .await
-                .unwrap();
-            let tmp_server = server.clone();
-            tokio::spawn(async move {
-                let server = tmp_server;
-                'end: loop {
-                    let tmp_conn = server.connection.load();
-                    match tmp_conn.as_ref().unwrap().read_reliable(8).await {
-                        Ok(mut size) => {
-                            println!("got packet header!");
-                            let size = size.get_u64_le();
-                            let mut payload = match tmp_conn.as_ref().unwrap().read_reliable(size as usize).await {
-                                Ok(payload) => payload,
-                                Err(_err) => {
-                                    // FIXME: somehow give feedback to console and to server
-                                    tmp_conn.as_ref().unwrap().close().await;
-                                    break 'end;
-                                }
-                            };
-                            let packet = ServerPacket::read(&mut payload);
-                            match packet {
-                                Ok(packet) => {
-                                    handle_packet(packet, &client, &server);
+                    *state = ServerState::Auth;
+
+                    // now we have to handle auth stuff
+                    let auth_packet = ClientPacket::AuthRequest {
+                        protocol_version: PROTOCOL_VERSION,
+                        pub_key,
+                        name: profile.name,
+                        security_proofs: profile.security_proofs,
+                        signed_data: vec![], // FIXME: sign current time!
+                    };
+                    /*let auth_packet = ClientPacket::AuthRequest {
+                        protocol_version: PROTOCOL_VERSION,
+                        pub_key: vec![],
+                        name: "TESTING".to_string(),
+                        security_proofs: vec![],
+                        signed_data: vec![], // FIXME: sign current time!
+                    };*/
+                    let mut buf = auth_packet.encode().unwrap();
+                    let tmp_server = server
+                        .connection.load();
+                    tmp_server.as_ref().unwrap()
+                        .send_reliable(&mut buf)
+                        .await
+                        .unwrap();
+                    let tmp_server = server.clone();
+                    tokio::spawn(async move {
+                        let server = tmp_server;
+                        'end: loop {
+                            let tmp_conn = server.connection.load();
+                            match tmp_conn.as_ref().unwrap().read_reliable(8).await {
+                                Ok(mut size) => {
+                                    println!("got packet header!");
+                                    let size = size.get_u64_le();
+                                    let mut payload = match tmp_conn.as_ref().unwrap().read_reliable(size as usize).await {
+                                        Ok(payload) => payload,
+                                        Err(_err) => {
+                                            // FIXME: somehow give feedback to console and to server
+                                            tmp_conn.as_ref().unwrap().close().await;
+                                            break 'end;
+                                        }
+                                    };
+                                    let packet = ServerPacket::read(&mut payload);
+                                    match packet {
+                                        Ok(packet) => {
+                                            handle_packet(packet, &client, &server);
+                                        }
+                                        Err(_err) => {
+                                            // FIXME: somehow give feedback to console and to server
+                                            tmp_conn.as_ref().unwrap().close().await;
+                                            break 'end;
+                                        }
+                                    }
                                 }
                                 Err(_err) => {
                                     // FIXME: somehow give feedback to console and to server
@@ -93,15 +104,12 @@ impl Server {
                                 }
                             }
                         }
-                        Err(_err) => {
-                            // FIXME: somehow give feedback to console and to server
-                            tmp_conn.as_ref().unwrap().close().await;
-                            break 'end;
-                        }
-                    }
+                    });
                 }
-            });
-
+                Err(_) => {
+                    client.screen_sys.push_screen(Box::new(ConnectionFailureScreen::new(server_name.to_string())));
+                }
+            }
 
         });
         Ok(result)

@@ -137,6 +137,10 @@ impl Container {
         });
     }
 
+    pub fn clear(&self) {
+        self.components.write().unwrap().clear();
+    }
+
     pub fn build_models(&self, client: &Arc<Client>) -> Vec<Model> {
         let mut models = vec![];
         for component in self.components.read().unwrap().iter() {

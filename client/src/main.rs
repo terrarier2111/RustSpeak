@@ -133,7 +133,7 @@ async fn main() -> anyhow::Result<()> {
         let client = tmp;
         loop {
             let server = client.server.load();
-            if let Some(server) = server.as_ref() { // FIXME: check for channel and make thread sleep if not on server!
+            if let Some(server) = server.as_ref() { // FIXME: check for channel
                 if *server.state.lock().block_on().deref() == ServerState::Connected {
                     let client = client.clone();
                     println!("in audio loop!");

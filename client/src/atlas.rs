@@ -31,7 +31,7 @@ pub struct AtlasId(usize);
 
 impl AtlasId {
     pub fn generate() -> Self {
-        Self(ATLAS_ID.fetch_add(1, Ordering::SeqCst)) // FIXME: can we use a looser ordering?
+        Self(ATLAS_ID.fetch_add(1, Ordering::Relaxed))
     }
 }
 
