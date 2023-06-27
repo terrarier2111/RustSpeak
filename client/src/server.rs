@@ -100,7 +100,7 @@ impl Server {
             let server = tmp_server;
             let client = tmp_client;
             'end: loop {
-                let mut data = server.connection.read_unreliable().await.unwrap().unwrap(); // FIXME: do error handling!
+                let mut data = server.connection.read_unreliable().await.unwrap(); // FIXME: do error handling!
                 println!("received voice traffic {}", data.len());
                 let mut data_vec = data.to_vec();
                 let len = data_vec.len();

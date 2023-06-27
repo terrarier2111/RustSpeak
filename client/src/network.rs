@@ -77,8 +77,8 @@ impl NetworkClient {
         Ok(())
     }
 
-    pub async fn read_unreliable(&self) -> Option<Result<Bytes, ConnectionError>> {
-        self.connection.write()..await.next().await // FIXME: fix this!
+    pub async fn read_unreliable(&self) -> Result<Bytes, ConnectionError> {
+        self.connection.write().await.read_datagram().await
     }
 
     pub async fn close(&self) -> anyhow::Result<()> {
