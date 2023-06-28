@@ -182,7 +182,7 @@ impl Atlas {
             base_array_layer: 0,
             array_layer_count: None,
         });
-        let sampler = state.device.create_sampler(&SamplerDescriptor {
+        let sampler = state.device().create_sampler(&SamplerDescriptor {
             // FIXME: check values!
             label: None,
             address_mode_u: Default::default(),
@@ -194,14 +194,14 @@ impl Atlas {
             lod_min_clamp: 0.0,
             lod_max_clamp: 0.0,
             compare: None,
-            anisotropy_clamp: None,
+            anisotropy_clamp: 1,
             border_color: None,
         });
         TexTriple { tex, view, sampler }
     }
 
     fn write_tex(&self, tex: &Texture, pos: (u32, u32), size: (u32, u32), content: &[u8]) {
-        self.state.queue.write_texture(
+        self.state.queue().write_texture(
             ImageCopyTexture {
                 texture: tex,
                 mip_level: 0,

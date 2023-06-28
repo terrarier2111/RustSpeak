@@ -221,6 +221,9 @@ async fn main() -> anyhow::Result<()> {
             WindowEvent::ThemeChanged(_) => {}
             WindowEvent::Ime(_) => {}
             WindowEvent::Occluded(_) => {}
+            WindowEvent::TouchpadMagnify { .. } => {}
+            WindowEvent::SmartMagnify { .. } => {}
+            WindowEvent::TouchpadRotate { .. } => {}
         },
         Event::DeviceEvent { .. } => {}
         Event::UserEvent(_) => {}

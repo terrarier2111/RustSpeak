@@ -43,7 +43,7 @@ impl Screen for ConnectionFailureScreen {
             }; 6]),
             text: TextSection {
                 layout: Layout::default_single_line().v_align(VerticalAlign::Bottom/*Bottom*//*VerticalAlign::Center*/).h_align(HorizontalAlign::Left),
-                text: vec![Text::default().with_scale(60.0 * (client.renderer.dimensions.get().0 as f32 / 1920.0))],
+                text: vec![Text::default().with_scale(45.0 * (client.renderer.dimensions.get().0 as f32 / 1920.0))],
                 texts: vec![format!("Failed connecting with \"{}\"", &self.server_name)],
             },
         }))));
