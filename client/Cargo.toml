@@ -51,3 +51,4 @@ atomic_float = "0.1.0"
 cpal = { version = "0.14.0", features = ["jack"] }
 sfml = { version = "0.20.0", features = ["audio"] }
 futures-util = "0.3.24"
+image = "0.24.6"

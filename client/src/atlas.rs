@@ -214,9 +214,9 @@ impl Atlas {
             },
             content,
             ImageDataLayout {
-                offset: 1,
-                bytes_per_row: None, // FIXME: can we pass the actual values, so we get more optimizations?
-                rows_per_image: None, // FIXME: can we pass the actual values, so we get more optimizations?
+                offset: 0/*1*/,
+                bytes_per_row: tex.format().block_size(Some(TextureAspect::All)).map(|row| row * size.0),
+                rows_per_image: None,
             },
             Extent3d {
                 width: size.0,

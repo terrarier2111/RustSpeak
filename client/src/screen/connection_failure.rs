@@ -1,23 +1,35 @@
 use std::any::Any;
 use std::sync::{Arc, RwLock};
+use image::GenericImageView;
+use wgpu::TextureFormat;
 use crate::Client;
 use crate::screen_sys::Screen;
 use crate::ui::{Color, ColorBox, Coloring, Component, Container, Tex, TextBox, TextSection};
 use wgpu_glyph::{HorizontalAlign, Layout, Text, VerticalAlign};
+use crate::atlas::{Atlas, AtlasAlloc};
 use crate::render::TexTy;
 
 #[derive(Clone)]
 pub struct ConnectionFailureScreen {
     container: Arc<Container>,
     server_name: String,
+    alloc: Arc<AtlasAlloc>,
 }
+
+const CLOSE_BOX_PATH: &str = "./resources/cross.jpg";
 
 impl ConnectionFailureScreen {
     
-    pub fn new(server_name: String) -> Self {
+    pub fn new(client: &Arc<Client>, server_name: String) -> Self {
+        let mut buf = image::open(CLOSE_BOX_PATH).unwrap();
+        let buf = buf.into_rgba8();
+        println!("bytes: {} exp: {}", buf.as_ref().len(), buf.dimensions().0 * 4 * buf.dimensions().1);
+        let alloc = client.atlas.alloc(CLOSE_BOX_PATH.to_string(), buf.dimensions(), buf.as_ref());
+
         Self {
             container: Arc::new(Default::default()),
             server_name,
+            alloc,
         }
     }
     
@@ -47,14 +59,14 @@ impl Screen for ConnectionFailureScreen {
                 texts: vec![format!("Failed connecting with \"{}\"", &self.server_name)],
             },
         }))));
-        /*self.container.add(Arc::new(RwLock::new(Box::new(ColorBox {
-            pos: (0.0, 0.0),
-            width: 0.5 - CLOSE_WIDTH,
-            height: 0.5 - CLOSE_HEIGHT,
+        self.container.add(Arc::new(RwLock::new(Box::new(ColorBox {
+            pos: (0.5 - CLOSE_WIDTH, 0.5 - CLOSE_HEIGHT),
+            width: CLOSE_WIDTH,
+            height: CLOSE_HEIGHT,
             coloring: Coloring::Tex(Tex {
-                ty: TexTy::Atlas(),
+                ty: TexTy::Atlas(self.alloc.clone()),
             }),
-        }))));*/
+        }))));
     }
 
     fn on_deactive(&mut self, _client: &Arc<Client>) {}
@@ -78,6 +90,14 @@ impl Screen for ConnectionFailureScreen {
                 text: vec![Text::default().with_scale(45.0 * (client.renderer.dimensions.get().0 as f32 / 1920.0))],
                 texts: vec![format!("Failed connecting with \"{}\"", &self.server_name)],
             },
+        }))));
+        self.container.add(Arc::new(RwLock::new(Box::new(ColorBox {
+            pos: (0.5 - CLOSE_WIDTH, 0.5 - CLOSE_HEIGHT),
+            width: CLOSE_WIDTH,
+            height: CLOSE_HEIGHT,
+            coloring: Coloring::Tex(Tex {
+                ty: TexTy::Atlas(self.alloc.clone()),
+            }),
         }))));
     }
 

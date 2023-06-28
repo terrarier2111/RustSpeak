@@ -74,7 +74,7 @@ impl Screen for ServerList {
                                                                          server_name.to_string())) {
                         client.server.store(Some(server));
                     } else {
-                        client.screen_sys.push_screen(Box::new(ConnectionFailureScreen::new(server_name.to_string())));
+                        client.screen_sys.push_screen(Box::new(ConnectionFailureScreen::new(&client, server_name.to_string())));
                     }
                 }))
             }))));
