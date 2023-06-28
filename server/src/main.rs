@@ -290,10 +290,8 @@ fn main() -> anyhow::Result<()> {
                     }
                 });
                 start_server(server, |err| {
-                    println!(
-                        "An error occurred while establishing a client connection: {}",
-                        err
-                    );
+                    server.cli.println(
+                        format!("An error occurred while establishing a client connection: {}", err).as_str());
                 });
             });
     });

@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use std::ops::Range;
 use std::sync::Arc;
+use console::Term;
 use crate::Server;
 
 // FIXME: maybe add tab completion
@@ -13,6 +14,8 @@ pub struct CommandLineInterface {
     cmds: HashMap<String, Command>,
     prompt: Option<ColoredString>,
     help_msg: ColoredString,
+    term: Term,
+    prompt_len: usize,
 }
 
 impl CommandLineInterface {
@@ -40,7 +43,11 @@ impl CommandLineInterface {
     }*/
 
     pub fn await_input(&self, server: &Arc<Server>) -> anyhow::Result<bool> {
-        let input = input(&self.prompt)?;
+        let input = if let Some(prompt) = &self.prompt {
+            self.term.read_line_initial_text(format!("{}: ", prompt).as_str())?.split_off(self.prompt_len)
+        } else {
+            self.term.read_line()?
+        };
         let mut parts = input.split(" ").collect::<Vec<_>>();
         let cmd = parts.remove(0).to_lowercase();
 
@@ -59,6 +66,10 @@ impl CommandLineInterface {
     #[inline(always)]
     pub(crate) fn cmds(&self) -> &HashMap<String, Command> {
         &self.cmds
+    }
+
+    pub fn println(&self, msg: &str) {
+        self.term.write_line(msg).unwrap();
     }
 }
 
@@ -93,6 +104,7 @@ impl CLIBuilder {
     }
 
     pub fn build(self) -> CommandLineInterface {
+        let prompt_len = self.prompt.as_ref().map_or(0, |prompt| format!("{}", prompt).len() + 2);
         CommandLineInterface {
             prompt: self.prompt,
             cmds: {
@@ -104,6 +116,8 @@ impl CLIBuilder {
                 cmds
             },
             help_msg: self.help_msg.expect("a help message has to be specified before a CLI can be built"),
+            term: Term::stdout(),
+            prompt_len,
         }
     }
 }

@@ -52,3 +52,4 @@ cpal = { version = "0.14.0", features = ["jack"] }
 sfml = { version = "0.20.0", features = ["audio"] }
 futures-util = "0.3.24"
 image = "0.24.6"
+console = "0.15.7"
