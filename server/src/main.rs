@@ -45,7 +45,7 @@ use std::time::Duration;
 use crossbeam_utils::Backoff;
 use futures::{FutureExt, StreamExt};
 use futures::task::noop_waker_ref;
-use swap_arc::SwapArc;
+use swap_arc::{SwapArc, SwapArcOption};
 use tokio::{join, select};
 use uuid::Uuid;
 
@@ -258,7 +258,7 @@ fn main() -> anyhow::Result<()> {
                 .cmd_impl(Box::new(CommandOnlineUsers())),
         );
 
-    let main_server = Arc::new(Mutex::new(None));
+    let main_server = Arc::new(SwapArcOption::empty());
 
     let main_server_ref = main_server.clone();
     thread::spawn(move || {
@@ -281,7 +281,7 @@ fn main() -> anyhow::Result<()> {
                     shutting_down: Default::default(),
                     shut_down: Default::default(),
                 });
-                *main_server_ref.lock().unwrap() = Some(server.clone());
+                main_server_ref.store(Some(server.clone()));
                 let tmp = server.clone();
                 thread::spawn(move || {
                     let server = tmp.clone();
@@ -289,18 +289,17 @@ fn main() -> anyhow::Result<()> {
                         server.cli.await_input(&server).unwrap(); // FIXME: handle errors properly!
                     }
                 });
-                start_server(server, |err| {
+                start_server(server.clone(), |err| {
                     server.cli.println(
                         format!("An error occurred while establishing a client connection: {}", err).as_str());
-                });
+                }).await;
             });
     });
 
     let backoff = Backoff::new();
     let server = loop {
-        let server = main_server.lock();
-        let server = server.unwrap();
-        if let Some(server) = server.deref() {
+        let guard = main_server.load();
+        if let Some(server) = guard.deref() {
             break server.clone();
         }
         backoff.snooze();
@@ -337,7 +336,6 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                 let new_conn = new_conn.clone();
                 let server = tmp_srv.clone();
                 async move {
-                    println!("initial connection attempt!");
                     let new_conn = new_conn.clone();
                     // FIXME: use more sophisticated packet header like the one commented out below!
                     // let mut header = new_conn.read_reliable(2).await?;
