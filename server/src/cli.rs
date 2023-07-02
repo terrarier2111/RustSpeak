@@ -53,7 +53,7 @@ impl CommandLineInterface {
 
         match self.cmds.get(&cmd) {
             None => {
-                println!("{}", self.help_msg);
+                server.println(format!("{}", self.help_msg).as_str());
                 Ok(false)
             },
             Some(cmd) => {

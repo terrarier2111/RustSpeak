@@ -308,6 +308,10 @@ impl Client {
 
     }
 
+    pub fn println(&self, msg: &str) {
+        self.cli.println(msg);
+    }
+
 }
 
 #[derive(Copy, Clone, Debug)]

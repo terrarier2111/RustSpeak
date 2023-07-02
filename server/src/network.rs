@@ -182,7 +182,7 @@ impl ClientConnection {
         let this = self.clone();
         tokio::spawn(async move {
             let this = this.clone();
-            'end: loop {
+            loop {
                 let data = this.read_unreliable().await.unwrap(); // FIXME: do error handling!
                 println!("received voice traffic {}", data.len());
                 for client in this.server.channels.read().await.get(&this.channel).unwrap().clients.read().await.iter() {

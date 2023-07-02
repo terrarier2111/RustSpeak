@@ -48,6 +48,7 @@ use futures::task::noop_waker_ref;
 use swap_arc::{SwapArc, SwapArcOption};
 use tokio::{join, select};
 use uuid::Uuid;
+use crate::conc_once_cell::ConcurrentOnceCell;
 
 mod certificate;
 mod channel_db;
@@ -258,7 +259,7 @@ fn main() -> anyhow::Result<()> {
                 .cmd_impl(Box::new(CommandOnlineUsers())),
         );
 
-    let main_server = Arc::new(SwapArcOption::empty());
+    let main_server = Arc::new(ConcurrentOnceCell::new());
 
     let main_server_ref = main_server.clone();
     thread::spawn(move || {
@@ -281,7 +282,7 @@ fn main() -> anyhow::Result<()> {
                     shutting_down: Default::default(),
                     shut_down: Default::default(),
                 });
-                main_server_ref.store(Some(server.clone()));
+                main_server_ref.try_init(server.clone()).expect("server already init, this can't happen!");
                 let tmp = server.clone();
                 thread::spawn(move || {
                     let server = tmp.clone();
@@ -298,8 +299,7 @@ fn main() -> anyhow::Result<()> {
 
     let backoff = Backoff::new();
     let server = loop {
-        let guard = main_server.load();
-        if let Some(server) = guard.deref() {
+        if let Some(server) = main_server.get() {
             break server.clone();
         }
         backoff.snooze();
@@ -356,7 +356,7 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                         signed_data,
                     } = packet
                     {
-                        println!("{} tried to connect!", name);
+                        server.println(format!("{} tried to connect!", name).as_str());
                         if protocol_version != PROTOCOL_VERSION {
                             let failure = ServerPacket::AuthResponse(AuthResponse::Failure(
                                 AuthFailure::OutOfDate(PROTOCOL_VERSION),
@@ -440,7 +440,7 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                         // FIXME: compare auth_id with the auth_id in our data base if this isn't the first login!
                         // FIXME: insert data send the proper data back!
                         new_conn.uuid.store(Some(Arc::new(uuid)));
-                        println!("{} ({:?}) successfully connected", name, uuid);
+                        server.println(format!("{} ({:?}) successfully connected", name, uuid).as_str());
                         let channels = server.channels.read().await;
                         let channels = channels.values();
                         let server_groups = server.server_groups.read().await;
@@ -459,9 +459,9 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                             server.user_db.insert(user.clone())?;
                             user
                         };
-                        println!("uuid_cmp: {}", uuid == user.uuid);
-                        println!("uuid: {:?}", uuid);
-                        println!("user uuid: {:?}", user.uuid);
+                        server.println(format!("uuid_cmp: {}", uuid == user.uuid).as_str());
+                        server.println(format!("uuid: {:?}", uuid).as_str());
+                        server.println(format!("user uuid: {:?}", user.uuid).as_str());
                         server.online_users.insert(uuid, User {
                             uuid,
                             name: SwapArc::new(Arc::new(user.name.into())),
@@ -511,6 +511,22 @@ pub struct Server {
     pub cli: CommandLineInterface,
     pub shutting_down: AtomicBool,
     pub shut_down: AtomicBool,
+}
+
+// A pseudo debug impl
+impl Debug for Server {
+    #[inline]
+    fn fmt(&self, _: &mut Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+}
+
+impl Server {
+
+    pub fn println(&self, msg: &str) {
+        self.cli.println(msg);
+    }
+
 }
 
 pub struct User {
@@ -642,7 +658,7 @@ struct CommandHelp();
 impl CommandImpl for CommandHelp {
     fn execute(&self, server: &Arc<Server>, _input: &[&str]) -> anyhow::Result<()> {
         let cmds = server.cli.cmds();
-        println!("Commands ({}):", cmds.len());
+        server.println(format!("Commands ({}):", cmds.len()).as_str());
         for cmd in cmds {
             let usage = if let Some(usage) = cmd.1.params() {
                 let mut ret_usage = String::new();
@@ -663,9 +679,9 @@ impl CommandImpl for CommandHelp {
                 String::new()
             };
             if let Some(desc) = cmd.1.desc() {
-                println!("{}{}: {}", cmd.1.name(), usage, desc);
+                server.println(format!("{}{}: {}", cmd.1.name(), usage, desc).as_str());
             } else {
-                println!("{}{}", cmd.1.name(), usage);
+                server.println(format!("{}{}", cmd.1.name(), usage).as_str());
             }
         }
 
@@ -677,13 +693,13 @@ struct CommandShutdown();
 
 impl CommandImpl for CommandShutdown {
     fn execute(&self, server: &Arc<Server>, _input: &[&str]) -> anyhow::Result<()> {
-        println!("Shutting down...");
+        server.println("Shutting down...");
         server.shutting_down.store(true, Ordering::Release);
         for user in server.online_users.iter() {
             user.value().connection.close();
         }
         server.online_users.clear();
-        println!("Shutdown successfully!");
+        server.println("Shutdown successfully!");
         server.shut_down.store(true, Ordering::Release);
         Ok(())
     }
@@ -693,7 +709,6 @@ struct CommandUser();
 
 impl CommandImpl for CommandUser {
     fn execute(&self, server: &Arc<Server>, input: &[&str]) -> anyhow::Result<()> {
-
         todo!()
     }
 }
@@ -703,10 +718,10 @@ struct CommandOnlineUsers();
 impl CommandImpl for CommandOnlineUsers {
     fn execute(&self, server: &Arc<Server>, _input: &[&str]) -> anyhow::Result<()> {
         // FIXME: add groups printing support!
-        println!("There are {} users online:", server.online_users.len());
-        println!("Name   UUID   SecLevel");
+        server.println(format!("There are {} users online:", server.online_users.len()).as_str());
+        server.println("Name   UUID   SecLevel");
         for user in server.online_users.iter() {
-            println!("{} | {:?} | {}", user.name.load(), user.uuid, user.last_verified_security_level);
+            server.println(format!("{} | {:?} | {}", user.name.load(), user.uuid, user.last_verified_security_level).as_str());
         }
         Ok(())
     }
