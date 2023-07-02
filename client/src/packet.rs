@@ -15,7 +15,7 @@ use uuid::Uuid;
 /// packets the server sends to the client
 /// size: u64
 /// id: u8
-#[derive(Ordinal)]
+#[derive(Ordinal, Debug)]
 pub enum ServerPacket<'a> {
     AuthResponse(AuthResponse<'a>),
     ChannelUpdate(ChannelUpdate<'a>),
@@ -222,7 +222,7 @@ impl RWBytes for ClientPacket {
     }
 }
 
-#[derive(Ordinal)]
+#[derive(Ordinal, Debug)]
 pub enum ChannelUpdate<'a> {
     Create(Channel),
     SubUpdate {
@@ -278,7 +278,7 @@ impl RWBytes for ChannelUpdate<'_> {
     }
 }
 
-#[derive(Ordinal)]
+#[derive(Ordinal, Debug)]
 pub enum ChannelSubUpdate<'a> {
     Name(Cow<'a, String>),
     Desc(Cow<'a, String>),
@@ -422,6 +422,7 @@ impl RWBytes for ClientUpdateServerGroups {
     }
 }
 
+#[derive(Debug)]
 pub struct RemoteProfile {
     pub name: String,
     pub uuid: UserUuid,
@@ -452,6 +453,7 @@ impl RWBytes for RemoteProfile {
     }
 }
 
+#[derive(Debug)]
 pub struct Channel {
     pub(crate) id: Uuid,
     pub(crate) password: bool, // FIXME: add capability to hide users if a password is set
@@ -543,7 +545,7 @@ impl RWBytes for ChannelPerms {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ServerGroup<'a> {
     pub uuid: Uuid,
     pub name: Cow<'a, String>,
@@ -578,7 +580,7 @@ impl RWBytes for ServerGroup<'_> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct GroupPerms {
     pub server_group_assign: u64,
     pub server_group_unassign: u64,
@@ -641,7 +643,7 @@ impl RWBytes for GroupPerms {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ChannelCreatePerms {
     pub power: u64,
     pub set_desc: bool,
@@ -673,7 +675,7 @@ impl RWBytes for ChannelCreatePerms {
     }
 }
 
-#[derive(Ordinal)]
+#[derive(Ordinal, Debug)]
 pub enum AuthResponse<'a> {
     Success {
         // server_groups: Cow<'a, dyn Into<dyn ExactSizeIterator<Item = &'a ServerGroup>>>,
@@ -733,7 +735,7 @@ impl RWBytes for AuthResponse<'_> {
     }
 }
 
-#[derive(Ordinal)]
+#[derive(Ordinal, Debug)]
 pub enum AuthFailure<'a> {
     Banned {
         reason: String,
@@ -801,7 +803,7 @@ impl RWBytes for AuthFailure<'_> {
     }
 }
 
-#[derive(Ordinal)]
+#[derive(Ordinal, Debug)]
 pub enum BanDuration {
     Permanent,
     Temporary(Duration),

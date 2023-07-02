@@ -88,7 +88,8 @@ impl Server {
                                     let packet = ServerPacket::read(&mut payload);
                                     match packet {
                                         Ok(packet) => {
-                                            handle_packet(packet, &client, &server);
+                                            println!("handle packet: {:?}", packet);
+                                            handle_packet(packet, &client, &server).await;
                                         }
                                         Err(_err) => {
                                             // FIXME: somehow give feedback to console and to server
@@ -167,7 +168,7 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
         }
         ClientPacket::UpdateClientServerGroups { .. } => {}*/
         ServerPacket::AuthResponse(_response) => {
-            *server.state.lock().await = ServerState::Connected;
+            server.finish_auth(client.clone()).await;
         }
         ServerPacket::ChannelUpdate(_) => {}
         ServerPacket::ClientConnected(_) => {}

@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 pub const PROTOCOL_VERSION: u64 = 1;
 
-#[derive(Copy, Clone, Hash, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Copy, Clone, Hash, Ord, PartialOrd, Eq, PartialEq, Debug)]
 #[repr(transparent)]
 pub struct UserUuid(U256);
 
