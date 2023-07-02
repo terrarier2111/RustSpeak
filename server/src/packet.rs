@@ -1,24 +1,18 @@
 use crate::protocol::{ErrorEnumVariantNotFound, RWBytes, RWBytesMut, UserUuid};
 use bytemuck::Pod;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use futures::AsyncWriteExt;
 use openssl::hash::MessageDigest;
-use openssl::pkey::{PKey, PKeyRef, Public};
+use openssl::pkey::{PKeyRef, Public};
 use openssl::rsa::{Padding, Rsa};
 use openssl::sign::Verifier;
 use ordinalizer::Ordinal;
 use ruint::aliases::U256;
 use serde_derive::{Deserialize, Serialize};
 use std::borrow::Cow;
-use std::cell::RefCell;
-use std::error::Error;
-use std::fmt::{Debug, Display, Formatter};
-use std::mem::{discriminant, transmute};
-use std::ops::{Deref, DerefMut};
-use std::ptr;
+use std::fmt::{Debug, Display};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use swap_arc::SwapArc;
 use uuid::Uuid;
 
@@ -760,11 +754,9 @@ impl RWBytes for ChannelCreatePerms {
 #[derive(Ordinal)]
 pub enum AuthResponse<'a> {
     Success {
-        // server_groups: Cow<'a, dyn Into<dyn ExactSizeIterator<Item = &'a ServerGroup>>>,
+        default_channel_id: Uuid,
         server_groups: Vec<Arc<ServerGroup>>,
         own_groups: Vec<Uuid>,
-        // channels: RefCell<Box<dyn ExactSizeIterator<Item = &'a Channel<'a>>>>,
-        // channels: Cow<'a, dyn Into<dyn ExactSizeIterator<Item = &'a Channel>>>,
         channels: Vec<Channel>,
     },
     Failure(AuthFailure<'a>),
@@ -800,10 +792,12 @@ impl RWBytes for AuthResponse<'_> {
 
         match disc {
             0 => {
+                let default_channel_id = Uuid::read(src, client_key)?;
                 let server_groups = Vec::<Arc<ServerGroup>>::read(src, client_key)?;
                 let own_groups = Vec::<Uuid>::read(src, client_key)?;
                 let channels = Vec::<Channel>::read(src, client_key)?;
                 Ok(Self::Success {
+                    default_channel_id,
                     server_groups,
                     own_groups,
                     channels,
@@ -824,10 +818,12 @@ impl RWBytes for AuthResponse<'_> {
         dst.put_u8(self.ordinal() as u8);
         match self {
             AuthResponse::Success {
+                default_channel_id,
                 server_groups,
                 own_groups,
                 channels,
             } => {
+                default_channel_id.write(dst)?;
                 server_groups.write(dst)?;
                 own_groups.write(dst)?;
                 // let mut val = channels.borrow_mut();

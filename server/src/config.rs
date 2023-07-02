@@ -3,12 +3,14 @@ use serde_derive::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::PathBuf;
+use crate::DEFAULT_CHANNEL_UUID;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
     pub address_mode: AddressMode,
     pub port: u16,
     pub req_security_level: u8,
+    pub default_channel_id: u128,
 }
 
 impl Config {
@@ -37,6 +39,7 @@ impl Default for Config {
             address_mode: AddressMode::V4,
             port: 20354,
             req_security_level: 12,
+            default_channel_id: DEFAULT_CHANNEL_UUID.as_u128(),
         }
     }
 }

@@ -678,11 +678,10 @@ impl RWBytes for ChannelCreatePerms {
 #[derive(Ordinal, Debug)]
 pub enum AuthResponse<'a> {
     Success {
-        // server_groups: Cow<'a, dyn Into<dyn ExactSizeIterator<Item = &'a ServerGroup>>>,
+        default_channel_id: Uuid,
         server_groups: Vec<Arc<ServerGroup<'a>>>,
         own_groups: Vec<Uuid>,
         channels: Vec<Channel>,
-        // channels: Cow<'a, dyn Into<dyn ExactSizeIterator<Item = &'a Channel>>>,
     },
     Failure(AuthFailure<'a>),
 }
@@ -695,10 +694,12 @@ impl RWBytes for AuthResponse<'_> {
 
         match disc {
             0 => {
+                let default_channel_id = Uuid::read(src)?;
                 let server_groups = Vec::<Arc<ServerGroup>>::read(src)?;
                 let own_groups = Vec::<Uuid>::read(src)?;
                 let channels = Vec::<Channel>::read(src)?;
                 Ok(Self::Success {
+                    default_channel_id,
                     server_groups,
                     own_groups,
                     channels,
@@ -719,10 +720,12 @@ impl RWBytes for AuthResponse<'_> {
         dst.put_u8(self.ordinal() as u8);
         match self {
             AuthResponse::Success {
+                default_channel_id,
                 server_groups,
                 own_groups,
                 channels,
             } => {
+                default_channel_id.write(dst)?;
                 server_groups.write(dst)?;
                 own_groups.write(dst)?;
                 channels.write(dst)?;
