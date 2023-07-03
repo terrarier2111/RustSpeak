@@ -1,15 +1,11 @@
-use crate::packet::ClientPacket;
 use bytes::{Bytes, BytesMut};
 use quinn::{ClientConfig, Connection, ConnectionError, Endpoint, RecvStream, SendStream, VarInt};
-use std::error::Error;
-use std::fs::File;
-use std::io::BufReader;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::sync::{Arc, RwLock};
+use std::ops::Deref;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use arc_swap::ArcSwapOption;
-use futures_util::StreamExt;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use crate::{current_time_millis, RWBytes};
@@ -119,6 +115,25 @@ impl NetworkClient {
             counter: Default::default(),
         };
         self.keep_alive_handler.store(Some(Arc::new(handler)));
+
+        let this = self.clone();
+        tokio::spawn(async move {
+            let this = this.clone();
+            'end: loop {
+                match this.read_keep_alive().await {
+                    Ok(keep_alive) => {
+                        // FIXME: use the keep alive!
+                        println!("got keep alive: {}", keep_alive.id);
+                    }
+                    Err(_err) => {
+                        // FIXME: somehow give feedback to server console and to client
+                        this.close().await;
+                        break 'end;
+                    }
+                }
+            }
+        });
+
         Ok(())
     }
 
@@ -128,6 +143,20 @@ impl NetworkClient {
         data.send_time.write(&mut send_data)?;
         self.keep_alive_handler.load().as_ref().unwrap().stream.0.lock().await.write_all(&send_data).await?;
         Ok(())
+    }
+
+    async fn read_keep_alive(&self) -> anyhow::Result<KeepAlive> {
+        let mut buf = [0; 8 + 8 + 4];
+        let handler = self.keep_alive_handler.load();
+        handler.deref().as_ref().unwrap().stream.1.lock().await.read_exact(&mut buf).await?;
+        let mut buf = Bytes::from(buf.to_vec());
+
+        let ret = KeepAlive {
+            id: u64::read(&mut buf)?,
+            send_time: Duration::read(&mut buf)?,
+        };
+
+        Ok(ret)
     }
 }
 

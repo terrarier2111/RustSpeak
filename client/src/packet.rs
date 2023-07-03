@@ -3,13 +3,9 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use ordinalizer::Ordinal;
 use ruint::aliases::U256;
 use std::borrow::Cow;
-use std::error::Error;
-use std::fmt::{Debug, Display, Formatter, Write};
-use std::mem::transmute;
-use std::ops::Deref;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::fmt::{Debug, Display};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use uuid::Uuid;
 
 /// packets the server sends to the client
@@ -25,7 +21,7 @@ pub enum ServerPacket<'a> {
         client: UserUuid,
         update: ClientUpdateServerGroups,
     },
-    KeepAlive {
+    KeepAlive { // FIXME: get rid of this!
         id: u64,
         send_time: Duration,
     },

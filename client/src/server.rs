@@ -6,12 +6,12 @@ use std::ptr::slice_from_raw_parts_mut;
 use std::sync::Arc;
 use std::time::Duration;
 use arc_swap::ArcSwapOption;
-use bytes::{Buf, buf};
-use openssl::pkey::PKey;
-use swap_arc::{SwapArc, SwapArcOption};
+use bytes::{Buf, Bytes};
+use swap_arc::SwapArc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 use crate::{AddressMode, Channel, Client, ClientConfig, ClientPacket, NetworkClient, Profile, PROTOCOL_VERSION, RWBytes};
+use crate::network::KeepAlive;
 use crate::packet::ServerPacket;
 use crate::screen::connection_failure::ConnectionFailureScreen;
 
@@ -128,7 +128,7 @@ impl Server {
         tokio::spawn(async move { // FIXME: is this okay perf-wise?
             let server = tmp_server;
             let client = tmp_client;
-            'end: loop {
+            loop {
                 let tmp_server = server.connection.load();
                 let mut data = tmp_server.as_ref().unwrap().read_unreliable().await.unwrap(); // FIXME: do error handling!
                 println!("received voice traffic {}", data.len());
