@@ -52,7 +52,7 @@ impl Audio {
     }
 
     pub fn start_record(&self, handler: impl Fn(&[i16], &InputCallbackInfo) + Send + 'static) -> anyhow::Result<Stream> {
-        let (audio_mode, freq_quality) = self.stream_settings.get();
+        let (audio_mode, freq_quality) = self.stream_settings.get(); // FIXME: use this and don't always use default!
         let cfg = self.io_src.input().default_input_config()?.into()/*config()*//*StreamConfig {
             channels: <AudioMode as Into<u16>>::into(audio_mode.unwrap()) as ChannelCount,
             sample_rate: SampleRate(44100), // 44.1 khZ
@@ -69,13 +69,14 @@ impl Audio {
         Ok(stream)
     }
 
-    pub fn play_back(&self, data: &[i16]) -> anyhow::Result<()> {
-        /*let (audio_mode, freq_quality) = self.stream_settings.get();
+    pub fn play_back(&self, data_callback: impl Fn(&mut [i16], &OutputCallbackInfo) + Send + 'static) -> anyhow::Result<Stream> {
+        let (audio_mode, freq_quality) = self.stream_settings.get();
         let cfg = /*self.io_src.output().default_output_config()?.config()*/StreamConfig {
             channels: <AudioMode as Into<u16>>::into(audio_mode.unwrap()) as ChannelCount,
             sample_rate: SampleRate(SAMPLE_RATE),
             buffer_size: BufferSize::Fixed(freq_quality.unwrap().into()),
         };
+        /*
         let handler = |buf: &mut [i16], info| {
             if buf.len() != data.len() {
                 panic!("data length {} doesn't match buf length {}", data.len(), buf.len());
@@ -83,8 +84,8 @@ impl Audio {
             for i in 0..(buf.len()) {
                 buf[i] = data[i];
             }
-        };
-        let stream = self.io_src.output().build_output_stream(&cfg, handler, |err| {
+        };*/
+        let stream = self.io_src.output().build_output_stream(&cfg, data_callback, |err| {
             panic!("An error occurred while playing back the stream!");
         }, None)?;
         stream.play()?;
@@ -92,10 +93,10 @@ impl Audio {
         let sound_buffer = SoundBuffer::from_samples(data, tmp as u32, SAMPLE_RATE)?;
         let mut sound = Sound::with_buffer(&sound_buffer);
         sound.play();*/
-        println!("playing...");*/
+        println!("playing...");
         // std::thread::sleep(Duration::from_micros(sound_buffer.duration().as_microseconds() as u64));
 
-        Ok(())
+        Ok(stream)
     }
 
 }

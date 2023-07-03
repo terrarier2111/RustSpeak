@@ -2,7 +2,7 @@ use std::alloc::{alloc, Layout};
 use std::collections::HashMap;
 use std::error::Error;
 use std::net::SocketAddr;
-use std::ptr;
+use std::{ptr, thread};
 use std::ptr::slice_from_raw_parts_mut;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -159,7 +159,26 @@ impl Server {
                         };
                         let data = unsafe { slice_from_raw_parts_mut::<i16>(data.cast::<i16>(), len / 2).as_mut().unwrap() };
                         // let mut data = bytemuck::cast_slice_mut::<u8, i16>(data);
-                        client.audio.load().as_ref().play_back(data).unwrap();
+
+        /*
+        let handler = |buf: &mut [i16], info| {
+            if buf.len() != data.len() {
+                panic!("data length {} doesn't match buf length {}", data.len(), buf.len());
+            }
+            for i in 0..(buf.len()) {
+                buf[i] = data[i];
+            }
+        };*/
+
+                        client.audio.load().as_ref().play_back(|buf, info| {
+                            if buf.len() != data.len() {
+                                panic!("data length {} doesn't match buf length {}", data.len(), buf.len());
+                            }
+                            for i in 0..(buf.len()) {
+                                buf[i] = data[i];
+                            }
+                        }).unwrap();
+                        thread::sleep(Duration::from_millis(60));
                     }
                     Err(err) => {
                         if server.state.try_set_disconnected() {
