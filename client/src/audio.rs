@@ -7,8 +7,6 @@ use cpal::{BufferSize, ChannelCount, Device, Host, InputCallbackInfo, OutputCall
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
-use sfml::audio::{Music, Sound, SoundBuffer, SoundRecorder, SoundRecorderDriver, SoundStatus, SoundStream, SoundStreamPlayer};
-use sfml::system::Time;
 
 const SAMPLE_RATE: u32 = 44100 / 4; // 44.1kHz
 
@@ -76,52 +74,15 @@ impl Audio {
             sample_rate: SampleRate(SAMPLE_RATE),
             buffer_size: BufferSize::Fixed(freq_quality.unwrap().into()),
         };
-        /*
-        let handler = |buf: &mut [i16], info| {
-            if buf.len() != data.len() {
-                panic!("data length {} doesn't match buf length {}", data.len(), buf.len());
-            }
-            for i in 0..(buf.len()) {
-                buf[i] = data[i];
-            }
-        };*/
         let stream = self.io_src.output().build_output_stream(&cfg, data_callback, |err| {
             panic!("An error occurred while playing back the stream!");
         }, None)?;
         stream.play()?;
-        /*let tmp: u16 = cfg.channels.into();
-        let sound_buffer = SoundBuffer::from_samples(data, tmp as u32, SAMPLE_RATE)?;
-        let mut sound = Sound::with_buffer(&sound_buffer);
-        sound.play();*/
         println!("playing...");
-        // std::thread::sleep(Duration::from_micros(sound_buffer.duration().as_microseconds() as u64));
 
         Ok(stream)
     }
 
-}
-
-struct DummyAudioStream<'a> {
-    data: &'a mut [i16],
-    channels: u32,
-}
-
-impl SoundStream for DummyAudioStream<'_> {
-    fn get_data(&mut self) -> (&mut [i16], bool) {
-        (self.data, true)
-    }
-
-    fn seek(&mut self, offset: Time) {
-        todo!()
-    }
-
-    fn channel_count(&self) -> u32 {
-        self.channels
-    }
-
-    fn sample_rate(&self) -> u32 {
-        SAMPLE_RATE
-    }
 }
 
 enum AudioIOSource {
@@ -292,15 +253,3 @@ impl Into<u16> for AudioMode {
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct SurroundSoundChannels(u16);
-
-pub struct Recorder<F: Fn(&[i16]) -> bool> {
-    // pub callback: fn(&[i16]) -> bool,
-    pub callback: F,
-}
-
-impl<F: Fn(&[i16]) -> bool> SoundRecorder for Recorder<F> {
-    fn on_process_samples(&mut self, data: &[i16]) -> bool {
-        let tmp = &self.callback;
-        tmp(data)
-    }
-}

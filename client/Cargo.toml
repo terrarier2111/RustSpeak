@@ -50,7 +50,6 @@ dashmap = "5.4.0"
 atomic_float = "0.1.0"
 # cpal = { version = "0.14.0", features = ["jack"] }
 cpal = "0.15.2"
-sfml = { version = "0.20.0", features = ["audio"] }
 futures-util = "0.3.24"
 image = "0.24.6"
 console = "0.15.7"
