@@ -148,12 +148,14 @@ async fn main() -> anyhow::Result<()> {
                                 if let Err(err) = pollster::block_on(tmp_conn.unwrap().send_unreliable::<2>(data)) {
                                     pollster::block_on(server.error(err, &client));
                                     has_err.store(true, Ordering::Release);
+                                    return false;
                                 }
                             }
                         }
                         // println!("send audio!");
+                        true
                     }, || {
-                        loop {
+                        while !has_err.load(Ordering::Acquire) {
                             sleep(Duration::from_millis(1));
                         }
                     }).unwrap();

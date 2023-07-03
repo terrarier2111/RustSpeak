@@ -53,7 +53,7 @@ impl Audio {
         }))
     }
 
-    pub fn record(&self, handler: impl Fn(&[i16]), tail_call: impl Fn()) -> anyhow::Result<()/*Stream*/> {
+    pub fn record(&self, handler: impl Fn(&[i16]) -> bool, tail_call: impl Fn()) -> anyhow::Result<()/*Stream*/> {
         let (audio_mode, freq_quality) = self.stream_settings.get();
         /*let cfg = self.io_src.input().default_input_config()?.into()/*config()*//*StreamConfig {
             channels: <AudioMode as Into<u16>>::into(audio_mode.unwrap()) as ChannelCount,
@@ -289,19 +289,16 @@ impl Into<u16> for AudioMode {
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
-// #[rustc_layout_scalar_valid_range_start(3)] // FIXME: do these attributes actually provide any sizable benefit in this case?
-// #[rustc_layout_scalar_valid_range_end(u16::MAX)]
 pub struct SurroundSoundChannels(u16);
 
-pub struct Recorder<F: Fn(&[i16])/* -> bool*/> {
+pub struct Recorder<F: Fn(&[i16]) -> bool> {
     // pub callback: fn(&[i16]) -> bool,
     pub callback: F,
 }
 
-impl<F: Fn(&[i16])/* -> bool*/> SoundRecorder for Recorder<F> {
+impl<F: Fn(&[i16]) -> bool> SoundRecorder for Recorder<F> {
     fn on_process_samples(&mut self, data: &[i16]) -> bool {
         let tmp = &self.callback;
-        tmp(data);
-        true
+        tmp(data)
     }
 }

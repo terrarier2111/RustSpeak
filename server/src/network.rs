@@ -7,6 +7,8 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
+use arc_swap::ArcSwap;
+use swap_arc::SwapArc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 use crate::{ClientPacket, DEFAULT_CHANNEL_UUID, RWBytes, Server, UserUuid};
@@ -89,7 +91,7 @@ pub struct ClientConnection {
     pub conn: Connection,
     pub default_stream: (Mutex<SendStream>, Mutex<RecvStream>),
     pub keep_alive_stream: ConcurrentOnceCell<(Mutex<SendStream>, Mutex<RecvStream>)>,
-    pub channel: Uuid,
+    pub channel: ArcSwap<Uuid>,
     server: Arc<Server>,
     stable_id: usize,
     last_keep_alive: AtomicUsize,
@@ -106,7 +108,7 @@ impl ClientConnection {
             conn,
             default_stream: (Mutex::new(send), Mutex::new(recv)),
             keep_alive_stream: ConcurrentOnceCell::new(),
-            channel: DEFAULT_CHANNEL_UUID, // FIXME: add possibility to allow privileged users to login into other channels than the default channel!
+            channel: ArcSwap::new(Arc::new(DEFAULT_CHANNEL_UUID)), // FIXME: add possibility to allow privileged users to login into other channels than the default channel!
             server,
             stable_id,
             last_keep_alive: Default::default(),
@@ -207,7 +209,7 @@ impl ClientConnection {
                 match this.read_unreliable().await {
                     Ok(data) => {
                         println!("received voice traffic {}", data.len());
-                        for client in this.server.channels.read().await.get(&this.channel).unwrap().clients.read().await.iter() {
+                        for client in this.server.channels.read().await.get(&this.channel.load()).unwrap().clients.read().await.iter() {
                             if client != this.uuid.get().unwrap() || DEBUG_VOICE {
                                 this.server.online_users.get(client).unwrap().connection.send_unreliable(data.clone()).await.unwrap();
                             }

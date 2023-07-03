@@ -462,7 +462,7 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                             groups: RwLock::new(user.groups.clone()),
                             connection: new_conn.clone(),
                         });
-                        server.channels.read().await.get(&new_conn.channel).unwrap().clients.write().await.push(uuid); // FIXME: remove the user from the channel again later on!
+                        server.channels.read().await.get(&new_conn.channel.load()).unwrap().clients.write().await.push(uuid); // FIXME: remove the user from the channel again later on!
                         let auth = ServerPacket::AuthResponse(AuthResponse::Success {
                             default_channel_id: Uuid::from_u128(server.config.default_channel_id),
                             server_groups: server_groups.cloned().collect::<Vec<_>>(), // FIXME: try getting rid of this clone!
