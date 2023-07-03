@@ -24,6 +24,7 @@ use std::{fs, thread};
 use std::error::Error;
 use std::fmt::{Debug, Display};
 use std::ops::Deref;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::sleep;
 use colored::{ColoredString, Colorize};
 use cpal::traits::{DeviceTrait, HostTrait};
@@ -36,7 +37,7 @@ use crate::audio::{Audio, AudioConfig};
 use crate::command::cli::{CLIBuilder, CmdParamStrConstraints, CommandBuilder, CommandImpl, CommandLineInterface, CommandParam, CommandParamTy, UsageBuilder};
 use crate::command::r#impl::CommandProfiles;
 use crate::security_level::generate_token_num;
-use crate::server::{Server, ServerState};
+use crate::server::Server;
 use pollster::FutureExt;
 use swap_arc::{SwapArc, SwapArcOption};
 
@@ -57,6 +58,8 @@ mod utils;
 mod server;
 mod command;
 mod audio;
+mod conc_once_cell;
+mod sized_box;
 
 // FIXME: review all the endianness related shit!
 
@@ -125,9 +128,10 @@ async fn main() -> anyhow::Result<()> {
         loop {
             let server = client.server.load();
             if let Some(server) = server.as_ref() { // FIXME: check for channel
-                if *server.state.lock().block_on().deref() == ServerState::Connected {
+                if server.state.is_connected() {
                     let client = client.clone();
                     println!("in audio loop!");
+                    let has_err = AtomicBool::new(false);
                     client.audio.load().record(|data| {
                         // FIXME: handle endianness of `data`
                         // println!("sending audio {}", data.len());
@@ -139,8 +143,12 @@ async fn main() -> anyhow::Result<()> {
                             if max_diff > VOICE_THRESHOLD {
                                 println!("max diff: {}", max_diff);
                                 let data = Bytes::copy_from_slice(bytemuck::cast_slice(data));
-                                let tmp_conn = client.server.load().as_ref().unwrap().connection.load();
-                                pollster::block_on(tmp_conn.as_ref().unwrap().send_unreliable::<2>(data)).unwrap();
+                                let tmp = client.server.load();
+                                let tmp_conn = tmp.as_ref().unwrap().connection.get();
+                                if let Err(err) = pollster::block_on(tmp_conn.unwrap().send_unreliable::<2>(data)) {
+                                    pollster::block_on(server.error(err, &client));
+                                    has_err.store(true, Ordering::Release);
+                                }
                             }
                         }
                         // println!("send audio!");
@@ -149,6 +157,10 @@ async fn main() -> anyhow::Result<()> {
                             sleep(Duration::from_millis(1));
                         }
                     }).unwrap();
+                    if has_err.load(Ordering::Acquire) {
+                        // FIXME: somehow shutdown audio thread!
+                        break;
+                    }
                 } else {
                     sleep(Duration::from_millis(1));
                 }
