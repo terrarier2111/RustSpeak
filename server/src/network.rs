@@ -126,6 +126,7 @@ impl ClientConnection {
                     Err(_err) => {
                         // FIXME: somehow give feedback to server console and to client
                         this.close().await;
+                        println!("ended connection 0");
                         break 'end;
                     }
                 }
@@ -147,6 +148,7 @@ impl ClientConnection {
                             Err(_err) => {
                                 // FIXME: somehow give feedback to server console and to client
                                 this.close().await;
+                                println!("ended connection 1");
                                 break 'end;
                             }
                         };
@@ -158,6 +160,7 @@ impl ClientConnection {
                             Err(_err) => {
                                 // FIXME: somehow give feedback to server console and to client
                                 this.close().await;
+                                println!("ended connection 2");
                                 break 'end;
                             }
                         }
@@ -165,6 +168,7 @@ impl ClientConnection {
                     Err(_err) => {
                         // FIXME: somehow give feedback to server console and to client
                         this.close().await;
+                        println!("ended connection 3");
                         break 'end;
                     }
                 }
@@ -175,11 +179,18 @@ impl ClientConnection {
         tokio::spawn(async move {
             let this = this.clone();
             loop {
-                let data = this.read_unreliable().await.unwrap(); // FIXME: do error handling!
-                println!("received voice traffic {}", data.len());
-                for client in this.server.channels.read().await.get(&this.channel).unwrap().clients.read().await.iter() {
-                    if client != this.uuid.load().as_ref().unwrap().as_ref() || DEBUG_VOICE {
-                        this.server.online_users.get(client).unwrap().connection.send_unreliable(data.clone()).await.unwrap();
+                match this.read_unreliable().await {
+                    Ok(data) => {
+                        println!("received voice traffic {}", data.len());
+                        for client in this.server.channels.read().await.get(&this.channel).unwrap().clients.read().await.iter() {
+                            if client != this.uuid.load().as_ref().unwrap().as_ref() || DEBUG_VOICE {
+                                this.server.online_users.get(client).unwrap().connection.send_unreliable(data.clone()).await.unwrap();
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        // the connection has been closed, so we shouldn't try to read any data anymore.
+                        break;
                     }
                 }
             }
