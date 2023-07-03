@@ -439,7 +439,7 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                         }
                         // FIXME: compare auth_id with the auth_id in our data base if this isn't the first login!
                         // FIXME: insert data send the proper data back!
-                        new_conn.uuid.store(Some(Arc::new(uuid)));
+                        new_conn.uuid.try_init(uuid).unwrap();
                         server.println(format!("{} ({:?}) successfully connected", name, uuid).as_str());
                         let channels = server.channels.read().await;
                         let channels = channels.values();

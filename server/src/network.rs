@@ -4,8 +4,9 @@ use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Write};
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::ops::Deref;
 use std::sync::Arc;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 use swap_arc::SwapArcOption;
 use tokio::sync::Mutex;
@@ -86,7 +87,7 @@ impl NetworkServer {
 }
 
 pub struct ClientConnection {
-    pub uuid: SwapArcOption<UserUuid>,
+    pub uuid: ConcurrentOnceCell<UserUuid>,
     pub conn: tokio::sync::RwLock<Connection>,
     pub default_stream: (Mutex<SendStream>, Mutex<RecvStream>),
     pub keep_alive_stream: ConcurrentOnceCell<(Mutex<SendStream>, Mutex<RecvStream>)>,
@@ -94,6 +95,7 @@ pub struct ClientConnection {
     server: Arc<Server>,
     stable_id: usize,
     last_keep_alive: AtomicUsize,
+    closed: AtomicBool,
     // FIXME: cache buffers in order to avoid performance penalty for allocating new ones
 }
 
@@ -102,7 +104,7 @@ impl ClientConnection {
         let (send, recv) = bi_conn;
         let stable_id = conn.stable_id();
         Ok(Self {
-            uuid: SwapArcOption::empty(),
+            uuid: ConcurrentOnceCell::new(),
             conn: tokio::sync::RwLock::new(conn),
             default_stream: (Mutex::new(send), Mutex::new(recv)),
             keep_alive_stream: ConcurrentOnceCell::new(),
@@ -110,6 +112,7 @@ impl ClientConnection {
             server,
             stable_id,
             last_keep_alive: Default::default(),
+            closed: Default::default(),
         })
     }
 
@@ -124,9 +127,15 @@ impl ClientConnection {
                         println!("got keep alive: {}", keep_alive.id);
                     }
                     Err(_err) => {
-                        // FIXME: somehow give feedback to server console and to client
-                        this.close().await;
-                        println!("ended connection 0");
+                        // FIXME: somehow give feedback to client
+                        if this.closed.compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed).is_ok() {
+                            this.close().await;
+                            if let Some(user) = this.uuid.get() {
+                                this.server.println(format!("User {:?} with ip {} timed out", user, this.conn.read().await.remote_address()).as_str());
+                            } else {
+                                this.server.println(format!("Connection with address {} timed out!", this.conn.read().await.remote_address()).as_str());
+                            }
+                        }
                         break 'end;
                     }
                 }
@@ -145,10 +154,16 @@ impl ClientConnection {
                         let size = size.get_u64_le();
                         let mut payload = match this.read_reliable(size as usize).await {
                             Ok(payload) => payload,
-                            Err(_err) => {
-                                // FIXME: somehow give feedback to server console and to client
-                                this.close().await;
-                                println!("ended connection 1");
+                            Err(err) => {
+                                if this.closed.compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed).is_ok() {
+                                    // FIXME: somehow give feedback to client
+                                    this.close().await;
+                                    if let Some(user) = this.uuid.get() {
+                                        this.server.println(format!("An error happened in the connection of user {:?} with ip {}: {}", user, this.conn.read().await.remote_address(), err).as_str());
+                                    } else {
+                                        this.server.println(format!("An error happened in the connection of {}: {}", this.conn.read().await.remote_address(), err).as_str());
+                                    }
+                                }
                                 break 'end;
                             }
                         };
@@ -157,18 +172,30 @@ impl ClientConnection {
                             Ok(packet) => {
                                 handle_packet(packet, &server, &this);
                             }
-                            Err(_err) => {
-                                // FIXME: somehow give feedback to server console and to client
-                                this.close().await;
-                                println!("ended connection 2");
+                            Err(err) => {
+                                if this.closed.compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed).is_ok() {
+                                    // FIXME: somehow give feedback to client
+                                    this.close().await;
+                                    if let Some(user) = this.uuid.get() {
+                                        this.server.println(format!("An error happened in the connection of user {:?} with ip {}: {}", user, this.conn.read().await.remote_address(), err).as_str());
+                                    } else {
+                                        this.server.println(format!("An error happened in the connection of {}: {}", this.conn.read().await.remote_address(), err).as_str());
+                                    }
+                                }
                                 break 'end;
                             }
                         }
                     }
-                    Err(_err) => {
-                        // FIXME: somehow give feedback to server console and to client
-                        this.close().await;
-                        println!("ended connection 3");
+                    Err(err) => {
+                        if this.closed.compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed).is_ok() {
+                            // FIXME: somehow give feedback to client
+                            this.close().await;
+                            if let Some(user) = this.uuid.get() {
+                                this.server.println(format!("An error happened in the connection of user {:?} with ip {}: {}", user, this.conn.read().await.remote_address(), err).as_str());
+                            } else {
+                                this.server.println(format!("An error happened in the connection of {}: {}", this.conn.read().await.remote_address(), err).as_str());
+                            }
+                        }
                         break 'end;
                     }
                 }
@@ -183,13 +210,21 @@ impl ClientConnection {
                     Ok(data) => {
                         println!("received voice traffic {}", data.len());
                         for client in this.server.channels.read().await.get(&this.channel).unwrap().clients.read().await.iter() {
-                            if client != this.uuid.load().as_ref().unwrap().as_ref() || DEBUG_VOICE {
+                            if client != this.uuid.get().unwrap() || DEBUG_VOICE {
                                 this.server.online_users.get(client).unwrap().connection.send_unreliable(data.clone()).await.unwrap();
                             }
                         }
                     }
-                    Err(_) => {
-                        // the connection has been closed, so we shouldn't try to read any data anymore.
+                    Err(err) => {
+                        if this.closed.compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed).is_ok() {
+                            // FIXME: somehow give feedback to client
+                            this.close().await;
+                            if let Some(user) = this.uuid.get() {
+                                this.server.println(format!("An error in the connection of user {:?} with ip {} happened: {}", user, this.conn.read().await.remote_address(), err).as_str());
+                            } else {
+                                this.server.println(format!("An error in the connection of {} happened: {}", this.conn.read().await.remote_address(), err).as_str());
+                            }
+                        }
                         break;
                     }
                 }
@@ -268,7 +303,7 @@ impl ClientConnection {
     }
 
     fn finish_up(&self) {
-        if let Some(uuid) = self.uuid.load().as_ref() {
+        if let Some(uuid) = self.uuid.get() {
             self.server.online_users.remove(uuid);
         }
     }
@@ -298,7 +333,7 @@ pub fn handle_packet(packet: ClientPacket, server: &Arc<Server>, client: &Arc<Cl
     match packet {
         ClientPacket::AuthRequest { .. } => unreachable!(),
         ClientPacket::Disconnect => {
-            server.online_users.remove(client.uuid.load().as_ref().unwrap()); // FIXME: verify that this can't be received before AuthRequest is handled!
+            server.online_users.remove(client.uuid.get().unwrap()); // FIXME: verify that this can't be received before AuthRequest is handled!
         }
         ClientPacket::KeepAlive { .. } => {
             // FIXME: store the keep alive value somewhere in the client
