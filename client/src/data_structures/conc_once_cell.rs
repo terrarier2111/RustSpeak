@@ -19,7 +19,7 @@ impl<T> ConcurrentOnceCell<T> {
     }
 
     pub fn try_init(&self, val: T) -> Result<(), T> {
-        let mut sized = crate::sized_box::SizedBox::new(val);
+        let mut sized = crate::data_structures::sized_box::SizedBox::new(val);
         let ptr = sized.as_mut() as *mut T;
         match self.ptr.compare_exchange(null_mut(), ptr, Ordering::Release, Ordering::Relaxed) {
             Ok(_) => {

@@ -11,7 +11,7 @@ use bytes::Buf;
 use swap_arc::SwapArc;
 use uuid::Uuid;
 use crate::{AddressMode, Channel, Client, ClientConfig, ClientPacket, NetworkClient, Profile, PROTOCOL_VERSION, RWBytes};
-use crate::conc_once_cell::ConcurrentOnceCell;
+use crate::data_structures::conc_once_cell::ConcurrentOnceCell;
 use crate::packet::ServerPacket;
 use crate::screen::connection_failure::ConnectionFailureScreen;
 

@@ -9,7 +9,7 @@ use crate::config::Config;
 use crate::network::{AddressMode, NetworkClient};
 use crate::packet::{Channel, ClientPacket};
 use crate::profile::Profile;
-use crate::protocol::{RWBytes, PROTOCOL_VERSION};
+use crate::protocol::{PROTOCOL_VERSION, RWBytes};
 use crate::render::Renderer;
 use crate::screen::server_list::ServerList;
 use crate::screen_sys::ScreenSystem;
@@ -58,8 +58,7 @@ mod utils;
 mod server;
 mod command;
 mod audio;
-mod conc_once_cell;
-mod sized_box;
+pub mod data_structures;
 
 // FIXME: review all the endianness related shit!
 
