@@ -4,11 +4,9 @@ use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Write};
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
-use swap_arc::SwapArcOption;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 use crate::{ClientPacket, DEFAULT_CHANNEL_UUID, RWBytes, Server, UserUuid};
@@ -88,7 +86,7 @@ impl NetworkServer {
 
 pub struct ClientConnection {
     pub uuid: ConcurrentOnceCell<UserUuid>,
-    pub conn: tokio::sync::RwLock<Connection>,
+    pub conn: Connection,
     pub default_stream: (Mutex<SendStream>, Mutex<RecvStream>),
     pub keep_alive_stream: ConcurrentOnceCell<(Mutex<SendStream>, Mutex<RecvStream>)>,
     pub channel: Uuid,
@@ -105,7 +103,7 @@ impl ClientConnection {
         let stable_id = conn.stable_id();
         Ok(Self {
             uuid: ConcurrentOnceCell::new(),
-            conn: tokio::sync::RwLock::new(conn),
+            conn,
             default_stream: (Mutex::new(send), Mutex::new(recv)),
             keep_alive_stream: ConcurrentOnceCell::new(),
             channel: DEFAULT_CHANNEL_UUID, // FIXME: add possibility to allow privileged users to login into other channels than the default channel!
@@ -131,9 +129,9 @@ impl ClientConnection {
                         if this.closed.compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed).is_ok() {
                             this.close().await;
                             if let Some(user) = this.uuid.get() {
-                                this.server.println(format!("User {:?} with ip {} timed out", user, this.conn.read().await.remote_address()).as_str());
+                                this.server.println(format!("User {:?} with ip {} timed out", user, this.conn.remote_address()).as_str());
                             } else {
-                                this.server.println(format!("Connection with address {} timed out!", this.conn.read().await.remote_address()).as_str());
+                                this.server.println(format!("Connection with address {} timed out!", this.conn.remote_address()).as_str());
                             }
                         }
                         break 'end;
@@ -159,9 +157,9 @@ impl ClientConnection {
                                     // FIXME: somehow give feedback to client
                                     this.close().await;
                                     if let Some(user) = this.uuid.get() {
-                                        this.server.println(format!("An error happened in the connection of user {:?} with ip {}: {}", user, this.conn.read().await.remote_address(), err).as_str());
+                                        this.server.println(format!("An error happened in the connection of user {:?} with ip {}: {}", user, this.conn.remote_address(), err).as_str());
                                     } else {
-                                        this.server.println(format!("An error happened in the connection of {}: {}", this.conn.read().await.remote_address(), err).as_str());
+                                        this.server.println(format!("An error happened in the connection of {}: {}", this.conn.remote_address(), err).as_str());
                                     }
                                 }
                                 break 'end;
@@ -177,9 +175,9 @@ impl ClientConnection {
                                     // FIXME: somehow give feedback to client
                                     this.close().await;
                                     if let Some(user) = this.uuid.get() {
-                                        this.server.println(format!("An error happened in the connection of user {:?} with ip {}: {}", user, this.conn.read().await.remote_address(), err).as_str());
+                                        this.server.println(format!("An error happened in the connection of user {:?} with ip {}: {}", user, this.conn.remote_address(), err).as_str());
                                     } else {
-                                        this.server.println(format!("An error happened in the connection of {}: {}", this.conn.read().await.remote_address(), err).as_str());
+                                        this.server.println(format!("An error happened in the connection of {}: {}", this.conn.remote_address(), err).as_str());
                                     }
                                 }
                                 break 'end;
@@ -191,9 +189,9 @@ impl ClientConnection {
                             // FIXME: somehow give feedback to client
                             this.close().await;
                             if let Some(user) = this.uuid.get() {
-                                this.server.println(format!("An error happened in the connection of user {:?} with ip {}: {}", user, this.conn.read().await.remote_address(), err).as_str());
+                                this.server.println(format!("An error happened in the connection of user {:?} with ip {}: {}", user, this.conn.remote_address(), err).as_str());
                             } else {
-                                this.server.println(format!("An error happened in the connection of {}: {}", this.conn.read().await.remote_address(), err).as_str());
+                                this.server.println(format!("An error happened in the connection of {}: {}", this.conn.remote_address(), err).as_str());
                             }
                         }
                         break 'end;
@@ -220,9 +218,9 @@ impl ClientConnection {
                             // FIXME: somehow give feedback to client
                             this.close().await;
                             if let Some(user) = this.uuid.get() {
-                                this.server.println(format!("An error in the connection of user {:?} with ip {} happened: {}", user, this.conn.read().await.remote_address(), err).as_str());
+                                this.server.println(format!("An error in the connection of user {:?} with ip {} happened: {}", user, this.conn.remote_address(), err).as_str());
                             } else {
-                                this.server.println(format!("An error in the connection of {} happened: {}", this.conn.read().await.remote_address(), err).as_str());
+                                this.server.println(format!("An error in the connection of {} happened: {}", this.conn.remote_address(), err).as_str());
                             }
                         }
                         break;
@@ -250,12 +248,12 @@ impl ClientConnection {
     }
 
     pub async fn send_unreliable(&self, buf: Bytes) -> anyhow::Result<()> {
-        self.conn.write().await.send_datagram(buf)?;
+        self.conn.send_datagram(buf)?;
         Ok(())
     }
 
     pub async fn read_unreliable(&self) -> Result<Bytes, ConnectionError> {
-        self.conn.write().await.read_datagram().await
+        self.conn.read_datagram().await
     }
 
     async fn send_keep_alive(&self, data: KeepAlive) -> anyhow::Result<()> {
@@ -296,8 +294,6 @@ impl ClientConnection {
         self.finish_up();
         self.default_stream.0.lock().await.finish().await?;
         self.conn
-            .write()
-            .await
             .close(VarInt::from_u32(err_code), reason);
         Ok(())
     }

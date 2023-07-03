@@ -13,7 +13,7 @@ use crate::{current_time_millis, RWBytes};
 pub struct NetworkClient {
     // FIXME: Add keep alive stream
     endpoint: Endpoint,
-    connection: tokio::sync::RwLock<Connection>,
+    connection: Connection,
     bi_conn: (Mutex<SendStream>, Mutex<RecvStream>),
     keep_alive_handler: ArcSwapOption<KeepAliveHandler>,
 }
@@ -33,7 +33,7 @@ impl NetworkClient {
 
         Ok(Self {
             endpoint,
-            connection: tokio::sync::RwLock::new(conn),
+            connection: conn,
             bi_conn: (Mutex::new(send), Mutex::new(recv)),
             keep_alive_handler: ArcSwapOption::empty(),
         })
@@ -58,7 +58,7 @@ impl NetworkClient {
 
     pub async fn send_unreliable<const ALIGN: usize>(&self, mut buf: Bytes) -> anyhow::Result<()> {
         // split up large packets into many smaller sub-packets
-        let max_bytes = self.connection.read().await.max_datagram_size().unwrap() - 25; // - 100 works | 25 also works (at least up to 2.3k keep alives)
+        let max_bytes = self.connection.max_datagram_size().unwrap() - 25; // - 100 works | 25 also works (at least up to 2.3k keep alives)
         // align max_bytes
         let max_bytes = if ALIGN < 2 || max_bytes % ALIGN == 0 {
             max_bytes
@@ -67,14 +67,14 @@ impl NetworkClient {
         };
         let full_frames = buf.len().div_floor(max_bytes);
         for x in 0..full_frames {
-            self.connection.write().await.send_datagram(buf.slice((x * max_bytes)..(x * max_bytes + max_bytes)))?;
+            self.connection.send_datagram(buf.slice((x * max_bytes)..(x * max_bytes + max_bytes)))?;
         }
-        self.connection.write().await.send_datagram(buf.slice((full_frames * max_bytes)..buf.len()))?;
+        self.connection.send_datagram(buf.slice((full_frames * max_bytes)..buf.len()))?;
         Ok(())
     }
 
     pub async fn read_unreliable(&self) -> Result<Bytes, ConnectionError> {
-        self.connection.write().await.read_datagram().await
+        self.connection.read_datagram().await
     }
 
     pub async fn close(&self) -> anyhow::Result<()> {
@@ -84,14 +84,12 @@ impl NetworkClient {
     pub async fn close_with(&self, err_code: u32, reason: &[u8]) -> anyhow::Result<()> {
         self.bi_conn.0.lock().await.finish().await?;
         self.connection
-            .write()
-            .await
             .close(VarInt::from_u32(err_code), reason);
         Ok(())
     }
 
     pub async fn start_do_keep_alive<E: Fn(anyhow::Error) + Send + Sync + 'static>(self: &Arc<NetworkClient>, interval: Duration, err_handler: E) -> anyhow::Result<()> {
-        let stream = self.connection.write().await.open_bi().await?;
+        let stream = self.connection.open_bi().await?;
         let this = self.clone();
         let handle = tokio::task::spawn(async move {
             let mut interval = tokio::time::interval(interval);

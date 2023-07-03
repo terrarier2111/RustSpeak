@@ -137,9 +137,9 @@ async fn main() -> anyhow::Result<()> {
                         // println!("sending audio {}", data.len());
                         let empty = data.iter().all(|x| *x == 0);
                         if !empty {
-                            let max = data.iter().max().unwrap().abs();
-                            let min = data.iter().min().unwrap().abs();
-                            let max_diff = min.max(max);
+                            let max = *data.iter().max().unwrap();
+                            let min = *data.iter().min().unwrap();
+                            let max_diff = max - min;
                             if max_diff > VOICE_THRESHOLD {
                                 println!("max diff: {}", max_diff);
                                 let data = Bytes::copy_from_slice(bytemuck::cast_slice(data));
