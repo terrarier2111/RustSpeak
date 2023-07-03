@@ -211,7 +211,9 @@ impl ClientConnection {
                         println!("received voice traffic {}", data.len());
                         for client in this.server.channels.read().await.get(&this.channel.load()).unwrap().clients.read().await.iter() {
                             if client != this.uuid.get().unwrap() || DEBUG_VOICE {
-                                this.server.online_users.get(client).unwrap().connection.send_unreliable(data.clone()).await.unwrap();
+                                if let Some(user) = this.server.online_users.get(client) {
+                                    user.connection.send_unreliable(data.clone()).await.unwrap();
+                                }
                             }
                         }
                     }

@@ -126,15 +126,25 @@ async fn main() -> anyhow::Result<()> {
     thread::spawn(move || {
         let client = tmp;
         loop {
+            let client = client.clone();
             let server = client.server.load();
             if let Some(server) = server.as_ref() { // FIXME: check for channel
-                if server.state.is_connected() {
+                if !server.state.is_connected() {
+                    sleep(Duration::from_millis(1));
+                    continue;
+                }
                     let client = client.clone();
                     println!("in audio loop!");
-                    let has_err = AtomicBool::new(false);
-                    client.audio.load().record(|data| {
+                    let tmp_client = client.clone();
+                    let has_err = Arc::new(AtomicBool::new(false));
+                    let server = server.clone();
+                    let has_err_rec = has_err.clone();
+                    let stream = client.audio.load().start_record(move |data, input| {
+                        println!("recorded!");
+                        let has_err = &has_err_rec;
                         // FIXME: handle endianness of `data`
                         // println!("sending audio {}", data.len());
+                        let client = &tmp_client;
                         let empty = data.iter().all(|x| *x == 0);
                         if !empty {
                             let max = *data.iter().max().unwrap();
@@ -148,24 +158,17 @@ async fn main() -> anyhow::Result<()> {
                                 if let Err(err) = pollster::block_on(tmp_conn.unwrap().send_unreliable::<2>(data)) {
                                     pollster::block_on(server.error(err, &client));
                                     has_err.store(true, Ordering::Release);
-                                    return false;
+                                    // stop recording!
+                                    return;
                                 }
                             }
                         }
                         // println!("send audio!");
-                        true
-                    }, || {
-                        while !has_err.load(Ordering::Acquire) {
-                            sleep(Duration::from_millis(1));
-                        }
                     }).unwrap();
-                    if has_err.load(Ordering::Acquire) {
-                        // FIXME: somehow shutdown audio thread!
-                        break;
+
+                    while !has_err.load(Ordering::Acquire) {
+                        sleep(Duration::from_millis(1));
                     }
-                } else {
-                    sleep(Duration::from_millis(1));
-                }
             } else {
                 sleep(Duration::from_millis(1));
             }

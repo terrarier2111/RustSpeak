@@ -1,6 +1,7 @@
 use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU16, AtomicU32, AtomicU64, Ordering};
+use std::thread;
 use std::time::Duration;
 use cpal::{BufferSize, ChannelCount, Device, Host, InputCallbackInfo, OutputCallbackInfo, Sample, SampleRate, Stream, StreamConfig, StreamError};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -12,14 +13,15 @@ use sfml::system::Time;
 const SAMPLE_RATE: u32 = 44100 / 4; // 44.1kHz
 
 pub struct Audio {
+    io_src: AudioIOSource,
     stream_settings: AudioStreamSettings,
 }
 
 impl Audio {
 
     pub fn from_cfg(cfg: &AudioConfig) -> anyhow::Result<Option<Self>> {
-        // let default_host = cpal::default_host();
-        /*let mut input_device = None;
+        let default_host = cpal::default_host();
+        let mut input_device = None;
         let mut output_device = None;
         for device in default_host.devices()?.into_iter() {
             let dev_name = device.name()?;
@@ -46,53 +48,52 @@ impl Audio {
                 }
             }
         }
-        Ok(None)*/
-        Ok(Some(Self {
-            // io_src: AudioIOSource::Dual { input: default_host.default_input_device().unwrap(), output: default_host.default_output_device().unwrap(), },
-            stream_settings: AudioStreamSettings::new(AudioMode::Mono, FrequencyQuality::Low).unwrap(),
-        }))
+        Ok(None)
     }
 
-    pub fn record(&self, handler: impl Fn(&[i16]) -> bool, tail_call: impl Fn()) -> anyhow::Result<()/*Stream*/> {
+    pub fn start_record(&self, handler: impl Fn(&[i16], &InputCallbackInfo) + Send + 'static) -> anyhow::Result<Stream> {
         let (audio_mode, freq_quality) = self.stream_settings.get();
-        /*let cfg = self.io_src.input().default_input_config()?.into()/*config()*//*StreamConfig {
+        let cfg = self.io_src.input().default_input_config()?.into()/*config()*//*StreamConfig {
             channels: <AudioMode as Into<u16>>::into(audio_mode.unwrap()) as ChannelCount,
             sample_rate: SampleRate(44100), // 44.1 khZ
             buffer_size: BufferSize::Fixed(freq_quality.unwrap().into()),
         }*/;
         // StreamConfig { channels: 2, sample_rate: SampleRate(44100), buffer_size: Default }
         // println!("{:?}", cfg);
-        let stream = self.io_src.input().build_input_stream(&cfg, handler, err_handler)?;
+        let stream = self.io_src.input().build_input_stream(&cfg, handler, |err| {
+            panic!("An error occurred while playing back the stream!");
+        }, None)?;
         // self.input_stream.store(Some(Arc::new(stream)));
         stream.play()?;
 
-        Ok(stream)*/
-        let mut recorder = Recorder {
-            callback: handler,
-        };
-        let mut recorder_driver = SoundRecorderDriver::new(&mut recorder);
-        recorder_driver.set_channel_count(<AudioMode as Into<u16>>::into(audio_mode.unwrap()) as u32);
-        recorder_driver.set_processing_interval(Time::milliseconds(20/*6*/));
-        recorder_driver.start(SAMPLE_RATE);
-        tail_call();
-        Ok(())
+        Ok(stream)
     }
 
     pub fn play_back(&self, data: &[i16]) -> anyhow::Result<()> {
-        let (audio_mode, freq_quality) = self.stream_settings.get();
+        /*let (audio_mode, freq_quality) = self.stream_settings.get();
         let cfg = /*self.io_src.output().default_output_config()?.config()*/StreamConfig {
             channels: <AudioMode as Into<u16>>::into(audio_mode.unwrap()) as ChannelCount,
             sample_rate: SampleRate(SAMPLE_RATE),
             buffer_size: BufferSize::Fixed(freq_quality.unwrap().into()),
         };
-        // let stream = self.io_src.output().build_output_stream(&cfg, handler, err_handler)?;
-        // stream.play()?;
-        let tmp: u16 = cfg.channels.into();
+        let handler = |buf: &mut [i16], info| {
+            if buf.len() != data.len() {
+                panic!("data length {} doesn't match buf length {}", data.len(), buf.len());
+            }
+            for i in 0..(buf.len()) {
+                buf[i] = data[i];
+            }
+        };
+        let stream = self.io_src.output().build_output_stream(&cfg, handler, |err| {
+            panic!("An error occurred while playing back the stream!");
+        }, None)?;
+        stream.play()?;
+        /*let tmp: u16 = cfg.channels.into();
         let sound_buffer = SoundBuffer::from_samples(data, tmp as u32, SAMPLE_RATE)?;
         let mut sound = Sound::with_buffer(&sound_buffer);
-        sound.play();
-        println!("playing...");
-        std::thread::sleep(Duration::from_micros(sound_buffer.duration().as_microseconds() as u64));
+        sound.play();*/
+        println!("playing...");*/
+        // std::thread::sleep(Duration::from_micros(sound_buffer.duration().as_microseconds() as u64));
 
         Ok(())
     }
