@@ -163,7 +163,7 @@ impl Marker {
 
     #[inline]
     fn new(head: usize, len: usize, finished_len: usize) -> Self {
-        Self(head | (len << (usize::BITS / 2)) | (finished_len << (usize::BITS / 2 + usize::BITS / 2 / 2)))
+        Self(head | (len << UHalfSize::BITS) | (finished_len << (UHalfSize::BITS + UHalfHalfSize::BITS)))
     }
 
     #[inline]
@@ -173,19 +173,19 @@ impl Marker {
 
     #[inline]
     fn head(&self) -> usize {
-        self.0 & (u32::MAX as usize)
+        self.0 & (UHalfSize::MAX as usize)
     }
 
     #[inline]
     fn len(&self) -> usize {
-        let offset = usize::BITS / 2;
-        (self.0 & ((u16::MAX as usize) << offset)) >> offset
+        let offset = UHalfSize::BITS;
+        (self.0 & ((UHalfHalfSize::MAX as usize) << offset)) >> offset
     }
 
     #[inline]
     fn finished_len(&self) -> usize {
-        let offset = usize::BITS / 2 + usize::BITS / 2 / 2;
-        (self.0 & ((u16::MAX as usize) << offset)) >> offset
+        let offset = UHalfSize::BITS + UHalfHalfSize::BITS;
+        (self.0 & ((UHalfHalfSize::MAX as usize) << offset)) >> offset
     }
 
     #[inline]
