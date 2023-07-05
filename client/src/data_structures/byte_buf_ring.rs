@@ -1,7 +1,7 @@
 use std::alloc::{alloc, dealloc, Layout};
-use std::marker::PhantomData;
 use std::{ptr, slice};
-use std::sync::atomic::{AtomicU16, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
+use std::mem::size_of;
+use std::sync::atomic::{AtomicU16, AtomicU32, AtomicUsize, Ordering};
 use crossbeam_utils::Backoff;
 
 #[cfg(target_pointer_width = "128")]
@@ -57,7 +57,7 @@ pub struct BBRing {
 }
 
 impl BBRing {
-    
+
     pub fn new(cap: usize) -> Self {
         if cap >= UHalfHalfSize::MAX as usize / 2 - 1 {
             panic!("Capacity is too large!");
@@ -74,19 +74,23 @@ impl BBRing {
         }
     }
 
-    pub fn push(&self, data: &[u8]) {
-        let marker = Marker::from_raw(self.marker.fetch_add(Marker::new((usize::BITS / 8) as usize + data.len(), 1, 0).into_raw(), Ordering::AcqRel));
-        // FIXME: add OOB checks!
+    pub fn push(&self, data: &[u8]) -> bool {
+        let marker = Marker::from_raw(self.marker.fetch_add(Marker::new(size_of::<UHalfSize>() + data.len(), 1, 0).into_raw(), Ordering::AcqRel));
+        if (marker.head() - Marker::from_raw(self.remove_marker.load(Ordering::Acquire)).head()) + data.len() + size_of::<UHalfSize>() >= self.cap {
+            self.marker.fetch_sub(Marker::new(size_of::<UHalfSize>() + data.len(), 1, 0).into_raw(), Ordering::AcqRel);
+            return false;
+        }
         // write length header
-        unsafe { self.buf.add(marker.head()).cast::<UHalfSize>().write(data.len() as UHalfSize) };
+        unsafe { self.buf.add(marker.head()).cast::<UHalfSize>().write_unaligned(data.len() as UHalfSize) };
         // write payload
-        unsafe { ptr::copy(data as *const u8, self.buf.add(marker.head() + usize::BITS / 8), data.len()) };
+        unsafe { ptr::copy(data as *const [u8] as *const u8, self.buf.add(marker.head() + size_of::<UHalfSize>()), data.len()) };
 
         let backoff = Backoff::new();
         while Marker::from_raw(self.marker.load(Ordering::Acquire)).finished_len() != marker.len() {
             backoff.snooze();
         }
         self.marker.fetch_add(Marker::new(0, 0, 1).into_raw(), Ordering::AcqRel);
+        true
     }
 
     pub fn pop_front(&self) -> Option<BufGuard<'_>> {
@@ -108,15 +112,15 @@ impl BBRing {
             rem = marker;
         }
 
-        let len = unsafe { self.buf.add(rem.head() % self.cap).cast::<UHalfSize>().read() };
+        let len = unsafe { self.buf.add(rem.head() % self.cap).cast::<UHalfSize>().read_unaligned() };
 
         Some(BufGuard {
             parent: self,
-            ptr: unsafe { self.buf.add(rem.head() % self.cap + UHalfSize::BITS / 8) },
+            ptr: unsafe { self.buf.add(rem.head() % self.cap + size_of::<UHalfSize>()) },
             len: len as usize,
         })
     }
-    
+
 }
 
 impl Drop for BBRing {
@@ -124,6 +128,9 @@ impl Drop for BBRing {
         unsafe { dealloc(self.buf, Layout::from_size_align_unchecked(self.cap, 1)) };
     }
 }
+
+unsafe impl Send for BBRing {}
+unsafe impl Sync for BBRing {}
 
 pub struct BufGuard<'a> {
     parent: &'a BBRing,
@@ -145,7 +152,7 @@ impl AsMut<[u8]> for BufGuard<'_> {
 
 impl Drop for BufGuard<'_> {
     fn drop(&mut self) {
-        self.parent.remove_marker.fetch_add(Marker::new(self.len, 0, 1).into_raw(), Ordering::AcqRel);
+        self.parent.remove_marker.fetch_add(Marker::new(self.len + size_of::<UHalfSize>(), 0, 1).into_raw(), Ordering::AcqRel);
     }
 }
 
