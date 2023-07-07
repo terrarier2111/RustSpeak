@@ -7,12 +7,14 @@ use cpal::{BufferSize, ChannelCount, Device, Host, InputCallbackInfo, OutputCall
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
+use crate::data_structures::byte_buf_ring::BBRing;
 
 const SAMPLE_RATE: u32 = 44100 / 4; // 44.1kHz
 
 pub struct Audio {
     io_src: AudioIOSource,
     stream_settings: AudioStreamSettings,
+    pub buffer: Arc<BBRing>,
 }
 
 impl Audio {
@@ -30,6 +32,7 @@ impl Audio {
                 return Ok(Some(Self {
                     io_src: AudioIOSource::Single(device),
                     stream_settings: AudioStreamSettings::new(AudioMode::Mono, FrequencyQuality::Low).unwrap(),
+                    buffer: Arc::new(BBRing::new(8096)),
                 }));
             } else if input {
                 input_device = Some(device);
@@ -42,6 +45,7 @@ impl Audio {
                     return Ok(Some(Audio {
                         io_src: AudioIOSource::Dual { input: input_device.unwrap(), output: output_dev, },
                         stream_settings: AudioStreamSettings::new(AudioMode::Mono, FrequencyQuality::Low).unwrap(),
+                        buffer: Arc::new(BBRing::new(8096)),
                     }));
                 }
             }

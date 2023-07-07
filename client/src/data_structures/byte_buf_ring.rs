@@ -116,7 +116,7 @@ impl BBRing {
 
         Some(BufGuard {
             parent: self,
-            ptr: unsafe { self.buf.add(rem.head() % self.cap + size_of::<UHalfSize>()) },
+            ptr: SendablePtr(unsafe { self.buf.add(rem.head() % self.cap + size_of::<UHalfSize>()) }),
             len: len as usize,
         })
     }
@@ -134,19 +134,25 @@ unsafe impl Sync for BBRing {}
 
 pub struct BufGuard<'a> {
     parent: &'a BBRing,
-    ptr: *mut u8,
+    ptr: SendablePtr<u8>,
     len: usize,
 }
 
+#[repr(transparent)]
+struct SendablePtr<T>(*mut T);
+
+unsafe impl<T: Send> Send for SendablePtr<T> {}
+unsafe impl<T: Sync> Sync for SendablePtr<T> {}
+
 impl AsRef<[u8]> for BufGuard<'_> {
     fn as_ref(&self) -> &[u8] {
-        unsafe { slice::from_raw_parts(self.ptr.cast_const(), self.len) }
+        unsafe { slice::from_raw_parts(self.ptr.0.cast_const(), self.len) }
     }
 }
 
 impl AsMut<[u8]> for BufGuard<'_> {
     fn as_mut(&mut self) -> &mut [u8] {
-        unsafe { slice::from_raw_parts_mut(self.ptr, self.len) }
+        unsafe { slice::from_raw_parts_mut(self.ptr.0, self.len) }
     }
 }
 

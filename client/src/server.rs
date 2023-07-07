@@ -2,7 +2,8 @@ use std::alloc::{alloc, Layout};
 use std::collections::HashMap;
 use std::error::Error;
 use std::net::SocketAddr;
-use std::{ptr, thread};
+use std::{ptr, slice, thread};
+use std::ops::{Deref, DerefMut};
 use std::ptr::slice_from_raw_parts_mut;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -132,7 +133,79 @@ impl Server {
         }).await.unwrap();
 
         let tmp_server = self.clone();
-        let tmp_client = client;
+        let tmp_client = client.clone();
+        /*tokio::spawn(async move { // FIXME: is this okay perf-wise?
+            let server = tmp_server;
+            let client = tmp_client;
+            loop {
+                let tmp_server = server.connection.get();
+                match tmp_server.unwrap().read_unreliable().await {
+                    Ok(data) => {
+                        println!("received voice traffic {}", data.len());
+                        let mut data_vec = data.to_vec();
+                        let len = data_vec.len();
+                        let data = if data_vec.as_ptr().is_aligned_to(2) {
+                            data_vec.deref_mut()
+                        } else {
+                            // realloc to make the allocation aligned to 2 bytes
+                            let mut new_alloc = unsafe { alloc(Layout::array::<u16>(len).unwrap()) }; // FIXME: dealloc this again later on.
+                            if !new_alloc.is_null() {
+                                unsafe {
+                                    ptr::copy_nonoverlapping(data_vec.as_ptr(), new_alloc, len);
+                                }
+                                unsafe { slice::from_raw_parts_mut(new_alloc, len) }
+                            } else {
+                                unreachable!()
+                            }
+                        };
+                        // let data = unsafe { slice_from_raw_parts_mut::<i16>(data.cast::<i16>(), len / 2).as_mut().unwrap() };
+                        client.audio.load_full().buffer.push(data);
+                        // thread::sleep(Duration::from_millis(60));
+                        tokio::time::sleep(Duration::from_millis(60)).await;
+                        // let mut data = bytemuck::cast_slice_mut::<u8, i16>(data);
+
+        /*
+        let handler = |buf: &mut [i16], info| {
+            if buf.len() != data.len() {
+                panic!("data length {} doesn't match buf length {}", data.len(), buf.len());
+            }
+            for i in 0..(buf.len()) {
+                buf[i] = data[i];
+            }
+        };*/
+                    }
+                    Err(err) => {
+                        if server.state.try_set_disconnected() {
+                            // FIXME: somehow give feedback to server
+                            tmp_server.as_ref().unwrap().close().await;
+                            client.println(format!("An error occurred in the connection with {}: {}", server.name, err).as_str());
+                        }
+                    }
+                }
+            }
+        });
+        let client = client.clone();
+        thread::spawn(move || {
+            let client = client.clone();
+            loop {
+                let audio = client.audio.load();
+                if let Some(raw_data) = audio.buffer.pop_front() {
+                    let tmp_client = client.clone();
+                    audio.as_ref().play_back(move |buf, info| {
+                        let client = &tmp_client;
+                        let data = bytemuck::cast_slice::<u8, i16>(raw_data.as_ref());
+                        if buf.len() < data.as_ref().len() {
+                            client.audio.load().buffer.push(&raw_data.as_ref()[(buf.len() * 2)..]);
+                        }
+                        for i in 0..(data.as_ref().len().min(buf.len())) {
+                            buf[i] = data[i];
+                        }
+                    }).unwrap();
+                }
+                thread::sleep(Duration::from_millis(60));
+                // tokio::time::sleep(Duration::from_millis(60)).await;
+            }
+        });*/
         tokio::spawn(async move { // FIXME: is this okay perf-wise?
             let server = tmp_server;
             let client = tmp_client;
@@ -160,15 +233,15 @@ impl Server {
                         let data = unsafe { slice_from_raw_parts_mut::<i16>(data.cast::<i16>(), len / 2).as_mut().unwrap() };
                         // let mut data = bytemuck::cast_slice_mut::<u8, i16>(data);
 
-        /*
-        let handler = |buf: &mut [i16], info| {
-            if buf.len() != data.len() {
-                panic!("data length {} doesn't match buf length {}", data.len(), buf.len());
-            }
-            for i in 0..(buf.len()) {
-                buf[i] = data[i];
-            }
-        };*/
+                        /*
+                        let handler = |buf: &mut [i16], info| {
+                            if buf.len() != data.len() {
+                                panic!("data length {} doesn't match buf length {}", data.len(), buf.len());
+                            }
+                            for i in 0..(buf.len()) {
+                                buf[i] = data[i];
+                            }
+                        };*/
 
                         client.audio.load().as_ref().play_back(|buf, info| {
                             if buf.len() != data.len() {
