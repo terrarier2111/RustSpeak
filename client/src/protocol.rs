@@ -3,11 +3,11 @@ use ruint::aliases::U256;
 use std::borrow::Cow;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter, Write};
-use std::mem::{discriminant, transmute};
+use std::mem::transmute;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use uuid::Uuid;
 
 pub const PROTOCOL_VERSION: u64 = 1;
@@ -17,10 +17,12 @@ pub const PROTOCOL_VERSION: u64 = 1;
 pub struct UserUuid(U256);
 
 impl UserUuid {
+    #[inline]
     pub fn from_u256(raw: U256) -> Self {
         Self(raw)
     }
 
+    #[inline]
     pub fn into_u256(self) -> U256 {
         self.0
     }

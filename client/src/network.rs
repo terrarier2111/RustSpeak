@@ -63,6 +63,7 @@ impl NetworkClient {
             max_bytes - (max_bytes % ALIGN)
         };
         let full_frames = buf.len().div_floor(max_bytes);
+        println!("frame cnt: {}", full_frames + 1);
         for x in 0..full_frames {
             self.connection.send_datagram(buf.slice((x * max_bytes)..(x * max_bytes + max_bytes)))?;
         }

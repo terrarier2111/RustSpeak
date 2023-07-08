@@ -2,8 +2,10 @@ use serde::*;
 use serde_derive::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{Read, Write};
+use std::mem::size_of;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
+use ruint::aliases::U256;
 use crate::protocol::UserUuid;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -42,8 +44,34 @@ impl Config {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ServerEntry {
-    pub name: String, // FIXME: should we use Cow?
+    pub name: String,
+    // FIXME: should we use Cow?
     pub addr: SocketAddr,
-    pub profile: Option<UserUuid>,
+    profile: Option<UserUuidContainer>,
     // FIXME: we need a favicon (image) for each server image
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct UserUuidContainer {
+    raw: [u8; size_of::<UserUuid>()],
+    _align: [UserUuid; 0],
+}
+
+impl ServerEntry {
+    
+    pub fn new(name: String, addr: SocketAddr, profile: Option<UserUuid>) -> Self {
+        Self {
+            name,
+            addr,
+            profile: profile.map(|uuid| UserUuidContainer {
+                raw: uuid.into_u256().to_le_bytes(),
+                _align: [],
+            }),
+        }
+    }
+
+    pub fn profile(&self) -> Option<UserUuid> {
+        self.profile.as_ref().map(|container| UserUuid::from_u256(U256::from_le_bytes(container.raw.clone())))
+    }
+
 }
