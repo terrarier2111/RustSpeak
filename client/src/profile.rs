@@ -1,13 +1,11 @@
 use crate::protocol::UserUuid;
 use openssl::hash::MessageDigest;
-use openssl::pkey::{PKey, Private, Public};
+use openssl::pkey::{PKey, Private};
 use openssl::rsa::Rsa;
 use openssl::sha::sha256;
 use openssl::sign::Signer;
-use serde_derive::{Deserialize, Serialize};
 use std::mem::transmute;
 use ruint::aliases::U256;
-use uuid::Uuid;
 
 pub const PRIVATE_KEY_LEN_BITS: u32 = 4096;
 
@@ -20,6 +18,7 @@ pub struct Profile {
 }
 
 impl Profile {
+    #[inline]
     pub fn from_existing(name: String, private_key: Vec<u8>, security_proofs: Vec<U256>) -> Self {
         Self {
             name,

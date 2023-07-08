@@ -9,9 +9,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
 use bytes::Buf;
+use opus::{Application, Channels, Decoder, Encoder};
 use swap_arc::SwapArc;
+use tokio::sync::Mutex;
 use uuid::Uuid;
 use crate::{AddressMode, Channel, Client, ClientConfig, ClientPacket, NetworkClient, Profile, PROTOCOL_VERSION, RWBytes};
+use crate::audio::{AudioMode, SAMPLE_RATE};
+use crate::data_structures::byte_buf_ring::BBRing;
 use crate::data_structures::conc_once_cell::ConcurrentOnceCell;
 use crate::packet::ServerPacket;
 use crate::screen::connection_failure::ConnectionFailureScreen;
@@ -22,6 +26,13 @@ pub struct Server {
     pub channels: SwapArc<HashMap<Uuid, Channel>>,
     pub state: ServerState,
     pub name: String,
+    audio: Arc<ServerAudio>,
+}
+
+struct ServerAudio {
+    buffer: BBRing,
+    encoder: Mutex<Encoder>,
+    decoder: Mutex<Decoder>,
 }
 
 impl Server {
@@ -29,12 +40,21 @@ impl Server {
                config: ClientConfig,
                server_addr: SocketAddr,
                server_name: String) -> anyhow::Result<Arc<Self>> {
+        let channels = match client.audio.load().config().get().0.unwrap() {
+            AudioMode::Mono => Channels::Mono,
+            AudioMode::Stereo => Channels::Stereo,
+        };
         let server = Arc::new(Self {
             profile: profile.clone(),
             connection: ConcurrentOnceCell::new(),
             channels: Default::default(),
             state: ServerState::new(),
             name: server_name.clone(),
+            audio: Arc::new(ServerAudio {
+                buffer: BBRing::new(8096),
+                encoder: Mutex::new(Encoder::new(SAMPLE_RATE, channels, Application::Voip).unwrap()),
+                decoder: Mutex::new(Decoder::new(SAMPLE_RATE, channels).unwrap()),
+            }),
         });
 
         let priv_key = profile.private_key();
@@ -209,28 +229,20 @@ impl Server {
         tokio::spawn(async move { // FIXME: is this okay perf-wise?
             let server = tmp_server;
             let client = tmp_client;
+            let mut buffer = [0; 64000];
+            let mut buf_len = 0;
             loop {
                 let tmp_server = server.connection.get();
                 match tmp_server.unwrap().read_unreliable().await {
                     Ok(data) => {
                         println!("received voice traffic {}", data.len());
-                        let mut data_vec = data.to_vec();
-                        let len = data_vec.len();
-                        let mut data = if data_vec.as_ptr().is_aligned_to(2) {
-                            data_vec.as_mut_ptr()
-                        } else {
-                            // realloc to make the allocation aligned to 2 bytes
-                            let mut new_alloc = unsafe { alloc(Layout::array::<u16>(len).unwrap()) };
-                            if !new_alloc.is_null() {
-                                unsafe {
-                                    ptr::copy_nonoverlapping(data_vec.as_ptr(), new_alloc, len);
-                                }
-                                new_alloc
-                            } else {
-                                unreachable!()
-                            }
-                        };
-                        let data = unsafe { slice_from_raw_parts_mut::<i16>(data.cast::<i16>(), len / 2).as_mut().unwrap() };
+                        if data.len() + buf_len * 2 > buffer.len() * 2 {
+                            panic!("Buffer too small ({}) present but ({}) required", buffer.len(), data.len() / 2 + buf_len);
+                        }
+                        // FIXME: wait for enough frames to arrive!
+                        // let data = unsafe { slice_from_raw_parts_mut::<i16>(data.cast::<i16>(), len / 2).as_mut().unwrap() };
+                        unsafe { buffer.as_mut_ptr().add(buf_len).cast::<u8>().copy_from_nonoverlapping(data.as_ptr(), data.len()); }
+                        buf_len += data.len() / 2;
                         // let mut data = bytemuck::cast_slice_mut::<u8, i16>(data);
 
                         /*
@@ -243,21 +255,26 @@ impl Server {
                             }
                         };*/
 
-                        client.audio.load().as_ref().play_back(|buf, info| {
-                            if buf.len() != data.len() {
-                                panic!("data length {} doesn't match buf length {}", data.len(), buf.len());
-                            }
-                            for i in 0..(buf.len()) {
-                                buf[i] = data[i];
-                            }
-                        }).unwrap();
-                        thread::sleep(Duration::from_millis(60));
+                        if let Ok(_) = server.audio.decoder.lock().await.decode(data.as_ref(), &mut buffer, true) {
+                            println!("decoded voice traffic!");
+                            client.audio.load().as_ref().play_back(move |buf, info| {
+                                if buf.len() != buf_len {
+                                    panic!("data length {} doesn't match buf length {}", buf_len, buf.len());
+                                }
+                                for i in 0..(buf.len()) {
+                                    buf[i] = buffer[i];
+                                }
+                            }).unwrap();
+                            buf_len = 0;
+                        }
+                        // thread::sleep(Duration::from_millis(60));
+                        tokio::time::sleep(Duration::from_millis(60)).await;
                     }
                     Err(err) => {
                         if server.state.try_set_disconnected() {
                             // FIXME: somehow give feedback to server
                             tmp_server.as_ref().unwrap().close().await;
-                            client.println(format!("An error occurred in the connection with {}: {}", server.name, err).as_str());
+                            client.println(format!("An error occurred in the connection with {}: {:?}", server.name, err).as_str());
                         }
                     }
                 }

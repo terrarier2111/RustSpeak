@@ -1,20 +1,15 @@
-use std::ops::Deref;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU16, AtomicU32, AtomicU64, Ordering};
-use std::thread;
-use std::time::Duration;
-use cpal::{BufferSize, ChannelCount, Device, Host, InputCallbackInfo, OutputCallbackInfo, Sample, SampleRate, Stream, StreamConfig, StreamError};
+use std::sync::atomic::{AtomicU64, Ordering};
+use cpal::{BufferSize, ChannelCount, Device, InputCallbackInfo, OutputCallbackInfo, SampleRate, Stream, StreamConfig};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
-use crate::data_structures::byte_buf_ring::BBRing;
 
-const SAMPLE_RATE: u32 = 44100 / 4; // 44.1kHz
+/*pub const SAMPLE_RATE: u32 = 44100/* / 4*/; */ // 44.1kHz
+pub const SAMPLE_RATE: u32 = 48000; // 48kHz
 
 pub struct Audio {
     io_src: AudioIOSource,
     stream_settings: AudioStreamSettings,
-    pub buffer: Arc<BBRing>,
 }
 
 impl Audio {
@@ -32,7 +27,6 @@ impl Audio {
                 return Ok(Some(Self {
                     io_src: AudioIOSource::Single(device),
                     stream_settings: AudioStreamSettings::new(AudioMode::Mono, FrequencyQuality::Low).unwrap(),
-                    buffer: Arc::new(BBRing::new(8096)),
                 }));
             } else if input {
                 input_device = Some(device);
@@ -45,7 +39,6 @@ impl Audio {
                     return Ok(Some(Audio {
                         io_src: AudioIOSource::Dual { input: input_device.unwrap(), output: output_dev, },
                         stream_settings: AudioStreamSettings::new(AudioMode::Mono, FrequencyQuality::Low).unwrap(),
-                        buffer: Arc::new(BBRing::new(8096)),
                     }));
                 }
             }
@@ -55,12 +48,20 @@ impl Audio {
 
     pub fn start_record(&self, handler: impl Fn(&[i16], &InputCallbackInfo) + Send + 'static) -> anyhow::Result<Stream> {
         let (audio_mode, freq_quality) = self.stream_settings.get(); // FIXME: use this and don't always use default!
-        let cfg = self.io_src.input().default_input_config()?.into()/*config()*//*StreamConfig {
+        /*let cfg = self.io_src.input().default_input_config()?.into();*/
+        /*let audio_mode: u16 = audio_mode.unwrap_or(AudioMode::Mono).into();
+        let cfg = self.io_src.input().supported_input_configs().unwrap()
+            .find(|config| config.max_sample_rate().0 >= SAMPLE_RATE
+                && config.channels() as u16 == audio_mode
+                /*&& match config.buffer_size() {
+                SupportedBufferSize::Range { min, .. } => *min as u32 >= freq_quality.unwrap_or(FrequencyQuality::Low).into(),
+                SupportedBufferSize::Unknown => false,
+            }*/).unwrap().with_sample_rate(SampleRate(SAMPLE_RATE)).config();*/
+        let cfg = StreamConfig {
             channels: <AudioMode as Into<u16>>::into(audio_mode.unwrap()) as ChannelCount,
-            sample_rate: SampleRate(44100), // 44.1 khZ
-            buffer_size: BufferSize::Fixed(freq_quality.unwrap().into()),
-        }*/;
-        // StreamConfig { channels: 2, sample_rate: SampleRate(44100), buffer_size: Default }
+            sample_rate: SampleRate(SAMPLE_RATE),
+            buffer_size: BufferSize::Default/*BufferSize::Fixed(freq_quality.unwrap().into())*/,
+        };
         // println!("{:?}", cfg);
         let stream = self.io_src.input().build_input_stream(&cfg, handler, |err| {
             panic!("An error occurred while playing back the stream!");
@@ -85,6 +86,11 @@ impl Audio {
         println!("playing...");
 
         Ok(stream)
+    }
+
+    #[inline(always)]
+    pub fn config(&self) -> &AudioStreamSettings {
+        &self.stream_settings
     }
 
 }
@@ -115,7 +121,7 @@ impl AudioIOSource {
 
 }
 
-struct AudioStreamSettings(AtomicU64);
+pub struct AudioStreamSettings(AtomicU64);
 
 impl AudioStreamSettings {
 
@@ -123,13 +129,13 @@ impl AudioStreamSettings {
         let audio_mode_inner = match audio_mode {
             AudioMode::Mono => Some(1),
             AudioMode::Stereo => Some(2),
-            AudioMode::SurroundSound(channels) => {
+            /*AudioMode::SurroundSound(channels) => {
                 if channels.0 >= 3 {
                     Some(channels.0)
                 } else {
                     None
                 }
-            },
+            },*/
         };
         if let Some(audio_mode) = audio_mode_inner {
             let freq_quality_inner = match freq_quality {
@@ -147,13 +153,13 @@ impl AudioStreamSettings {
         let audio_mode_inner = match audio_mode {
             AudioMode::Mono => Some(1),
             AudioMode::Stereo => Some(2),
-            AudioMode::SurroundSound(channels) => {
+            /*AudioMode::SurroundSound(channels) => {
                 if channels.0 >= 3 {
                     Some(channels.0)
                 } else {
                     None
                 }
-            },
+            },*/
         };
         if let Some(audio_mode) = audio_mode_inner {
             let freq_quality_inner = match freq_quality {
@@ -168,14 +174,15 @@ impl AudioStreamSettings {
         }
     }
 
-    fn get(&self) -> (Option<AudioMode>, Option<FrequencyQuality>) {
+    pub fn get(&self) -> (Option<AudioMode>, Option<FrequencyQuality>) {
         let inner = self.0.load(Ordering::Acquire);
         let audio_mode_inner = (inner >> 32) as u16;
         let audio_mode = match audio_mode_inner {
             0 => None,
             1 => Some(AudioMode::Mono),
             2 => Some(AudioMode::Stereo),
-            _ => Some(AudioMode::SurroundSound(SurroundSoundChannels(audio_mode_inner))),
+            // _ => Some(AudioMode::SurroundSound(SurroundSoundChannels(audio_mode_inner))),
+            _ => None,
         };
         let freq_quality_inner = inner as u32;
         let freq_quality = match freq_quality_inner {
@@ -240,7 +247,7 @@ impl Into<u32> for FrequencyQuality {
 pub enum AudioMode {
     Mono/* = 1*/,
     Stereo/* = 2*/,
-    SurroundSound(SurroundSoundChannels),
+    // SurroundSound(SurroundSoundChannels),
 }
 
 impl Into<u16> for AudioMode {
@@ -248,7 +255,7 @@ impl Into<u16> for AudioMode {
         let tmp = match self {
             AudioMode::Mono => 1,
             AudioMode::Stereo => 2,
-            AudioMode::SurroundSound(channels) => channels.0,
+            // AudioMode::SurroundSound(channels) => channels.0,
         };
         tmp as u16
     }

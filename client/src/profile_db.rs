@@ -1,13 +1,9 @@
 use crate::RWBytes;
-use bytemuck_derive::Zeroable;
 use bytes::{Bytes, BytesMut};
 use ruint::aliases::U256;
 use sled::{Db, Iter, IVec};
-use std::borrow::Cow;
-use std::io::Read;
 use openssl::pkey::PKey;
 use openssl::sha::sha256;
-use uuid::Uuid;
 use crate::profile::PRIVATE_KEY_LEN_BITS;
 use crate::security_level::generate_token_num;
 

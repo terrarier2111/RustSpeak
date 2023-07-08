@@ -11,7 +11,6 @@ use tokio::task::JoinHandle;
 use crate::{current_time_millis, RWBytes};
 
 pub struct NetworkClient {
-    // FIXME: Add keep alive stream
     endpoint: Endpoint,
     connection: Connection,
     bi_conn: (Mutex<SendStream>, Mutex<RecvStream>),
@@ -28,8 +27,6 @@ impl NetworkClient {
         let endpoint = Endpoint::client(address_mode.local())?;
         let conn = endpoint.connect_with(config, server, server_name)?.await?;
         let (send, recv) = conn.open_bi().await?;
-
-        // panic!("we got pretty far!")
 
         Ok(Self {
             endpoint,
@@ -58,7 +55,7 @@ impl NetworkClient {
 
     pub async fn send_unreliable<const ALIGN: usize>(&self, mut buf: Bytes) -> anyhow::Result<()> {
         // split up large packets into many smaller sub-packets
-        let max_bytes = self.connection.max_datagram_size().unwrap() - 25; // - 100 works | 25 also works (at least up to 2.3k keep alives)
+        let max_bytes = self.connection.max_datagram_size().unwrap() - 25;
         // align max_bytes
         let max_bytes = if ALIGN < 2 || max_bytes % ALIGN == 0 {
             max_bytes

@@ -1,13 +1,9 @@
-use crate::atlas::UV;
-use crate::render::{ColorSource, Model, TexTriple, TexTy, Vertex};
-use crate::screen_sys::ScreenSystem;
+use crate::render::{ColorSource, Model, TexTy, Vertex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use atomic_float::AtomicF64;
-use fontdue::{Font, FontSettings};
-use wgpu::{Sampler, Texture, TextureView};
 use wgpu_glyph::{BuiltInLineBreaker, Extra, Layout, Section, Text};
-use crate::{Client, Renderer};
+use crate::Client;
 
 pub trait Component: Send + Sync {
     fn build_model(&self) -> Model;

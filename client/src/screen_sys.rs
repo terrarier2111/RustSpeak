@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::render::{Model, Renderer};
+use crate::render::Model;
 use crate::screen_sys::ScreenType::Other;
 use crate::ui::Container;
 use std::sync::atomic::{AtomicIsize, Ordering};

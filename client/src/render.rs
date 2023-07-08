@@ -2,15 +2,13 @@ use crate::atlas::{Atlas, AtlasAlloc, AtlasId};
 use bytemuck_derive::Pod;
 use bytemuck_derive::Zeroable;
 use flume::Sender;
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::mem::size_of;
 use std::ops::DerefMut;
 use std::process::abort;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use dashmap::DashMap;
-use wgpu::{BindGroupLayoutEntry, BindingType, BlendState, BufferAddress, BufferUsages, Color, ColorTargetState, ColorWrites, LoadOp, Operations, RenderPass, RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPipeline, Sampler, SamplerBindingType, ShaderSource, ShaderStages, Texture, TextureFormat, TextureSampleType, TextureView, TextureViewDescriptor, TextureViewDimension, VertexAttribute, VertexBufferLayout, VertexFormat, VertexStepMode};
+use wgpu::{BindGroupLayoutEntry, BindingType, BlendState, BufferAddress, BufferUsages, ColorTargetState, ColorWrites, LoadOp, Operations, RenderPassColorAttachment, RenderPipeline, Sampler, SamplerBindingType, ShaderSource, ShaderStages, Texture, TextureFormat, TextureSampleType, TextureView, TextureViewDescriptor, TextureViewDimension, VertexAttribute, VertexBufferLayout, VertexFormat, VertexStepMode};
 use wgpu::util::StagingBelt;
 use wgpu_biolerless::{
     FragmentShaderState, ModuleSrc, PipelineBuilder, ShaderModuleSources, State, VertexShaderState,

@@ -1,15 +1,15 @@
 use serde::*;
 use serde_derive::{Deserialize, Serialize};
 use std::fs::File;
-use std::io;
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
+use crate::protocol::UserUuid;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
     pub fav_servers: Vec<ServerEntry>,
-    pub last_server: SocketAddr,
+    pub last_server: Option<SocketAddr>,
 }
 
 impl Default for Config {
@@ -18,8 +18,9 @@ impl Default for Config {
             fav_servers: vec![ServerEntry {
                 name: "local".to_string(),
                 addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 20354)),
+                profile: None,
             }],
-            last_server: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)), // FIXME: define a default port for client and server
+            last_server: None,
         }
     }
 }
@@ -43,5 +44,6 @@ impl Config {
 pub struct ServerEntry {
     pub name: String, // FIXME: should we use Cow?
     pub addr: SocketAddr,
+    pub profile: Option<UserUuid>,
     // FIXME: we need a favicon (image) for each server image
 }

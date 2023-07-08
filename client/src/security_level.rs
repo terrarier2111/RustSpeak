@@ -8,10 +8,9 @@
 // FIXME: we can fix this by sending a list of following values that added to the previous hash
 // FIXME: have one 0 more at the start than the previous hash
 
-use rand::{random, Rng};
-use ripemd::{Digest, Ripemd160, Ripemd320};
+use rand::random;
+use ripemd::{Digest, Ripemd160};
 use sha2::Sha256;
-use std::borrow::Cow;
 use std::mem::transmute;
 use ruint::aliases::U256;
 
