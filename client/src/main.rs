@@ -18,12 +18,13 @@ use crate::utils::current_time_millis;
 use bytes::{Bytes, BytesMut};
 use quinn::ClientConfig;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{fs, thread};
 use std::error::Error;
 use std::fmt::{Debug, Display};
 use std::ops::Deref;
+use std::ptr::slice_from_raw_parts;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::sleep;
 use colored::{ColoredString, Colorize};
@@ -64,6 +65,8 @@ pub mod data_structures;
 
 const RELATIVE_PROFILE_DB_PATH: &str = "user_db";
 const VOICE_THRESHOLD: i16 = 50/*100*/; // 0-6 even occurs in idle (if nobody is near the input device)
+
+const MIN_BUF_SIZE: usize = 480;
 
 // FIXME: can we even let tokio do this right here? do we have to run our event_loop on the main thread?
 #[tokio::main] // FIXME: is it okay to use tokio in the main thread already, don't we need it to do rendering stuff?
@@ -138,6 +141,7 @@ async fn main() -> anyhow::Result<()> {
                     let has_err = Arc::new(AtomicBool::new(false));
                     let server = server.clone();
                     let has_err_rec = has_err.clone();
+                    let glob_buf = Arc::new(Mutex::new(vec![]));
                     let stream = client.audio.load().start_record(move |data, input| {
                         println!("recorded!");
                         let has_err = &has_err_rec;
@@ -150,15 +154,23 @@ async fn main() -> anyhow::Result<()> {
                             let min = *data.iter().min().unwrap();
                             let max_diff = max - min;
                             if max_diff > VOICE_THRESHOLD {
-                                println!("max diff: {}", max_diff);
-                                let data = Bytes::copy_from_slice(bytemuck::cast_slice(data));
-                                let tmp = client.server.load();
-                                let tmp_conn = tmp.as_ref().unwrap().connection.get();
-                                if let Err(err) = pollster::block_on(tmp_conn.unwrap().send_unreliable::<2>(data)) {
-                                    pollster::block_on(server.error(err, &client));
-                                    has_err.store(true, Ordering::Release);
-                                    // stop recording!
-                                    return;
+                                let glob_buf = glob_buf.clone();
+                                let mut glob_buf = glob_buf.lock().unwrap();
+                                glob_buf.extend_from_slice(data);
+                                // server.audio.buffer.push(unsafe { &*slice_from_raw_parts(data as *const [i16] as *const i16 as *const u8, data.len() * 2) });
+                                if glob_buf.len() >= MIN_BUF_SIZE {
+                                    let mut buffer = vec![0; 2048];
+                                    println!("max diff: {}", max_diff);
+                                    let tmp = client.server.load();
+                                    let tmp_conn = tmp.as_ref().unwrap().connection.get();
+                                    let data = server.audio.encode(&glob_buf.as_slice()[0..MIN_BUF_SIZE], &mut buffer);
+                                    glob_buf.drain(0..MIN_BUF_SIZE);
+                                    if let Err(err) = pollster::block_on(tmp_conn.unwrap().send_unreliable::<2>(Bytes::copy_from_slice(buffer.as_slice()).slice(0..data))) {
+                                        pollster::block_on(server.error(err, &client));
+                                        has_err.store(true, Ordering::Release);
+                                        // stop recording!
+                                        return;
+                                    }
                                 }
                             }
                         }

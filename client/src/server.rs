@@ -8,11 +8,11 @@ use std::ptr::slice_from_raw_parts_mut;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
-use bytes::Buf;
+use bytes::{Buf, BytesMut};
 use opus::{Application, Channels, Decoder, Encoder};
 use swap_arc::SwapArc;
 use tokio::sync::Mutex;
-use uuid::Uuid;
+use uuid::{Bytes, Uuid};
 use crate::{AddressMode, Channel, Client, ClientConfig, ClientPacket, NetworkClient, Profile, PROTOCOL_VERSION, RWBytes};
 use crate::audio::{AudioMode, SAMPLE_RATE};
 use crate::data_structures::byte_buf_ring::BBRing;
@@ -26,13 +26,34 @@ pub struct Server {
     pub channels: SwapArc<HashMap<Uuid, Channel>>,
     pub state: ServerState,
     pub name: String,
-    audio: Arc<ServerAudio>,
+    pub audio: Arc<ServerAudio>,
 }
 
-struct ServerAudio {
-    buffer: BBRing,
-    encoder: Mutex<Encoder>,
+pub struct ServerAudio {
+    pub buffer: BBRing<2>,
+    encoder: std::sync::Mutex<Encoder>,
     decoder: Mutex<Decoder>,
+}
+
+impl ServerAudio {
+
+    pub fn encode(&self, input: &[i16], output: &mut Vec<u8>) -> usize {
+        let mut encoder = self.encoder.lock().unwrap();
+        loop {
+            println!("input len: {}", input.len());
+            println!("output len: {}", output.len());
+            match encoder.encode(input, output) {
+                Ok(len) => {
+                    return len;
+                }
+                Err(err) => {
+                    println!("err: {}", err);
+                    output.resize(output.capacity().max(8) * 2, 0);
+                }
+            }
+        }
+    }
+
 }
 
 impl Server {
@@ -52,7 +73,7 @@ impl Server {
             name: server_name.clone(),
             audio: Arc::new(ServerAudio {
                 buffer: BBRing::new(8096),
-                encoder: Mutex::new(Encoder::new(SAMPLE_RATE, channels, Application::Voip).unwrap()),
+                encoder: std::sync::Mutex::new(Encoder::new(SAMPLE_RATE, channels, Application::Voip).unwrap()),
                 decoder: Mutex::new(Decoder::new(SAMPLE_RATE, channels).unwrap()),
             }),
         });
@@ -229,7 +250,7 @@ impl Server {
         tokio::spawn(async move { // FIXME: is this okay perf-wise?
             let server = tmp_server;
             let client = tmp_client;
-            let mut buffer = [0; 64000];
+            let mut buffer = [0; 2048];
             let mut buf_len = 0;
             loop {
                 let tmp_server = server.connection.get();
@@ -255,11 +276,13 @@ impl Server {
                             }
                         };*/
 
-                        if let Ok(_) = server.audio.decoder.lock().await.decode(data.as_ref(), &mut buffer, true) {
-                            println!("decoded voice traffic!");
+                        if let Ok(len) = server.audio.decoder.lock().await.decode(data.as_ref(), &mut buffer, false) {
+                            println!("decoded voice traffic {}", len);
                             client.audio.load().as_ref().play_back(move |buf, info| {
-                                if buf.len() != buf_len {
-                                    panic!("data length {} doesn't match buf length {}", buf_len, buf.len());
+                                if buf.len() != len {
+                                    // panic!("data length {} doesn't match buf length {}", len, buf.len());
+                                    // FIXME: we should probably skip the waiting period below!
+                                    return;
                                 }
                                 for i in 0..(buf.len()) {
                                     buf[i] = buffer[i];
@@ -268,7 +291,7 @@ impl Server {
                             buf_len = 0;
                         }
                         // thread::sleep(Duration::from_millis(60));
-                        tokio::time::sleep(Duration::from_millis(60)).await;
+                        tokio::time::sleep(Duration::from_millis(10)).await;
                     }
                     Err(err) => {
                         if server.state.try_set_disconnected() {

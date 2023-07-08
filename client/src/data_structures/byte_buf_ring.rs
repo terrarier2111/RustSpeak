@@ -49,20 +49,20 @@ type AtomicUHalfHalfSize = !;
 type AtomicUHalfHalfSize = !;
 
 /// This is designed for a single remover thread and multiple pusher threads.
-pub struct BBRing {
+pub struct BBRing<const ALIGN: usize = 1> {
     buf: *mut u8,
     cap: usize,
     marker: AtomicUsize, // head(32 bits) + len(16 bits) + finished_len(16 bits)
     remove_marker: AtomicUsize, // rem_head(32 bits) + rem_len(16 bits) + finished_rem_len(16 bits)
 }
 
-impl BBRing {
+impl<const ALIGN: usize> BBRing<ALIGN> {
 
     pub fn new(cap: usize) -> Self {
         if cap >= UHalfHalfSize::MAX as usize / 2 - 1 {
             panic!("Capacity is too large!");
         }
-        let buf = unsafe { alloc(Layout::from_size_align_unchecked(cap, 1)) };
+        let buf = unsafe { alloc(Layout::from_size_align_unchecked(cap, ALIGN)) };
         if buf.is_null() {
             panic!("There was an error allocating the ring buf");
         }
@@ -93,7 +93,7 @@ impl BBRing {
         true
     }
 
-    pub fn pop_front(&self) -> Option<BufGuard<'_>> {
+    pub fn pop_front(&self) -> Option<BufGuard<'_, ALIGN>> {
         let mut rem = Marker::from_raw(self.remove_marker.fetch_add(Marker::new(0, 1, 0).into_raw(), Ordering::AcqRel));
         let base = Marker::from_raw(self.marker.load(Ordering::Acquire));
         if rem.len() >= base.finished_len() {
@@ -123,17 +123,17 @@ impl BBRing {
 
 }
 
-impl Drop for BBRing {
+impl<const ALIGN: usize> Drop for BBRing<ALIGN> {
     fn drop(&mut self) {
-        unsafe { dealloc(self.buf, Layout::from_size_align_unchecked(self.cap, 1)) };
+        unsafe { dealloc(self.buf, Layout::from_size_align_unchecked(self.cap, ALIGN)) };
     }
 }
 
-unsafe impl Send for BBRing {}
-unsafe impl Sync for BBRing {}
+unsafe impl<const ALIGN: usize> Send for BBRing<ALIGN> {}
+unsafe impl<const ALIGN: usize> Sync for BBRing<ALIGN> {}
 
-pub struct BufGuard<'a> {
-    parent: &'a BBRing,
+pub struct BufGuard<'a, const ALIGN: usize = 1> {
+    parent: &'a BBRing<ALIGN>,
     ptr: SendablePtr<u8>,
     len: usize,
 }
@@ -144,19 +144,19 @@ struct SendablePtr<T>(*mut T);
 unsafe impl<T: Send> Send for SendablePtr<T> {}
 unsafe impl<T: Sync> Sync for SendablePtr<T> {}
 
-impl AsRef<[u8]> for BufGuard<'_> {
+impl<const ALIGN: usize> AsRef<[u8]> for BufGuard<'_, ALIGN> {
     fn as_ref(&self) -> &[u8] {
         unsafe { slice::from_raw_parts(self.ptr.0.cast_const(), self.len) }
     }
 }
 
-impl AsMut<[u8]> for BufGuard<'_> {
+impl<const ALIGN: usize> AsMut<[u8]> for BufGuard<'_, ALIGN> {
     fn as_mut(&mut self) -> &mut [u8] {
         unsafe { slice::from_raw_parts_mut(self.ptr.0, self.len) }
     }
 }
 
-impl Drop for BufGuard<'_> {
+impl<const ALIGN: usize> Drop for BufGuard<'_, ALIGN> {
     fn drop(&mut self) {
         self.parent.remove_marker.fetch_add(Marker::new(self.len + size_of::<UHalfSize>(), 0, 1).into_raw(), Ordering::AcqRel);
     }

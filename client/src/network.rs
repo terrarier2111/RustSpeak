@@ -53,8 +53,8 @@ impl NetworkClient {
         Ok(())
     }
 
-    pub async fn send_unreliable<const ALIGN: usize>(&self, mut buf: Bytes) -> anyhow::Result<()> {
-        // split up large packets into many smaller sub-packets
+    pub fn max_size<const ALIGN: usize>(&self) -> usize {
+        // split up large packets into many smaller sub-packets, this is the max bytes per packet
         let max_bytes = self.connection.max_datagram_size().unwrap() - 25;
         // align max_bytes
         let max_bytes = if ALIGN < 2 || max_bytes % ALIGN == 0 {
@@ -62,12 +62,24 @@ impl NetworkClient {
         } else {
             max_bytes - (max_bytes % ALIGN)
         };
+        max_bytes
+    }
+
+    pub async fn send_unreliable<const ALIGN: usize>(&self, mut buf: Bytes) -> anyhow::Result<()> {
+        let max_bytes = self.max_size::<ALIGN>();
+        // split up large packets into many smaller sub-packets
         let full_frames = buf.len().div_floor(max_bytes);
         println!("frame cnt: {}", full_frames + 1);
         for x in 0..full_frames {
             self.connection.send_datagram(buf.slice((x * max_bytes)..(x * max_bytes + max_bytes)))?;
         }
         self.connection.send_datagram(buf.slice((full_frames * max_bytes)..buf.len()))?;
+        Ok(())
+    }
+
+    /// Sends a chunk of data as a single packet
+    pub async fn send_unreliable_force<const ALIGN: usize>(&self, buf: Bytes) -> anyhow::Result<()> {
+        self.connection.send_datagram(buf)?;
         Ok(())
     }
 

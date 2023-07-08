@@ -60,9 +60,9 @@ impl Audio {
         let cfg = StreamConfig {
             channels: <AudioMode as Into<u16>>::into(audio_mode.unwrap()) as ChannelCount,
             sample_rate: SampleRate(SAMPLE_RATE),
-            buffer_size: BufferSize::Default/*BufferSize::Fixed(freq_quality.unwrap().into())*/,
+            buffer_size: BufferSize::Default/*BufferSize::Default*//*BufferSize::Fixed(freq_quality.unwrap().into())*/,
         };
-        // println!("{:?}", cfg);
+        // println!("buf size: {:?}", self.io_src.input().default_input_config().unwrap().buffer_size());
         let stream = self.io_src.input().build_input_stream(&cfg, handler, |err| {
             panic!("An error occurred while playing back the stream!");
         }, None)?;
@@ -77,7 +77,7 @@ impl Audio {
         let cfg = /*self.io_src.output().default_output_config()?.config()*/StreamConfig {
             channels: <AudioMode as Into<u16>>::into(audio_mode.unwrap()) as ChannelCount,
             sample_rate: SampleRate(SAMPLE_RATE),
-            buffer_size: BufferSize::Fixed(freq_quality.unwrap().into()),
+            buffer_size: BufferSize::Default/*BufferSize::Fixed(freq_quality.unwrap().into())*/,
         };
         let stream = self.io_src.output().build_output_stream(&cfg, data_callback, |err| {
             panic!("An error occurred while playing back the stream!");
