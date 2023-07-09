@@ -4,15 +4,11 @@
 
 extern crate core;
 
-use crate::atlas::Atlas;
 use crate::config::Config;
 use crate::network::{AddressMode, NetworkClient};
 use crate::packet::{Channel, ClientPacket};
 use crate::profile::Profile;
 use crate::protocol::{PROTOCOL_VERSION, RWBytes};
-use crate::render::Renderer;
-use crate::screen::server_list::ServerList;
-use crate::screen_sys::ScreenSystem;
 use crate::profile_db::{DbProfile, ProfileDb, uuid_from_pub_key};
 use crate::utils::current_time_millis;
 use bytes::{Bytes, BytesMut};
@@ -24,16 +20,11 @@ use std::{fs, thread};
 use std::error::Error;
 use std::fmt::{Debug, Display};
 use std::ops::Deref;
-use std::ptr::slice_from_raw_parts;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::sleep;
 use colored::{ColoredString, Colorize};
 use cpal::traits::{DeviceTrait, HostTrait};
-use wgpu::TextureFormat;
-use wgpu_biolerless::{StateBuilder, WindowSize};
-use winit::event::{ElementState, Event, MouseButton, WindowEvent};
-use winit::event_loop::{ControlFlow, EventLoopBuilder};
-use winit::window::WindowBuilder;
+use iced::{Application, Settings};
 use crate::audio::{Audio, AudioConfig};
 use crate::command::cli::{CLIBuilder, CmdParamStrConstraints, CommandBuilder, CommandImpl, CommandLineInterface, CommandParam, CommandParamTy, UsageBuilder};
 use crate::command::r#impl::CommandProfiles;
@@ -41,25 +32,25 @@ use crate::security_level::generate_token_num;
 use crate::server::Server;
 use pollster::FutureExt;
 use swap_arc::{SwapArc, SwapArcOption};
+use crate::new_ui::Ui;
 
-mod atlas;
 mod certificate;
 mod config;
 mod network;
 mod packet;
 mod profile;
 mod protocol;
-mod render;
-mod screen;
-mod screen_sys;
 mod security_level;
-mod ui;
 mod profile_db;
 mod utils;
 mod server;
 mod command;
 mod audio;
 pub mod data_structures;
+mod new_ui_serverlist;
+mod new_ui_main_menu;
+mod new_ui;
+mod new_ui_2;
 
 // FIXME: review all the endianness related shit!
 
@@ -79,7 +70,7 @@ async fn main() -> anyhow::Result<()> {
     let (cfg, profile_db) = load_data()?;
     let cfg = Arc::new(cfg);
     let profile_db = Arc::new(profile_db);
-    let event_loop = EventLoopBuilder::new().build();
+    /*let event_loop = EventLoopBuilder::new().build();
     let window = WindowBuilder::new()
         .with_title("RustSpeak")
         .build(&event_loop)
@@ -94,7 +85,7 @@ async fn main() -> anyhow::Result<()> {
     ));
     let renderer = Arc::new(Renderer::new(state.clone(), &window)?);
     let screen_sys = Arc::new(ScreenSystem::new());
-    screen_sys.push_screen(Box::new(ServerList::new()));
+    screen_sys.push_screen(Box::new(ServerList::new()));*/
     let cli = CLIBuilder::new()
         .prompt(ColoredString::from("RustSpeak").green())
         .help_msg(ColoredString::from("This command doesn't exist").red())
@@ -109,9 +100,6 @@ async fn main() -> anyhow::Result<()> {
     let client = Arc::new(Client {
         config: cfg.clone(),
         profile_db: profile_db.clone(),
-        renderer: renderer.clone(),
-        screen_sys: screen_sys.clone(),
-        atlas: atlas.clone(),
         cli,
         server: SwapArcOption::empty(),
         audio: SwapArc::new(Arc::new(Audio::from_cfg(&AudioConfig::new()?.unwrap())?.unwrap())),
@@ -189,9 +177,14 @@ async fn main() -> anyhow::Result<()> {
     println!(
         "Client started up successfully, waiting for commands..."
     );
+
+    Ok(Ui::run(Settings::default())?)
+    // new_ui_2::start();
+    // MainWindow::new().unwrap().run().unwrap();
+    // Ok(())
     // let client = start_connect_to();
 
-    let mut mouse_pos = (0.0, 0.0);
+    /*let mut mouse_pos = (0.0, 0.0);
     event_loop.run(move |event, _, control_flow| match event {
         Event::NewEvents(_) => {}
         Event::WindowEvent {
@@ -261,7 +254,7 @@ async fn main() -> anyhow::Result<()> {
         Event::RedrawEventsCleared => {}
         Event::LoopDestroyed => {}
         _ => {}
-    })
+    })*/
 }
 
 fn load_data() -> anyhow::Result<(Config, ProfileDb)> {
@@ -313,9 +306,9 @@ pub struct Client {
     pub config: Arc<Config>,
     // FIXME: make this somehow mutable (maybe using an ArcSwap or a Mutex)
     pub profile_db: Arc<ProfileDb>,
-    pub renderer: Arc<Renderer>,
-    pub screen_sys: Arc<ScreenSystem>,
-    pub atlas: Arc<Atlas>,
+    // pub renderer: Arc<Renderer>,
+    // pub screen_sys: Arc<ScreenSystem>,
+    // pub atlas: Arc<Atlas>,
     pub cli: CommandLineInterface,
     pub server: SwapArcOption<Server>, // FIXME: support multiple servers at once!
     pub audio: SwapArc<Audio>,

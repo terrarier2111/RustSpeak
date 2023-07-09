@@ -69,7 +69,6 @@ impl NetworkClient {
         let max_bytes = self.max_size::<ALIGN>();
         // split up large packets into many smaller sub-packets
         let full_frames = buf.len().div_floor(max_bytes);
-        println!("frame cnt: {}", full_frames + 1);
         for x in 0..full_frames {
             self.connection.send_datagram(buf.slice((x * max_bytes)..(x * max_bytes + max_bytes)))?;
         }

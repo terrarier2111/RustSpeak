@@ -1,24 +1,18 @@
-use std::alloc::{alloc, Layout};
 use std::collections::HashMap;
-use std::error::Error;
 use std::net::SocketAddr;
-use std::{ptr, slice, thread};
-use std::ops::{Deref, DerefMut};
-use std::ptr::slice_from_raw_parts_mut;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
-use bytes::{Buf, BytesMut};
+use bytes::Buf;
 use opus::{Application, Channels, Decoder, Encoder};
 use swap_arc::SwapArc;
 use tokio::sync::Mutex;
-use uuid::{Bytes, Uuid};
+use uuid::Uuid;
 use crate::{AddressMode, Channel, Client, ClientConfig, ClientPacket, NetworkClient, Profile, PROTOCOL_VERSION, RWBytes};
 use crate::audio::{AudioMode, SAMPLE_RATE};
 use crate::data_structures::byte_buf_ring::BBRing;
 use crate::data_structures::conc_once_cell::ConcurrentOnceCell;
 use crate::packet::ServerPacket;
-use crate::screen::connection_failure::ConnectionFailureScreen;
 
 pub struct Server {
     pub profile: Profile,
@@ -148,7 +142,8 @@ impl Server {
                     });
                 }
                 Err(_) => {
-                    client.screen_sys.push_screen(Box::new(ConnectionFailureScreen::new(&client, server_name.to_string())));
+                    // client.screen_sys.push_screen(Box::new(ConnectionFailureScreen::new(&client, server_name.to_string())));
+                    todo!()
                 }
             }
 
