@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use iced::{executor, Renderer, Theme};
 use iced::keyboard;
 use iced::subscription::{self, Subscription};
@@ -8,11 +9,36 @@ use iced::widget::{
 };
 use iced::{Alignment, Application, Command, Element, Event, Length, Settings};
 use iced::alignment::Horizontal;
+use crate::Client;
+use crate::data_structures::conc_once_cell::ConcurrentOnceCell;
+use crate::new_ui::UiMessage::ConnectToSrv;
 
-pub enum Ui {
+pub struct Ui {
+    pub ty: UiType,
+    client: Arc<Client>,
+}
+
+impl Ui {
+    
+    pub fn new() -> Self {
+        Self {
+            ty: UiType::Menu,
+            client: CLIENT.get().unwrap().clone(),
+        }
+    }
+    
+}
+
+pub enum UiType {
     Menu,
     Accounts,
     ServerList,
+}
+
+static CLIENT: ConcurrentOnceCell<Arc<Client>> = ConcurrentOnceCell::new();
+
+pub fn init_client(client: Arc<Client>) {
+    CLIENT.try_init_silent(client).unwrap();
 }
 
 impl Application for Ui {
@@ -22,7 +48,7 @@ impl Application for Ui {
     type Flags = ();
 
     fn new(flags: Self::Flags) -> (Self, Command<Self::Message>) {
-        (Self::Menu, Command::none())
+        (Self::new(), Command::none())
     }
 
     fn title(&self) -> String {
@@ -32,16 +58,19 @@ impl Application for Ui {
     fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
         match message {
             UiMessage::TestPressed => {}
-            UiMessage::MenuPressed => *self = Ui::Menu,
-            UiMessage::ServerListPressed => *self = Ui::ServerList,
-            UiMessage::AccountsPressed => *self = Ui::Accounts,
+            UiMessage::MenuPressed => self.ty = UiType::Menu,
+            UiMessage::ServerListPressed => self.ty = UiType::ServerList,
+            UiMessage::AccountsPressed => self.ty = UiType::Accounts,
+            ConnectToSrv(server) => {
+
+            }
         }
         Command::none()
     }
 
     fn view(&self) -> Element<'_, Self::Message, Renderer<Self::Theme>> {
-        let content = match self {
-            Ui::Menu => {
+        let content = match self.ty {
+            UiType::Menu => {
                 container(
                     column![
                 /*row![
@@ -72,7 +101,7 @@ impl Application for Ui {
                     .width(Length::Fill)
                     .height(Length::Fill).center_x()
             }
-            Ui::Accounts => {
+            UiType::Accounts => {
                 container(
                     column![
                 /*row![
@@ -103,8 +132,8 @@ impl Application for Ui {
                     .width(Length::Fill)
                     .height(Length::Fill).center_x()
             }
-            Ui::ServerList => {
-                container(
+            UiType::ServerList => {
+                let frame = container(
                     column![
                 /*row![
                     text("Top Left"),
@@ -132,7 +161,13 @@ impl Application for Ui {
                         .height(Length::Fill),
                 )
                     .width(Length::Fill)
-                    .height(Length::Fill).center_x()
+                    .height(Length::Fill).center_x().into();
+                let mut servers = vec![];
+                for server in self.client.config.fav_servers.iter() {
+                    servers.push(button(server.name.as_str()).on_press(ConnectToSrv(server.name.clone())).into());
+                }
+                container(column(vec![row(servers).into(), frame]))
+
             }
         };
         content.into()
@@ -145,4 +180,5 @@ pub enum UiMessage {
     MenuPressed,
     ServerListPressed,
     AccountsPressed,
+    ConnectToSrv(String),
 }

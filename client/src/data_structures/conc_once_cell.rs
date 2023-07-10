@@ -8,7 +8,7 @@ pub struct ConcurrentOnceCell<T> {
 
 impl<T> ConcurrentOnceCell<T> {
 
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             ptr: AtomicPtr::new(null_mut()),
         }

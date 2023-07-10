@@ -178,6 +178,7 @@ async fn main() -> anyhow::Result<()> {
         "Client started up successfully, waiting for commands..."
     );
 
+    new_ui::init_client(client);
     Ok(Ui::run(Settings::default())?)
     // new_ui_2::start();
     // MainWindow::new().unwrap().run().unwrap();
