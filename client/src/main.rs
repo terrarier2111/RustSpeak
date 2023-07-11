@@ -4,7 +4,7 @@
 
 extern crate core;
 
-use crate::config::Config;
+use crate::config::{Config, DATA_DIR_PATH, CONFIG_FILE, data_path};
 use crate::network::{AddressMode, NetworkClient};
 use crate::packet::{Channel, ClientPacket};
 use crate::profile::Profile;
@@ -68,7 +68,7 @@ async fn main() -> anyhow::Result<()> {
         println!("{:?}", cfg);
     }
     let (cfg, profile_db) = load_data()?;
-    let cfg = Arc::new(cfg);
+    let cfg = Arc::new(SwapArc::new(Arc::new(cfg)));
     let profile_db = Arc::new(profile_db);
     /*let event_loop = EventLoopBuilder::new().build();
     let window = WindowBuilder::new()
@@ -259,10 +259,8 @@ async fn main() -> anyhow::Result<()> {
 }
 
 fn load_data() -> anyhow::Result<(Config, ProfileDb)> {
-    let data_dir = dirs::config_dir().unwrap().join("RustSpeakClient/");
-    fs::create_dir_all(data_dir.clone())?;
-    let config = data_dir.join("config.json");
-    let config = Config::load_or_create(config.clone())?; // FIXME: move this into some thread safe (semi) global that can be accessed by the UI code
+    let config = Config::load_or_create()?;
+    let data_dir = data_path();
     let profile_db = ProfileDb::new(
         data_dir
             .join(RELATIVE_PROFILE_DB_PATH)
@@ -304,7 +302,7 @@ pub async fn start_connect_to(
     Ok(client)
 }
 pub struct Client {
-    pub config: Arc<Config>,
+    pub config: Arc<SwapArc<Config>>,
     // FIXME: make this somehow mutable (maybe using an ArcSwap or a Mutex)
     pub profile_db: Arc<ProfileDb>,
     // pub renderer: Arc<Renderer>,

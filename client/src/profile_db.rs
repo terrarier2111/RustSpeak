@@ -5,6 +5,7 @@ use sled::{Db, Iter, IVec};
 use openssl::pkey::PKey;
 use openssl::sha::sha256;
 use crate::profile::PRIVATE_KEY_LEN_BITS;
+use crate::protocol::UserUuid;
 use crate::security_level::generate_token_num;
 
 pub struct ProfileDb {
@@ -80,5 +81,13 @@ impl DbProfile {
             name: String::read(&mut buf)?,
             security_proofs: Vec::<U256>::read(&mut buf)?,
         })
+    }
+
+    pub fn pub_key(&self) -> anyhow::Result<Vec<u8>> {
+        Ok(PKey::private_key_from_der(&self.priv_key)?.public_key_to_der()?)
+    }
+
+    pub fn uuid(&self) -> anyhow::Result<U256> {
+        Ok(uuid_from_pub_key(&self.pub_key()?))
     }
 }
