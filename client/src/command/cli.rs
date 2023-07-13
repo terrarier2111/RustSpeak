@@ -58,6 +58,11 @@ impl CommandLineInterface {
                 Ok(false)
             },
             Some(cmd) => {
+                if cmd.params.as_ref().map(|all| all.inner.req.len()).unwrap_or(0) > parts.len() {
+                    // FIXME: print help properly!
+                    client.println("Too few parameters!");
+                    return Ok(false);
+                }
                 cmd.cmd_impl.execute(client, &parts)?;
                 Ok(true)
             }

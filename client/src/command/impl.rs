@@ -13,7 +13,7 @@ impl CommandImpl for CommandProfiles {
                 if client.profile_db.get(&input[1].to_string())?.is_some() {
                     return Err(anyhow::Error::from(ProfileAlreadyExistsError(input[1].to_string())));
                 }
-                client.profile_db.insert(DbProfile::new(input[1].to_string())?)?;
+                client.profile_db.insert(DbProfile::new(input[1].to_string(), input[1].to_string())?)?; // FIXME: support custom alias!
                 client.println(format!("A profile with the name {} was created.", input[1]).as_str());
             },
             "list" => {
@@ -32,6 +32,8 @@ impl CommandImpl for CommandProfiles {
                     generate_token_num(req_lvl, uuid_from_pub_key(&*pub_key), &mut profile.security_proofs);
                     client.profile_db.insert(profile)?;
                     client.println(format!("Successfully levelled up security level to {}", req_lvl).as_str());
+                } else {
+                    println!("Couldn't find profile {}", input[1]);
                 }
             }
             _ => {}
