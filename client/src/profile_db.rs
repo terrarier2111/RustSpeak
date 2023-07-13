@@ -42,8 +42,9 @@ impl ProfileDb {
 
 #[derive(Debug)]
 pub struct DbProfile {
+    pub name: String, // this is the name that is used by the client
+    pub alias: String, // this is the alias the server will see
     pub priv_key: Vec<u8>,
-    pub name: String,
     pub security_proofs: Vec<U256>,
 }
 
@@ -53,7 +54,7 @@ pub fn uuid_from_pub_key(pub_key: &[u8]) -> U256 {
 }
 
 impl DbProfile {
-    pub fn new(name: String) -> anyhow::Result<Self> {
+    pub fn new(name: String, alias: String) -> anyhow::Result<Self> {
         let keys = openssl::rsa::Rsa::generate(PRIVATE_KEY_LEN_BITS)?;
         let priv_key = PKey::from_rsa(keys)?;
         let uuid = uuid_from_pub_key(&*priv_key.public_key_to_der()?); // FIXME: IMPORTANT: (THIS COULD BE SECURITY RELEVANT) could we switch to using the raw public key instead of using the "der" version of it?
@@ -61,6 +62,7 @@ impl DbProfile {
         generate_token_num(1, uuid, &mut proofs);
         Ok(Self {
             name,
+            alias,
             priv_key: priv_key.private_key_to_der()?,
             security_proofs: proofs,
         })
@@ -68,8 +70,9 @@ impl DbProfile {
 
     fn to_bytes(self) -> anyhow::Result<IVec> {
         let mut buf = BytesMut::new();
-        self.priv_key.write(&mut buf)?;
         self.name.write(&mut buf)?;
+        self.alias.write(&mut buf)?;
+        self.priv_key.write(&mut buf)?;
         self.security_proofs.write(&mut buf)?;
         Ok(IVec::from(buf.to_vec()))
     }
@@ -77,8 +80,9 @@ impl DbProfile {
     pub(crate) fn from_bytes(bytes: IVec) -> anyhow::Result<Self> {
         let mut buf = Bytes::from(bytes.to_vec());
         Ok(Self {
-            priv_key: Vec::<u8>::read(&mut buf)?,
             name: String::read(&mut buf)?,
+            alias: String::read(&mut buf)?,
+            priv_key: Vec::<u8>::read(&mut buf)?,
             security_proofs: Vec::<U256>::read(&mut buf)?,
         })
     }

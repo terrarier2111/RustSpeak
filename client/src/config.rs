@@ -95,6 +95,7 @@ pub struct ServerEntry {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct UserUuidContainer {
     raw: [u8; size_of::<UserUuid>()],
+    #[serde(skip)]
     _align: [UserUuid; 0],
 }
 

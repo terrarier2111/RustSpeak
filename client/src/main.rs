@@ -70,22 +70,10 @@ async fn main() -> anyhow::Result<()> {
     let (cfg, profile_db) = load_data()?;
     let cfg = Arc::new(SwapArc::new(Arc::new(cfg)));
     let profile_db = Arc::new(profile_db);
-    /*let event_loop = EventLoopBuilder::new().build();
-    let window = WindowBuilder::new()
-        .with_title("RustSpeak")
-        .build(&event_loop)
-        .unwrap();
-    let state = Arc::new(pollster::block_on(
-        StateBuilder::new().window(&window).build(),
-    )?);
-    let atlas = Arc::new(Atlas::new(
-        state.clone(),
-        (1024, 1024),
-        TextureFormat::Rgba8Uint,
-    ));
-    let renderer = Arc::new(Renderer::new(state.clone(), &window)?);
-    let screen_sys = Arc::new(ScreenSystem::new());
-    screen_sys.push_screen(Box::new(ServerList::new()));*/
+    // if there is no profile, generate a default one
+    if profile_db.iter().next().is_none() {
+        profile_db.insert(DbProfile::new(String::from("default"), String::from("RustSpeakUser")).unwrap()).unwrap();
+    }
     let cli = CLIBuilder::new()
         .prompt(ColoredString::from("RustSpeak").green())
         .help_msg(ColoredString::from("This command doesn't exist").red())

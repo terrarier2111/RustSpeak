@@ -23,14 +23,25 @@ use crate::server::Server;
 pub struct Ui {
     pub ty: UiType,
     client: Arc<Client>,
+    data: Data,
+}
+
+struct Data {
+    config: Arc<Config>,
+    profiles: Vec<DbProfile>,
+    profiles_texts: Vec<String>,
 }
 
 impl Ui {
     
     pub fn new() -> Self {
+        let client = CLIENT.get().unwrap();
+        let profiles = client.profile_db.iter().map(|profile| DbProfile::from_bytes(profile.unwrap().1).unwrap()).collect::<Vec<_>>();
+        let profiles_texts = profiles.iter().map(|profile| format!("{} (\"{}\")", profile.name.as_str(), profile.alias.as_str())).collect();
         Self {
             ty: UiType::Menu,
-            client: CLIENT.get().unwrap().clone(),
+            data: Data { config: client.config.load_full(), profiles, profiles_texts },
+            client: client.clone(),
         }
     }
     
@@ -63,6 +74,7 @@ impl Application for Ui {
     }
 
     fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
+        // FIXME: update profiles!
         match message {
             UiMessage::TestPressed => {}
             UiMessage::MenuPressed => self.ty = UiType::Menu,
@@ -78,12 +90,13 @@ impl Application for Ui {
                             None
                         }
                     }).unwrap();
-                    Profile::from_existing(profile.name, profile.priv_key, profile.security_proofs)
+                    Profile::from_existing(profile.name, profile.alias, profile.priv_key, profile.security_proofs)
                 } else {
                     let mut profiles = self.client.profile_db.iter().collect::<Vec<_>>();
+                    println!("profiles222: {}", profiles.len());
                     let profile = profiles.remove(rand::thread_rng().gen_range(0..profiles.len())).unwrap().1;
                     let profile = DbProfile::from_bytes(profile).unwrap();
-                    let profile = Profile::from_existing(profile.name, profile.priv_key, profile.security_proofs);
+                    let profile = Profile::from_existing(profile.name, profile.alias, profile.priv_key, profile.security_proofs);
                     profile
                 };
                 if let Ok(server) = pollster::block_on(Server::new(self.client.clone(), profile, AddressMode::V4,
@@ -100,8 +113,9 @@ impl Application for Ui {
                 if let Some(account) = self.client.profile_db.get(&account).ok().flatten() {
                     let config = old_cfg.set_default_account(UserUuid::from_u256(account.uuid().unwrap()));
                     config.save().unwrap();
-                    self.client.config.store(Arc::new(config));
-
+                    let config = Arc::new(config);
+                    self.client.config.store(config.clone());
+                    self.data.config = config;
                 } else {
                     // FIXME: error - the account isn't present!
                 }
@@ -174,12 +188,11 @@ impl Application for Ui {
                     .width(Length::Fill)
                     .height(Length::Fill).center_x().into();
 
-                let profiles = self.client.profile_db.iter().map(|profile| DbProfile::from_bytes(profile.unwrap().1).unwrap()).collect::<Vec<_>>();
-                let mut accounts = vec![];
-                for profile in profiles.iter() {
-                    accounts.push(button(profile.name.as_str()).on_press(UiMessage::SwitchAccount(profile.name.clone())).into());
-                }
 
+                let mut accounts = vec![];
+                for (i, profile) in self.data.profiles.iter().enumerate() {
+                    accounts.push(button(self.data.profiles_texts[i].as_str()).on_press(UiMessage::SwitchAccount(profile.name.clone())).into());
+                }
                 container(column(vec![column(accounts).into(), frame])).into()
             }
             UiType::ServerList => {
@@ -213,8 +226,7 @@ impl Application for Ui {
                     .width(Length::Fill)
                     .height(Length::Fill).center_x().into();
                 let mut servers = vec![];
-                let cfg = self.client.config.load_full();
-                for server in cfg.fav_servers.iter() {
+                for server in self.data.config.fav_servers.iter() {
                     servers.push(button(server.name.as_str()).on_press(UiMessage::ConnectToSrv(server.name.clone())).into());
                 }
                 container(column(vec![row(servers).into(), frame])).into()

@@ -13,15 +13,17 @@ pub const PRIVATE_KEY_LEN_BITS: u32 = 4096;
 #[derive(Clone)]
 pub struct Profile {
     pub name: String,
+    pub alias: String,
     private_key: Vec<u8>, // this private rsa key gets used to verify the ownership of the profile
     pub security_proofs: Vec<U256>,
 }
 
 impl Profile {
     #[inline]
-    pub fn from_existing(name: String, private_key: Vec<u8>, security_proofs: Vec<U256>) -> Self {
+    pub fn from_existing(name: String, alias: String, private_key: Vec<u8>, security_proofs: Vec<U256>) -> Self {
         Self {
             name,
+            alias,
             private_key,
             security_proofs,
         }
