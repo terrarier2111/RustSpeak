@@ -24,7 +24,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::sleep;
 use colored::{ColoredString, Colorize};
 use cpal::traits::{DeviceTrait, HostTrait};
+use flume::{Receiver, Sender};
 use iced::{Application, Settings};
+use iced::futures::channel;
 use crate::audio::{Audio, AudioConfig};
 use crate::command::cli::{CLIBuilder, CmdParamStrConstraints, CommandBuilder, CommandImpl, CommandLineInterface, CommandParam, CommandParamTy, UsageBuilder};
 use crate::command::r#impl::CommandProfiles;
@@ -91,6 +93,7 @@ async fn main() -> anyhow::Result<()> {
         cli,
         server: SwapArcOption::empty(),
         audio: SwapArc::new(Arc::new(Audio::from_cfg(&AudioConfig::new()?.unwrap())?.unwrap())),
+        err_screen_queue: Arc::new(flume::unbounded()),
     });
 
     let tmp = client.clone();
@@ -299,6 +302,7 @@ pub struct Client {
     pub cli: CommandLineInterface,
     pub server: SwapArcOption<Server>, // FIXME: support multiple servers at once!
     pub audio: SwapArc<Audio>,
+    pub err_screen_queue: Arc<(Sender<String>, Receiver<String>)>,
 }
 
 impl Client {

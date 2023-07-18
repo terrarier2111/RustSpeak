@@ -1,6 +1,11 @@
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::pin::Pin;
 use std::sync::Arc;
-use iced::{executor, Renderer, Theme};
+use std::sync::mpsc::Receiver;
+use std::task::{Context, Poll};
+use flume::r#async::RecvStream;
+use futures_util::{Stream, StreamExt, TryStreamExt};
+use iced::{executor, Renderer, Theme, time};
 use iced::keyboard;
 use iced::subscription::{self, Subscription};
 use iced::theme;
@@ -10,6 +15,7 @@ use iced::widget::{
 };
 use iced::{Alignment, Application, Command, Element, Event, Length, Settings};
 use iced::alignment::Horizontal;
+use iced::futures::channel;
 use rand::Rng;
 use crate::{certificate, Client};
 use crate::config::Config;
@@ -30,6 +36,7 @@ struct Data {
     config: Arc<Config>,
     profiles: Vec<DbProfile>,
     profiles_texts: Vec<String>,
+    error_screens: Vec<String>,
 }
 
 impl Ui {
@@ -40,7 +47,7 @@ impl Ui {
         let profiles_texts = profiles.iter().map(|profile| format!("{} (\"{}\")", profile.name.as_str(), profile.alias.as_str())).collect();
         Self {
             ty: UiType::Menu,
-            data: Data { config: client.config.load_full(), profiles, profiles_texts },
+            data: Data { config: client.config.load_full(), profiles, profiles_texts, error_screens: vec![] },
             client: client.clone(),
         }
     }
@@ -76,7 +83,6 @@ impl Application for Ui {
     fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
         // FIXME: update profiles!
         match message {
-            UiMessage::TestPressed => {}
             UiMessage::MenuPressed => self.ty = UiType::Menu,
             UiMessage::ServerListPressed => self.ty = UiType::ServerList,
             UiMessage::AccountsPressed => self.ty = UiType::Accounts,
@@ -120,129 +126,97 @@ impl Application for Ui {
                     // FIXME: error - the account isn't present!
                 }
             }
+            UiMessage::OpenErr(err) => {
+                self.data.error_screens.push(err);
+            }
         }
         Command::none()
     }
 
     fn view(&self) -> Element<'_, Self::Message, Renderer<Self::Theme>> {
+        let frame = container(
+            column![
+                row![
+                    vertical_space(Length::Fill),
+                    button(text("Menu")).on_press(UiMessage::MenuPressed),
+                    button(text("Server list")).on_press(UiMessage::ServerListPressed),
+                    button(text("Accounts")).on_press(UiMessage::AccountsPressed)
+                ].spacing(20).padding(20)
+                .align_items(Alignment::End)
+                .height(Length::Fill),
+            ]
+                .height(Length::Fill),
+        )
+            .width(Length::Fill)
+            .height(Length::Fill).center_x().into();
+        let err_screen = self.data.error_screens.last().map(|x| row![
+                    vertical_space(Length::FillPortion(2)),
+                    text(x.as_str())
+                ]);
         let content = match self.ty {
             UiType::Menu => {
-                container(
-                    column![
-                /*row![
-                    text("Top Left"),
-                    horizontal_space(Length::Fill),
-                    text("Top Right")
-                ]
-                .align_items(Alignment::Start)
-                .height(Length::Fill),*/
-                /*container(
-                    button(text("Test")).on_press(UiMessage::TestPressed)
-                )
-                .center_x()
-                .center_y()
-                .width(Length::Fill)
-                .height(Length::Fill),*/
-                row![
-                    vertical_space(Length::Fill),
-                    button(text("Menu")).on_press(UiMessage::MenuPressed),
-                    button(text("Server list")).on_press(UiMessage::ServerListPressed),
-                    button(text("Accounts")).on_press(UiMessage::AccountsPressed)
-                ].spacing(20).padding(20)
-                .align_items(Alignment::End)
-                .height(Length::Fill),
-            ]
-                        .height(Length::Fill),
-                )
-                    .width(Length::Fill)
-                    .height(Length::Fill).center_x().into()
+                if let Some(err_screen) = err_screen {
+                    container(column(vec![err_screen.into(), frame])).into()
+                } else {
+                    frame
+                }
             }
             UiType::Accounts => {
-                let frame = container(
-                    column![
-                /*row![
-                    text("Top Left"),
-                    horizontal_space(Length::Fill),
-                    text("Top Right")
-                ]
-                .align_items(Alignment::Start)
-                .height(Length::Fill),*/
-                /*container(
-                    button(text("Test")).on_press(UiMessage::TestPressed)
-                )
-                .center_x()
-                .center_y()
-                .width(Length::Fill)
-                .height(Length::Fill),*/
-                row![
-                    vertical_space(Length::Fill),
-                    button(text("Menu")).on_press(UiMessage::MenuPressed),
-                    button(text("Server list")).on_press(UiMessage::ServerListPressed),
-                    button(text("Accounts")).on_press(UiMessage::AccountsPressed)
-                ].spacing(20).padding(20)
-                .align_items(Alignment::End)
-                .height(Length::Fill),
-            ]
-                        .height(Length::Fill),
-                )
-                    .width(Length::Fill)
-                    .height(Length::Fill).center_x().into();
-
-
                 let mut accounts = vec![];
                 for (i, profile) in self.data.profiles.iter().enumerate() {
                     accounts.push(button(self.data.profiles_texts[i].as_str()).on_press(UiMessage::SwitchAccount(profile.name.clone())).into());
                 }
-                container(column(vec![column(accounts).into(), frame])).into()
+                if let Some(err_screen) = err_screen {
+                    container(column(vec![err_screen.into(), row(accounts).into(), frame])).into()
+                } else {
+                    container(column(vec![row(accounts).into(), frame])).into()
+                }
             }
             UiType::ServerList => {
-                let frame = container(
-                    column![
-                /*row![
-                    text("Top Left"),
-                    horizontal_space(Length::Fill),
-                    text("Top Right")
-                ]
-                .align_items(Alignment::Start)
-                .height(Length::Fill),*/
-                /*container(
-                    button(text("Test")).on_press(UiMessage::TestPressed)
-                )
-                .center_x()
-                .center_y()
-                .width(Length::Fill)
-                .height(Length::Fill),*/
-                row![
-                    vertical_space(Length::Fill),
-                    button(text("Menu")).on_press(UiMessage::MenuPressed),
-                    button(text("Server list")).on_press(UiMessage::ServerListPressed),
-                    button(text("Accounts")).on_press(UiMessage::AccountsPressed)
-                ].spacing(20).padding(20)
-                .align_items(Alignment::End)
-                .height(Length::Fill),
-            ]
-                        .height(Length::Fill),
-                )
-                    .width(Length::Fill)
-                    .height(Length::Fill).center_x().into();
                 let mut servers = vec![];
                 for server in self.data.config.fav_servers.iter() {
                     servers.push(button(server.name.as_str()).on_press(UiMessage::ConnectToSrv(server.name.clone())).into());
                 }
-                container(column(vec![row(servers).into(), frame])).into()
-
+                if let Some(err_screen) = err_screen {
+                    container(column(vec![err_screen.into(), row(servers).into(), frame])).into()
+                } else {
+                    container(column(vec![row(servers).into(), frame])).into()
+                }
             }
         };
         content
+    }
+
+    fn subscription(&self) -> Subscription<Self::Message> {
+        subscription::run(stream)
+    }
+    
+}
+
+fn stream<'a>() -> MakeUiMessage<'a> {
+    MakeUiMessage(CLIENT.get().unwrap().err_screen_queue.1.stream())
+}
+
+struct MakeUiMessage<'a>(RecvStream<'a, String>);
+
+impl<'a> Stream for MakeUiMessage<'a> {
+    type Item = UiMessage;
+
+    #[inline]
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match Stream::poll_next(unsafe { Pin::new_unchecked(&mut self.0) }, cx) {
+            Poll::Ready(val) => Poll::Ready(val.map(|val| UiMessage::OpenErr(val))),
+            Poll::Pending => Poll::Pending,
+        }
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum UiMessage {
-    TestPressed,
     MenuPressed,
     ServerListPressed,
     AccountsPressed,
     ConnectToSrv(String),
     SwitchAccount(String),
+    OpenErr(String),
 }

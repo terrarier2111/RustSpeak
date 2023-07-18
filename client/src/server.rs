@@ -143,7 +143,7 @@ impl Server {
                 }
                 Err(_) => {
                     // client.screen_sys.push_screen(Box::new(ConnectionFailureScreen::new(&client, server_name.to_string())));
-                    todo!()
+                    client.err_screen_queue.0.send(server_name.to_string()).unwrap();
                 }
             }
 
