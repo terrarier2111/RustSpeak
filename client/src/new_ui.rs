@@ -37,6 +37,8 @@ struct Data {
     profiles: Vec<DbProfile>,
     profiles_texts: Vec<String>,
     error_screens: Vec<String>,
+    channel_texts: Vec<(String, bool)>,
+    active_profile: Option<UserUuid>,
 }
 
 impl Ui {
@@ -47,7 +49,7 @@ impl Ui {
         let profiles_texts = profiles.iter().map(|profile| format!("{} (\"{}\")", profile.name.as_str(), profile.alias.as_str())).collect();
         Self {
             ty: UiType::Menu,
-            data: Data { config: client.config.load_full(), profiles, profiles_texts, error_screens: vec![] },
+            data: Data { config: client.config.load_full(), profiles, profiles_texts, error_screens: vec![], channel_texts: vec![], active_profile: None },
             client: client.clone(),
         }
     }
@@ -105,10 +107,17 @@ impl Application for Ui {
                     let profile = Profile::from_existing(profile.name, profile.alias, profile.priv_key, profile.security_proofs);
                     profile
                 };
+                let uuid = profile.uuid();
+                self.data.active_profile = Some(uuid);
                 if let Ok(server) = pollster::block_on(Server::new(self.client.clone(), profile, AddressMode::V4,
                                                                    certificate::insecure_local::config(),
                                                                    SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 20354)),
                                                                    server_name.clone())) {
+                    let channels_loaded = server.channels.load();
+                    let channel_texts = channels_loaded.iter().map(|channel| (channel.1.name.clone(), channel.1.clients.iter().any(|client| &client.uuid == &uuid))).collect::<Vec<_>>();
+                    panic!("channels: {}", channel_texts.len());
+                    self.data.channel_texts = channel_texts;
+                    drop(channels_loaded);
                     self.client.server.store(Some(server));
                 } else {
                     // FIXME: connection failure!
@@ -128,6 +137,16 @@ impl Application for Ui {
             }
             UiMessage::OpenErr(err) => {
                 self.data.error_screens.push(err);
+            }
+            UiMessage::ChannelClicked(channel) => {
+                let server = self.client.server.load();
+                if let Some(server) = server.as_ref() {
+                    let channel_names = server.channels_by_name.load();
+                    let channel_id = channel_names.get(channel.as_str()).unwrap();
+                    let channels = server.channels.load();
+                    let channel = channels.get(channel_id).unwrap();
+                    // FIXME: join channel!
+                }
             }
         }
         Command::none()
@@ -155,6 +174,19 @@ impl Application for Ui {
                 ]);
         let content = match self.ty {
             UiType::Menu => {
+                let server = self.client.server.load();
+                let frame = if let Some(server) = server.as_ref() {
+                    let mut channels = vec![];
+                    for channel in self.data.channel_texts.iter() {
+                        channels.push(row![
+                            vertical_space(Length::Fill),
+                            button(text(channel.0.as_str())).on_press(UiMessage::ChannelClicked(channel.0.clone())),
+                        ].into());
+                    }
+                    container(column(vec![column(channels).into(), frame])).into()
+                } else {
+                    frame
+                };
                 if let Some(err_screen) = err_screen {
                     container(column(vec![err_screen.into(), frame])).into()
                 } else {
@@ -218,5 +250,6 @@ pub enum UiMessage {
     AccountsPressed,
     ConnectToSrv(String),
     SwitchAccount(String),
+    ChannelClicked(String),
     OpenErr(String),
 }

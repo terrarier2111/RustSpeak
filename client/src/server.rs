@@ -12,12 +12,13 @@ use crate::{AddressMode, Channel, Client, ClientConfig, ClientPacket, NetworkCli
 use crate::audio::{AudioMode, SAMPLE_RATE};
 use crate::data_structures::byte_buf_ring::BBRing;
 use crate::data_structures::conc_once_cell::ConcurrentOnceCell;
-use crate::packet::ServerPacket;
+use crate::packet::{AuthResponse, ServerPacket};
 
 pub struct Server {
     pub profile: Profile,
     pub connection: ConcurrentOnceCell<Arc<NetworkClient>>,
     pub channels: SwapArc<HashMap<Uuid, Channel>>,
+    pub channels_by_name: SwapArc<HashMap<String, Uuid>>, // FIXME: maintain this!
     pub state: ServerState,
     pub name: String,
     pub audio: Arc<ServerAudio>,
@@ -63,6 +64,7 @@ impl Server {
             profile: profile.clone(),
             connection: ConcurrentOnceCell::new(),
             channels: Default::default(),
+            channels_by_name: Default::default(),
             state: ServerState::new(),
             name: server_name.clone(),
             audio: Arc::new(ServerAudio {
@@ -312,8 +314,23 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
 
         }
         ClientPacket::UpdateClientServerGroups { .. } => {}*/
-        ServerPacket::AuthResponse(_response) => {
-            server.finish_auth(client.clone()).await;
+        ServerPacket::AuthResponse(response) => {
+            match response {
+                AuthResponse::Success { channels, default_channel_id, server_groups, own_groups } => {
+                    let mut channels_by_uuid = HashMap::new();
+                    let mut channels_by_name = HashMap::new();
+                    for channel in channels {
+                        channels_by_name.insert(channel.name.clone(), channel.id);
+                        channels_by_uuid.insert(channel.id, channel);
+                    }
+                    server.channels.store(Arc::new(channels_by_uuid));
+                    server.channels_by_name.store(Arc::new(channels_by_name));
+                    server.finish_auth(client.clone()).await;
+                }
+                AuthResponse::Failure(_) => {
+                    // FIXME: do error screen!
+                }
+            }
         }
         ServerPacket::ChannelUpdate(_) => {}
         ServerPacket::ClientConnected(_) => {}
