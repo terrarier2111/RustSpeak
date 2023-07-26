@@ -37,8 +37,14 @@ struct Data {
     profiles: Vec<DbProfile>,
     profiles_texts: Vec<String>,
     error_screens: Vec<String>,
-    channel_texts: Vec<(String, bool)>,
+    channel_texts: Vec<ChannelText>,
     active_profile: Option<UserUuid>,
+}
+
+struct ChannelText {
+    current: bool,
+    text: String,
+    name: String,
 }
 
 impl Ui {
@@ -146,7 +152,11 @@ impl Application for Ui {
             UiMessage::ServerConnected => {
                 let server = self.client.server.load();
                 let channels_loaded = server.as_ref().unwrap().channels.load();
-                let channel_texts = channels_loaded.iter().map(|channel| (channel.1.name.clone(), channel.1.clients.iter().any(|client| &client.uuid == self.data.active_profile.as_ref().unwrap()))).collect::<Vec<_>>();
+                let channel_texts = channels_loaded.iter().map(|channel| ChannelText {
+                    current: channel.1.clients.iter().any(|client| &client.uuid == self.data.active_profile.as_ref().unwrap()),
+                    text: format!("{} ({}/{})", channel.1.name.as_str(), channel.1.clients.len(), channel.1.slots),
+                    name: channel.1.name.clone(),
+                }).collect::<Vec<_>>();
                 self.data.channel_texts = channel_texts;
             }
         }
@@ -192,7 +202,11 @@ impl Application for Ui {
                     let mut channels = vec![];
                     for channel in self.data.channel_texts.iter() {
                         channels.push(row![
-                            button(text(channel.0.as_str())).on_press(UiMessage::ChannelClicked(channel.0.clone())),
+                            button(text(channel.text.as_str())).on_press(UiMessage::ChannelClicked(channel.name.clone())).style(if channel.current {
+                                theme::Button::Secondary
+                            } else {
+                                theme::Button::Primary
+                            }),
                         ].into());
                     }
                     container(column(vec![column(channels).into(), frame])).into()

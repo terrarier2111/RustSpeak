@@ -7,7 +7,7 @@ use std::error::Error;
 use std::fmt::{Debug, Display, Formatter, Write};
 use std::mem::{discriminant, transmute};
 use std::ops::Deref;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
@@ -310,6 +310,54 @@ impl RWBytes for AtomicBool {
 
     fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
         bool::read(src, client_key)
+    }
+
+    fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
+        self.load(Ordering::Acquire).write(dst)
+    }
+}
+
+impl RWBytes for AtomicU8 {
+    type Ty = u8;
+
+    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+        u8::read(src, client_key)
+    }
+
+    fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
+        self.load(Ordering::Acquire).write(dst)
+    }
+}
+
+impl RWBytes for AtomicU16 {
+    type Ty = u16;
+
+    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+        u16::read(src, client_key)
+    }
+
+    fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
+        self.load(Ordering::Acquire).write(dst)
+    }
+}
+
+impl RWBytes for AtomicU32 {
+    type Ty = u32;
+
+    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+        u32::read(src, client_key)
+    }
+
+    fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
+        self.load(Ordering::Acquire).write(dst)
+    }
+}
+
+impl RWBytes for AtomicU64 {
+    type Ty = u64;
+
+    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+        u64::read(src, client_key)
     }
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {

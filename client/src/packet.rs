@@ -457,6 +457,7 @@ pub struct Channel {
     pub(crate) desc: String,
     pub(crate) perms: ChannelPerms,
     pub(crate) clients: Vec<RemoteProfile>,
+    pub(crate) slots: u16,
 }
 
 impl RWBytes for Channel {
@@ -469,6 +470,7 @@ impl RWBytes for Channel {
         let desc = String::read(src)?;
         let perms = ChannelPerms::read(src)?;
         let clients = Vec::<RemoteProfile>::read(src)?;
+        let slots = u16::read(src)?;
 
         Ok(Self {
             id,
@@ -477,6 +479,7 @@ impl RWBytes for Channel {
             desc,
             perms,
             clients,
+            slots,
         })
     }
 
@@ -487,6 +490,7 @@ impl RWBytes for Channel {
         self.desc.write(dst)?;
         self.perms.write(dst)?;
         self.clients.write(dst)?;
+        self.slots.write(dst)?;
 
         Ok(())
     }

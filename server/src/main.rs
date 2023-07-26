@@ -36,7 +36,7 @@ use std::fmt::{Debug, Display, Formatter, Write};
 use std::fs::File;
 use std::net::IpAddr;
 use std::ops::Deref;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::{fs, thread};
 use std::future::Future;
@@ -113,6 +113,7 @@ fn main() -> anyhow::Result<()> {
                     assign_talk: 100,
                     delete: 100,
                 },
+                slots: 100,
             }])
         })?
         .into_iter()
@@ -124,6 +125,7 @@ fn main() -> anyhow::Result<()> {
             perms: Arc::new(SwapArc::new(Arc::new(entry.perms))),
             clients: Arc::new(Default::default()),
             proto_clients: Arc::new(Default::default()),
+            slots: AtomicU16::new(entry.slots),
         })
         .collect::<Vec<_>>();
     let channels = {
@@ -433,17 +435,14 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                         // FIXME: insert data send the proper data back!
                         new_conn.uuid.try_init(uuid).unwrap();
                         server.println(format!("{} ({:?}) successfully connected", name, uuid).as_str());
-                        let channels = server.channels.read().await;
-                        let channels = channels.values();
                         let server_groups = server.server_groups.read().await;
                         let server_groups = server_groups.values();
-                        let channels = channels.cloned().collect::<Vec<_>>();
                         let user = if let Some(user) = server.user_db.get(&uuid)? {
                             user
                         } else {
                             let user = DbUser {
                                 uuid,
-                                name,
+                                name: name.clone(),
                                 last_security_proof: last_security_proof.unwrap(),
                                 last_verified_security_level: security_proof_result,
                                 groups: vec![],
@@ -462,8 +461,17 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                             groups: RwLock::new(user.groups.clone()),
                             connection: new_conn.clone(),
                         });
-                        server.channels.read().await.get(&new_conn.channel.load()).unwrap().clients.write().await.push(uuid); // FIXME: remove the user from the channel again later on!
+                        let channels = server.channels.read().await;
+                        let channel = channels.get(&new_conn.channel.load()).unwrap();
+                        channel.clients.write().await.push(uuid); // FIXME: remove the user from the channel again later on!
+                        RwLock::write(&channel.proto_clients).unwrap().push(RemoteProfile {
+                            name,
+                            uuid,
+                            server_groups: user.groups.clone(),
+                        }); // FIXME: remove the user from the channel again later on!
                         // println!("channels: {}", channels.len());
+                        let channels = channels.values();
+                        let channels = channels.cloned().collect::<Vec<_>>();
                         let auth = ServerPacket::AuthResponse(AuthResponse::Success {
                             default_channel_id: Uuid::from_u128(server.config.default_channel_id),
                             server_groups: server_groups.cloned().collect::<Vec<_>>(), // FIXME: try getting rid of this clone!

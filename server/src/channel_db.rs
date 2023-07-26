@@ -15,6 +15,7 @@ pub struct ChannelDbEntry<'a> {
     pub password: bool,
     pub user_groups: Vec<(u128, u128)>, // user uuid and channel group uuid
     pub perms: ChannelPerms,
+    pub slots: u16, // FIXME: add option for unlimited slots via `-1` value!
 }
 
 pub struct ChannelDb {
