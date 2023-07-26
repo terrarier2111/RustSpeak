@@ -107,17 +107,11 @@ impl Application for Ui {
                     let profile = Profile::from_existing(profile.name, profile.alias, profile.priv_key, profile.security_proofs);
                     profile
                 };
-                let uuid = profile.uuid();
-                self.data.active_profile = Some(uuid);
+                self.data.active_profile = Some(profile.uuid());
                 if let Ok(server) = pollster::block_on(Server::new(self.client.clone(), profile, AddressMode::V4,
                                                                    certificate::insecure_local::config(),
                                                                    SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 20354)),
                                                                    server_name.clone())) {
-                    let channels_loaded = server.channels.load();
-                    let channel_texts = channels_loaded.iter().map(|channel| (channel.1.name.clone(), channel.1.clients.iter().any(|client| &client.uuid == &uuid))).collect::<Vec<_>>();
-                    panic!("channels: {}", channel_texts.len());
-                    self.data.channel_texts = channel_texts;
-                    drop(channels_loaded);
                     self.client.server.store(Some(server));
                 } else {
                     // FIXME: connection failure!
@@ -147,6 +141,12 @@ impl Application for Ui {
                     let channel = channels.get(channel_id).unwrap();
                     // FIXME: join channel!
                 }
+            }
+            UiMessage::ServerConnected => {
+                let server = self.client.server.load();
+                let channels_loaded = server.as_ref().unwrap().channels.load();
+                let channel_texts = channels_loaded.iter().map(|channel| (channel.1.name.clone(), channel.1.clients.iter().any(|client| &client.uuid == self.data.active_profile.as_ref().unwrap()))).collect::<Vec<_>>();
+                self.data.channel_texts = channel_texts;
             }
         }
         Command::none()
@@ -226,10 +226,10 @@ impl Application for Ui {
 }
 
 fn stream<'a>() -> MakeUiMessage<'a> {
-    MakeUiMessage(CLIENT.get().unwrap().err_screen_queue.1.stream())
+    MakeUiMessage(CLIENT.get().unwrap().inter_ui_msg_queue.1.stream())
 }
 
-struct MakeUiMessage<'a>(RecvStream<'a, String>);
+struct MakeUiMessage<'a>(RecvStream<'a, InterUiMessage>);
 
 impl<'a> Stream for MakeUiMessage<'a> {
     type Item = UiMessage;
@@ -237,7 +237,10 @@ impl<'a> Stream for MakeUiMessage<'a> {
     #[inline]
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match Stream::poll_next(unsafe { Pin::new_unchecked(&mut self.0) }, cx) {
-            Poll::Ready(val) => Poll::Ready(val.map(|val| UiMessage::OpenErr(val))),
+            Poll::Ready(val) => Poll::Ready(val.map(|val| match val {
+                InterUiMessage::Error(err) => UiMessage::OpenErr(err),
+                InterUiMessage::ServerConnected => UiMessage::ServerConnected,
+            })),
             Poll::Pending => Poll::Pending,
         }
     }
@@ -252,4 +255,11 @@ pub enum UiMessage {
     SwitchAccount(String),
     ChannelClicked(String),
     OpenErr(String),
+    ServerConnected,
+}
+
+#[derive(Debug, Clone)]
+pub enum InterUiMessage {
+    Error(String),
+    ServerConnected,
 }

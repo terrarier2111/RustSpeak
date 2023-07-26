@@ -34,7 +34,7 @@ use crate::security_level::generate_token_num;
 use crate::server::Server;
 use pollster::FutureExt;
 use swap_arc::{SwapArc, SwapArcOption};
-use crate::new_ui::Ui;
+use crate::new_ui::{InterUiMessage, Ui};
 
 mod certificate;
 mod config;
@@ -93,7 +93,7 @@ async fn main() -> anyhow::Result<()> {
         cli,
         server: SwapArcOption::empty(),
         audio: SwapArc::new(Arc::new(Audio::from_cfg(&AudioConfig::new()?.unwrap())?.unwrap())),
-        err_screen_queue: Arc::new(flume::unbounded()),
+        inter_ui_msg_queue: Arc::new(flume::unbounded()),
     });
 
     let tmp = client.clone();
@@ -302,7 +302,7 @@ pub struct Client {
     pub cli: CommandLineInterface,
     pub server: SwapArcOption<Server>, // FIXME: support multiple servers at once!
     pub audio: SwapArc<Audio>,
-    pub err_screen_queue: Arc<(Sender<String>, Receiver<String>)>,
+    pub inter_ui_msg_queue: Arc<(Sender<InterUiMessage>, Receiver<InterUiMessage>)>,
 }
 
 impl Client {

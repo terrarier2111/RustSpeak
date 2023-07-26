@@ -12,6 +12,7 @@ use crate::{AddressMode, Channel, Client, ClientConfig, ClientPacket, NetworkCli
 use crate::audio::{AudioMode, SAMPLE_RATE};
 use crate::data_structures::byte_buf_ring::BBRing;
 use crate::data_structures::conc_once_cell::ConcurrentOnceCell;
+use crate::new_ui::InterUiMessage;
 use crate::packet::{AuthResponse, ServerPacket};
 
 pub struct Server {
@@ -145,7 +146,7 @@ impl Server {
                 }
                 Err(_) => {
                     // client.screen_sys.push_screen(Box::new(ConnectionFailureScreen::new(&client, server_name.to_string())));
-                    client.err_screen_queue.0.send(server_name.to_string()).unwrap();
+                    client.inter_ui_msg_queue.0.send(InterUiMessage::Error(server_name.to_string())).unwrap();
                 }
             }
 
@@ -326,6 +327,7 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
                     server.channels.store(Arc::new(channels_by_uuid));
                     server.channels_by_name.store(Arc::new(channels_by_name));
                     server.finish_auth(client.clone()).await;
+                    client.inter_ui_msg_queue.0.send(InterUiMessage::ServerConnected).unwrap();
                 }
                 AuthResponse::Failure(_) => {
                     // FIXME: do error screen!
