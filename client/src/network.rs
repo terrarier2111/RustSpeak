@@ -130,7 +130,7 @@ impl NetworkClient {
                 match this.read_keep_alive().await {
                     Ok(keep_alive) => {
                         // FIXME: use the keep alive!
-                        println!("got keep alive: {}", keep_alive.id);
+                        // println!("got keep alive: {}", keep_alive.id);
                     }
                     Err(_err) => {
                         // FIXME: somehow give feedback to server console and to client

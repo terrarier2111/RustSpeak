@@ -36,8 +36,8 @@ impl ServerAudio {
     pub fn encode(&self, input: &[i16], output: &mut Vec<u8>) -> usize {
         let mut encoder = self.encoder.lock().unwrap();
         loop {
-            println!("input len: {}", input.len());
-            println!("output len: {}", output.len());
+            // println!("input len: {}", input.len());
+            // println!("output len: {}", output.len());
             match encoder.encode(input, output) {
                 Ok(len) => {
                     return len;
@@ -254,7 +254,7 @@ impl Server {
                 let tmp_server = server.connection.get();
                 match tmp_server.unwrap().read_unreliable().await {
                     Ok(data) => {
-                        println!("received voice traffic {}", data.len());
+                        // println!("received voice traffic {}", data.len());
                         if data.len() + buf_len * 2 > buffer.len() * 2 {
                             panic!("Buffer too small ({}) present but ({}) required", buffer.len(), data.len() / 2 + buf_len);
                         }
@@ -275,7 +275,7 @@ impl Server {
                         };*/
 
                         if let Ok(len) = server.audio.decoder.lock().await.decode(data.as_ref(), &mut buffer, false) {
-                            println!("decoded voice traffic {}", len);
+                            // println!("decoded voice traffic {}", len);
                             client.audio.load().as_ref().play_back(move |buf, info| {
                                 if buf.len() != len {
                                     // panic!("data length {} doesn't match buf length {}", len, buf.len());

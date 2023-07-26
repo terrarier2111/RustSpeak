@@ -305,9 +305,9 @@ fn main() -> anyhow::Result<()> {
         backoff.snooze();
     };
 
-    println!(
-        "Server started up successfully, waiting for inbound connections on port {}...",
-        server.config.port
+    server.println(
+        format!("Server started up successfully, waiting for inbound connections on port {}...",
+        server.config.port).as_str()
     );
 
     while !server.shut_down.load(Ordering::Acquire) {
@@ -343,10 +343,10 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                     // let id = header.get_u8(); // FIXME: try to somehow get this data here already
                     // let mut data = new_conn.read_reliable(size as usize).await?;
                     let size = new_conn.read_reliable(8).await?.get_u64_le();
-                    println!("got size {}", size);
+                    // println!("got size {}", size);
                     let mut data = new_conn.read_reliable(size as usize).await?;
                     let packet = ClientPacket::read(&mut data, None)?;
-                    println!("read packet!");
+                    // println!("read packet!");
                     let server = server.clone();
                     if let ClientPacket::AuthRequest {
                         protocol_version,
@@ -463,7 +463,7 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                             connection: new_conn.clone(),
                         });
                         server.channels.read().await.get(&new_conn.channel.load()).unwrap().clients.write().await.push(uuid); // FIXME: remove the user from the channel again later on!
-                        println!("channels: {}", channels.len());
+                        // println!("channels: {}", channels.len());
                         let auth = ServerPacket::AuthResponse(AuthResponse::Success {
                             default_channel_id: Uuid::from_u128(server.config.default_channel_id),
                             server_groups: server_groups.cloned().collect::<Vec<_>>(), // FIXME: try getting rid of this clone!

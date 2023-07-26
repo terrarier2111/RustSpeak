@@ -115,14 +115,14 @@ async fn main() -> anyhow::Result<()> {
                     continue;
                 }
                     let client = client.clone();
-                    println!("in audio loop!");
+                    // println!("in audio loop!");
                     let tmp_client = client.clone();
                     let has_err = Arc::new(AtomicBool::new(false));
                     let server = server.clone();
                     let has_err_rec = has_err.clone();
                     let glob_buf = Arc::new(Mutex::new(vec![]));
                     let stream = client.audio.load().start_record(move |data, input| {
-                        println!("recorded!");
+                        // println!("recorded!");
                         let has_err = &has_err_rec;
                         // FIXME: handle endianness of `data`
                         // println!("sending audio {}", data.len());
@@ -139,7 +139,7 @@ async fn main() -> anyhow::Result<()> {
                                 // server.audio.buffer.push(unsafe { &*slice_from_raw_parts(data as *const [i16] as *const i16 as *const u8, data.len() * 2) });
                                 if glob_buf.len() >= MIN_BUF_SIZE {
                                     let mut buffer = vec![0; 2048];
-                                    println!("max diff: {}", max_diff);
+                                    // println!("max diff: {}", max_diff);
                                     let tmp = client.server.load();
                                     let tmp_conn = tmp.as_ref().unwrap().connection.get();
                                     let data = server.audio.encode(&glob_buf.as_slice()[0..MIN_BUF_SIZE], &mut buffer);

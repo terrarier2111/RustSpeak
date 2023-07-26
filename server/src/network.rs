@@ -124,7 +124,7 @@ impl ClientConnection {
                 match this.read_keep_alive().await {
                     Ok(keep_alive) => {
                         // FIXME: use the keep alive!
-                        println!("got keep alive: {}", keep_alive.id);
+                        // println!("got keep alive: {}", keep_alive.id);
                     }
                     Err(_err) => {
                         // FIXME: somehow give feedback to client
@@ -208,7 +208,7 @@ impl ClientConnection {
             loop {
                 match this.read_unreliable().await {
                     Ok(data) => {
-                        println!("received voice traffic {}", data.len());
+                        // println!("received voice traffic {}", data.len());
                         for client in this.server.channels.read().await.get(&this.channel.load()).unwrap().clients.read().await.iter() {
                             if client != this.uuid.get().unwrap() || DEBUG_VOICE {
                                 if let Some(user) = this.server.online_users.get(client) {

@@ -83,7 +83,7 @@ impl Audio {
             panic!("An error occurred while playing back the stream!");
         }, None)?;
         stream.play()?;
-        println!("playing...");
+        // println!("playing...");
 
         Ok(stream)
     }

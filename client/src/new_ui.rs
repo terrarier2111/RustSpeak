@@ -56,6 +56,7 @@ impl Ui {
     
 }
 
+#[derive(Copy, Clone, PartialEq)]
 pub enum UiType {
     Menu,
     Accounts,
@@ -157,9 +158,21 @@ impl Application for Ui {
             column![
                 row![
                     vertical_space(Length::Fill),
-                    button(text("Menu")).on_press(UiMessage::MenuPressed),
-                    button(text("Server list")).on_press(UiMessage::ServerListPressed),
-                    button(text("Accounts")).on_press(UiMessage::AccountsPressed)
+                    button(text("Menu")).on_press(UiMessage::MenuPressed).style(if self.ty == UiType::Menu {
+                        theme::Button::Secondary
+                    } else {
+                        theme::Button::Primary
+                    }),
+                    button(text("Server list")).on_press(UiMessage::ServerListPressed).style(if self.ty == UiType::ServerList {
+                        theme::Button::Secondary
+                    } else {
+                        theme::Button::Primary
+                    }),
+                    button(text("Accounts")).on_press(UiMessage::AccountsPressed).style(if self.ty == UiType::Accounts {
+                        theme::Button::Secondary
+                    } else {
+                        theme::Button::Primary
+                    })
                 ].spacing(20).padding(20)
                 .align_items(Alignment::End)
                 .height(Length::Fill),
@@ -179,7 +192,6 @@ impl Application for Ui {
                     let mut channels = vec![];
                     for channel in self.data.channel_texts.iter() {
                         channels.push(row![
-                            vertical_space(Length::Fill),
                             button(text(channel.0.as_str())).on_press(UiMessage::ChannelClicked(channel.0.clone())),
                         ].into());
                     }
