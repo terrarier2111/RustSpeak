@@ -1,6 +1,7 @@
 use crate::utils::input;
 use colored::ColoredString;
 use std::collections::HashMap;
+use std::error::Error;
 use std::fmt::{Debug, Display, Formatter, Write};
 use std::marker::PhantomData;
 use std::ops::Range;
@@ -11,7 +12,7 @@ use crate::Server;
 // FIXME: maybe add tab completion
 
 pub struct CommandLineInterface {
-    cmds: HashMap<String, Command>,
+    core: CLICore<Arc<Server>>,
     prompt: Option<ColoredString>,
     help_msg: ColoredString,
     term: Term,
@@ -48,29 +49,33 @@ impl CommandLineInterface {
         } else {
             self.term.read_line()?
         };
-        let mut parts = input.split(" ").collect::<Vec<_>>();
-        let cmd = parts.remove(0).to_lowercase();
 
-        match self.cmds.get(&cmd) {
-            None => {
-                server.println(format!("{}", self.help_msg).as_str());
-                Ok(false)
-            },
-            Some(cmd) => {
-                if cmd.params.as_ref().map(|all| all.inner.req.len()).unwrap_or(0) > parts.len() {
-                    // FIXME: print help properly!
-                    server.println("Too few parameters!");
-                    return Ok(false);
-                }
-                cmd.cmd_impl.execute(server, &parts)?;
+        match self.core.process(server, input.as_str()) {
+            Ok(_) => {
                 Ok(true)
+            }
+            Err(err) => {
+                match err {
+                    InputError::ArgumentCnt { .. } => {
+                        // FIXME: print help properly!
+                        server.println("Too few parameters!");
+                    }
+                    InputError::CommandNotFound { .. } => {
+                        server.println(format!("{}", self.help_msg).as_str());
+                    }
+                    InputError::ExecError { .. } => {
+                        
+                    }
+                    InputError::InputEmpty => {}
+                }
+                Ok(false)
             }
         }
     }
 
     #[inline(always)]
-    pub(crate) fn cmds(&self) -> &HashMap<String, Command> {
-        &self.cmds
+    pub(crate) fn cmds(&self) -> &HashMap<String, Command<Arc<Server>>> {
+        &self.core.cmds
     }
 
     pub fn println(&self, msg: &str) {
@@ -79,7 +84,7 @@ impl CommandLineInterface {
 }
 
 pub struct CLIBuilder {
-    cmds: Vec<Command>,
+    cmds: Vec<Command<Arc<Server>>>,
     prompt: Option<ColoredString>,
     help_msg: Option<ColoredString>,
 }
@@ -93,7 +98,7 @@ impl CLIBuilder {
         }
     }
 
-    pub fn command(mut self, cmd: CommandBuilder) -> Self {
+    pub fn command(mut self, cmd: CommandBuilder<Arc<Server>>) -> Self {
         self.cmds.push(cmd.build());
         self
     }
@@ -111,15 +116,17 @@ impl CLIBuilder {
     pub fn build(self) -> CommandLineInterface {
         let prompt_len = self.prompt.as_ref().map_or(0, |prompt| format!("{}", prompt).len() + 2);
         CommandLineInterface {
-            prompt: self.prompt,
-            cmds: {
-                let mut cmds = HashMap::new();
+            core: CLICore {
+                cmds: {
+                    let mut cmds = HashMap::new();
 
-                for cmd in self.cmds.into_iter() {
-                    cmds.insert(cmd.name.clone(), cmd);
-                }
-                cmds
+                    for cmd in self.cmds.into_iter() {
+                        cmds.insert(cmd.name.clone(), cmd);
+                    }
+                    cmds
+                },
             },
+            prompt: self.prompt,
             help_msg: self.help_msg.expect("a help message has to be specified before a CLI can be built"),
             term: Term::stdout(),
             prompt_len,
@@ -127,15 +134,83 @@ impl CLIBuilder {
     }
 }
 
-pub(crate) struct Command {
+pub struct CLICore<C> {
+    cmds: HashMap<String, Command<C>>,
+}
+
+impl<C> CLICore<C> {
+
+    pub fn process(&self, ctx: &C, input: &str) -> Result<(), InputError> {
+        let mut parts = input.split(" ").collect::<Vec<_>>();
+        if parts.is_empty() {
+            return Err(InputError::InputEmpty);
+        }
+        let raw_cmd = parts.remove(0).to_lowercase();
+        match self.cmds.get(&raw_cmd) {
+            None => Err(InputError::CommandNotFound { name: raw_cmd }),
+            Some(cmd) => {
+                let expected = cmd.params.as_ref().map(|all| all.inner.req.len()).unwrap_or(0);
+                if expected > parts.len() {
+                    return Err(InputError::ArgumentCnt {
+                        name: raw_cmd,
+                        expected,
+                        got: parts.len(),
+                    });
+                }
+                match cmd.cmd_impl.execute(ctx, &parts) {
+                    Ok(_) => Ok(()),
+                    Err(error) => Err(InputError::ExecError { name: raw_cmd, error })
+                }
+            }
+        }
+    }
+
+}
+
+pub enum InputError {
+    ArgumentCnt {
+        name: String,
+        expected: usize,
+        got: usize,
+    },
+    CommandNotFound {
+        name: String,
+    },
+    InputEmpty,
+    ExecError {
+        name: String,
+        error: anyhow::Error,
+    },
+}
+
+impl Debug for InputError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InputError::ArgumentCnt { name, expected, got } => f.write_str(format!("An argument count of {} was expected for \"{}\" but only {} arguments were found", *expected, name.as_str(), *got).as_str()),
+            InputError::CommandNotFound { name } => f.write_str(format!("The command \"{}\" does not exist", name).as_str()),
+            InputError::InputEmpty => f.write_str("The given input was found to be empty"),
+            InputError::ExecError { name, error } => f.write_str(format!("There was an error executing the command \"{}\": \"{}\"", name, error).as_str()),
+        }
+    }
+}
+
+impl Display for InputError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(self, f)
+    }
+}
+
+impl Error for InputError {}
+
+pub(crate) struct Command<C> {
     name: String,
     desc: Option<String>,
     params: Option<UsageBuilder<BuilderImmutable>>,
     aliases: Vec<String>,
-    cmd_impl: Box<dyn CommandImpl>,
+    cmd_impl: Box<dyn CommandImpl<CTX=C>>,
 }
 
-impl Command {
+impl<C> Command<C> {
     #[inline(always)]
     pub fn name(&self) -> &String {
         &self.name
@@ -153,18 +228,20 @@ impl Command {
 }
 
 pub trait CommandImpl: Send + Sync {
-    fn execute(&self, server: &Arc<Server>, input: &[&str]) -> anyhow::Result<()>;
+    type CTX;
+
+    fn execute(&self, ctx: &Self::CTX, input: &[&str]) -> anyhow::Result<()>;
 }
 
-pub struct CommandBuilder {
+pub struct CommandBuilder<C> {
     name: Option<String>,
     desc: Option<String>,
     params: Option<UsageBuilder<BuilderImmutable>>,
     aliases: Vec<String>,
-    cmd_impl: Option<Box<dyn CommandImpl>>,
+    cmd_impl: Option<Box<dyn CommandImpl<CTX=C>>>,
 }
 
-impl CommandBuilder {
+impl<C> CommandBuilder<C> {
     pub fn new() -> Self {
         Self {
             name: None,
@@ -204,12 +281,12 @@ impl CommandBuilder {
         self
     }
 
-    pub fn cmd_impl(mut self, cmd_impl: Box<dyn CommandImpl>) -> Self {
+    pub fn cmd_impl(mut self, cmd_impl: Box<dyn CommandImpl<CTX=C>>) -> Self {
         self.cmd_impl = Some(cmd_impl);
         self
     }
 
-    fn build(self) -> Command {
+    fn build(self) -> Command<C> {
         Command {
             name: self
                 .name

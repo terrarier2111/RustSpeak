@@ -685,6 +685,8 @@ impl Error for ErrorAlreadyOnline {}
 struct CommandHelp();
 
 impl CommandImpl for CommandHelp {
+    type CTX = Arc<Server>;
+
     fn execute(&self, server: &Arc<Server>, _input: &[&str]) -> anyhow::Result<()> {
         let cmds = server.cli.cmds();
         server.println(format!("Commands ({}):", cmds.len()).as_str());
@@ -721,6 +723,8 @@ impl CommandImpl for CommandHelp {
 struct CommandShutdown();
 
 impl CommandImpl for CommandShutdown {
+    type CTX = Arc<Server>;
+
     fn execute(&self, server: &Arc<Server>, _input: &[&str]) -> anyhow::Result<()> {
         server.println("Shutting down...");
         server.shutting_down.store(true, Ordering::Release);
@@ -737,6 +741,8 @@ impl CommandImpl for CommandShutdown {
 struct CommandUser();
 
 impl CommandImpl for CommandUser {
+    type CTX = Arc<Server>;
+
     fn execute(&self, server: &Arc<Server>, input: &[&str]) -> anyhow::Result<()> {
         todo!()
     }
@@ -745,6 +751,8 @@ impl CommandImpl for CommandUser {
 struct CommandOnlineUsers();
 
 impl CommandImpl for CommandOnlineUsers {
+    type CTX = Arc<Server>;
+
     fn execute(&self, server: &Arc<Server>, _input: &[&str]) -> anyhow::Result<()> {
         // FIXME: add groups printing support!
         if server.online_users.len() == 1 {
@@ -763,6 +771,8 @@ impl CommandImpl for CommandOnlineUsers {
 struct CommandChannel();
 
 impl CommandImpl for CommandChannel {
+    type CTX = Arc<Server>;
+
     fn execute(&self, server: &Arc<Server>, input: &[&str]) -> anyhow::Result<()> {
         todo!()
     }
@@ -771,6 +781,8 @@ impl CommandImpl for CommandChannel {
 struct CommandChannels();
 
 impl CommandImpl for CommandChannels {
+    type CTX = Arc<Server>;
+
     fn execute(&self, server: &Arc<Server>, input: &[&str]) -> anyhow::Result<()> {
         let channels = server.channels.read().block_on();
         if channels.len() == 1 {
