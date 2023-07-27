@@ -8,7 +8,7 @@
 #![feature(lazy_cell)]
 
 use crate::channel_db::{ChannelDb, ChannelDbEntry};
-use crate::cli::{CLIBuilder, CmdParamNumConstraints, CmdParamStrConstraints, CommandBuilder, CommandImpl, CommandLineInterface, CommandParam, CommandParamTy, EnumVal, UsageBuilder, UsageSubBuilder};
+use crate::cli::{CLIBuilder, CommandLineInterface};
 use crate::config::Config;
 use crate::network::{ClientConnection, handle_packet, NetworkServer};
 use crate::packet::{
@@ -46,6 +46,7 @@ use pollster::FutureExt;
 use swap_arc::{SwapArc, SwapArcOption};
 use tokio::{join, select};
 use uuid::Uuid;
+use crate::cli_core::{CmdParamNumConstraints, CmdParamStrConstraints, CommandBuilder, CommandImpl, CommandParam, CommandParamTy, EnumVal, UsageBuilder, UsageSubBuilder};
 use crate::conc_once_cell::ConcurrentOnceCell;
 
 mod certificate;
@@ -62,6 +63,7 @@ mod utils;
 mod conc_once_cell;
 mod sized_box;
 mod conc_vec;
+mod cli_core;
 
 // FIXME: review all the endianness related shit!
 
