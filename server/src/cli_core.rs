@@ -128,9 +128,9 @@ pub struct CommandBuilder<C> {
 }
 
 impl<C> CommandBuilder<C> {
-    pub fn new<S: Into<String>>(name: S, cmd_impl: impl CommandImpl<CTX=C> + 'static) -> Self {
+    pub fn new(name: &str, cmd_impl: impl CommandImpl<CTX=C> + 'static) -> Self {
         Self {
-            name: name.into(),
+            name: name.to_lowercase(),
             desc: None,
             params: None,
             aliases: vec![],
@@ -138,8 +138,8 @@ impl<C> CommandBuilder<C> {
         }
     }
 
-    pub fn desc(mut self, desc: &str) -> Self {
-        self.desc = Some(desc.to_lowercase());
+    pub fn desc<S: Into<String>>(mut self, desc: S) -> Self {
+        self.desc = Some(desc.into());
         self
     }
 
