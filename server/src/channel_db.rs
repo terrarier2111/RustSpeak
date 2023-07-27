@@ -12,7 +12,7 @@ pub struct ChannelDbEntry<'a> {
     pub id: u128, // channel uuid
     pub name: Cow<'a, str>,
     pub desc: Cow<'a, str>,
-    pub password: bool,
+    pub password: Option<Cow<'a, str>>,
     pub user_groups: Vec<(u128, u128)>, // user uuid and channel group uuid
     pub perms: ChannelPerms,
     pub slots: u16, // FIXME: add option for unlimited slots via `-1` value!

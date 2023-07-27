@@ -51,3 +51,13 @@ macro_rules! pluralize {
         }
     };
 }
+
+pub fn parse_bool(str: &str) -> Option<bool> {
+    if str.eq_ignore_ascii_case("true") || str.eq_ignore_ascii_case("yes") {
+        return Some(true);
+    }
+    if str.eq_ignore_ascii_case("false") || str.eq_ignore_ascii_case("no") {
+        return Some(false);
+    }
+    None
+}

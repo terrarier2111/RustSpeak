@@ -590,6 +590,20 @@ pub struct ChannelPerms {
                             // kicking is handled simply as a move into the default channel
 }
 
+impl Default for ChannelPerms {
+    fn default() -> Self {
+        Self {
+            see: 0,
+            join: 0,
+            send: 0,
+            modify: 100,
+            talk: 0,
+            assign_talk: 100,
+            delete: 100,
+        }
+    }
+}
+
 impl RWBytes for ChannelPerms {
     type Ty = Self;
 

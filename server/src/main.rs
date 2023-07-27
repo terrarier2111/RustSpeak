@@ -18,7 +18,7 @@ use crate::packet::{
 use crate::protocol::{RWBytes, UserUuid, PROTOCOL_VERSION};
 use crate::server_group_db::{ServerGroupDb, ServerGroupEntry};
 use crate::user_db::{DbUser, UserDb};
-use crate::utils::LIGHT_GRAY;
+use crate::utils::{LIGHT_GRAY, parse_bool};
 use bytes::Buf;
 use colored::{Color, ColoredString, Colorize};
 use dashmap::DashMap;
@@ -37,6 +37,7 @@ use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::{fs, thread};
 use std::future::Future;
+use std::str::FromStr;
 use std::task::{Context, Poll};
 use std::time::Duration;
 use crossbeam_utils::Backoff;
@@ -102,7 +103,7 @@ fn main() -> anyhow::Result<()> {
                 id: DEFAULT_CHANNEL_UUID.as_u128(),
                 name: Cow::Borrowed("Lobby"),
                 desc: Default::default(),
-                password: false,
+                password: None,
                 user_groups: vec![],
                 perms: ChannelPerms {
                     see: 0,
@@ -119,7 +120,7 @@ fn main() -> anyhow::Result<()> {
         .into_iter()
         .map(|entry| Channel {
             uuid: Uuid::from_u128(entry.id),
-            password: AtomicBool::new(entry.password),
+            password: AtomicBool::new(entry.password.is_some()),
             name: Arc::new(SwapArc::new(Arc::new(entry.name.to_string()))),
             desc: Arc::new(SwapArc::new(Arc::new(entry.desc.to_string()))),
             perms: Arc::new(SwapArc::new(Arc::new(entry.perms))),
@@ -786,14 +787,84 @@ impl CommandImpl for CommandChannel {
             return Ok(());
         }
         match input[1] {
-            "create" => {},
+            "create" => {
+                let mut id = rand::random::<u128>();
+                while server.channels.read().block_on().values().any(|channel| channel.uuid.as_u128() == id) {
+                    id = rand::random::<u128>();
+                }
+                let channel = ChannelDbEntry {
+                    id,
+                    name: Cow::Owned(input[0].to_string()),
+                    desc: Cow::Owned(input.get(3).unwrap_or(&"").to_string()),
+                    password: input.get(4).map(|raw| Some(Cow::Owned(raw.to_string()))).unwrap_or(None),
+                    user_groups: vec![],
+                    perms: ChannelPerms::default(), // FIXME: make this configurable via cmd params!
+                    slots: usize::from_str(input[2]).unwrap() as u16,
+                };
+                server.println(format!("Created channel {}", input[0]).as_str());
+            },
             "edit" => {},
-            "delete" => {},
+            "delete" => {
+                let channel = server.channels.read().block_on().values().find(|channel| channel.name.load().deref().as_str() == input[0]).map(|channel| channel.uuid.clone());
+                if channel.is_none() {
+                    return Err(anyhow::Error::from(ChannelInexistentError(input[0].to_string())));
+                }
+                if server.config.default_channel_id == channel.as_ref().unwrap().as_u128() {
+                    return Err(anyhow::Error::from(DefaultChannelNotDeletableError(input[0].to_string())));
+                }
+                // FIXME: move all clients from the to-be-deleted channel into the default channel!
+                let mut channels = server.channels.write().block_on();
+                channels.remove(&channel.unwrap());
+                server.channel_db.write(&channels.values().map(|channel| ChannelDbEntry {
+                    name: Cow::Owned(channel.name.load().as_ref().clone()),
+                    id: channel.uuid.as_u128(),
+                    perms: channel.perms.load().as_ref().clone(),
+                    desc: Cow::Owned(channel.desc.load().as_ref().clone()),
+                    password: channel.password.load(Ordering::Acquire), // FIXME: this doesn't work!
+                    slots: channel.slots.load(Ordering::Acquire),
+                    user_groups: vec![],
+                }).collect::<Vec<_>>()).expect("An error occurred while writing the new database!");
+                server.println(format!("Deleted channel {}", input[0]).as_str());
+            },
             _ => unreachable!(),
         }
-        todo!()
+        Ok(())
     }
 }
+
+struct ChannelInexistentError(String);
+
+impl Debug for ChannelInexistentError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("There is no channel named ")?;
+        f.write_str(self.0.as_str())
+    }
+}
+
+impl Display for ChannelInexistentError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(self, f)
+    }
+}
+
+impl Error for ChannelInexistentError {}
+
+struct DefaultChannelNotDeletableError(String);
+
+impl Debug for DefaultChannelNotDeletableError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0.as_str())?;
+        f.write_str(" and may not be deleted")
+    }
+}
+
+impl Display for DefaultChannelNotDeletableError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(self, f)
+    }
+}
+
+impl Error for DefaultChannelNotDeletableError {}
 
 struct CommandChannels();
 
