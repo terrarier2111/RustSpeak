@@ -10,11 +10,11 @@ pub struct CLICore<C> {
 
 impl<C> CLICore<C> {
 
-    pub fn new(commands: Vec<Command<C>>) -> Self {
+    pub fn new(commands: Vec<CommandBuilder<C>>) -> Self {
         let mut cmds = HashMap::new();
 
         for cmd in commands.into_iter() {
-            cmds.insert(cmd.name.clone(), cmd);
+            cmds.insert(cmd.name.clone(), cmd.build());
         }
         Self {
             cmds,
@@ -120,27 +120,22 @@ pub trait CommandImpl: Send + Sync {
 }
 
 pub struct CommandBuilder<C> {
-    name: Option<String>,
+    name: String,
     desc: Option<String>,
     params: Option<UsageBuilder<BuilderImmutable>>,
     aliases: Vec<String>,
-    cmd_impl: Option<Box<dyn CommandImpl<CTX=C>>>,
+    cmd_impl: Box<dyn CommandImpl<CTX=C>>,
 }
 
 impl<C> CommandBuilder<C> {
-    pub fn new() -> Self {
+    pub fn new<S: Into<String>>(name: S, cmd_impl: impl CommandImpl<CTX=C> + 'static) -> Self {
         Self {
-            name: None,
+            name: name.into(),
             desc: None,
             params: None,
             aliases: vec![],
-            cmd_impl: None,
+            cmd_impl: Box::new(cmd_impl),
         }
-    }
-
-    pub fn name(mut self, name: &str) -> Self {
-        self.name = Some(name.to_lowercase());
-        self
     }
 
     pub fn desc(mut self, desc: &str) -> Self {
@@ -153,12 +148,12 @@ impl<C> CommandBuilder<C> {
         self
     }
 
-    pub fn add_alias(mut self, alias: &str) -> Self {
+    pub fn alias(mut self, alias: &str) -> Self {
         self.aliases.push(alias.to_lowercase());
         self
     }
 
-    pub fn add_aliases(mut self, aliases: &[&str]) -> Self {
+    pub fn aliases(mut self, aliases: &[&str]) -> Self {
         let mut aliases = aliases
             .iter()
             .map(|alias| alias.to_lowercase())
@@ -167,28 +162,15 @@ impl<C> CommandBuilder<C> {
         self
     }
 
-    pub fn cmd_impl(mut self, cmd_impl: Box<dyn CommandImpl<CTX=C>>) -> Self {
-        self.cmd_impl = Some(cmd_impl);
-        self
-    }
-
     fn build(self) -> Command<C> {
         Command {
-            name: self
-                .name
-                .expect("a name is required for a command in order for it to be used"),
+            name: self.name,
             desc: self.desc,
             params: self.params,
             aliases: self.aliases,
-            cmd_impl: self.cmd_impl.expect(
-                "a command implementation is required for a command in order for it to be used",
-            ),
+            cmd_impl: self.cmd_impl,
         }
     }
-}
-
-pub fn build_cmd<C>(builder: CommandBuilder<C>) -> Command<C> {
-    builder.build()
 }
 
 pub struct CommandParam {
@@ -212,15 +194,6 @@ pub enum CommandParamTy {
 }
 
 impl CommandParamTy {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            CommandParamTy::Int(_) => "integer",
-            CommandParamTy::Float(_) => "decimal",
-            CommandParamTy::String(_) => "string", // FIXME: is there a better/more user friendly name for this?
-            CommandParamTy::Enum(_) => "enum",
-        }
-    }
-
     pub fn to_string(&self, indents: usize) -> String {
         match self {
             CommandParamTy::Int(constraints) => match constraints {

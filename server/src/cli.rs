@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 use console::Term;
-use crate::cli_core::{build_cmd, CLICore, Command, CommandBuilder, InputError};
+use crate::cli_core::{CLICore, Command, CommandBuilder, InputError};
 use crate::Server;
 
 // FIXME: maybe add tab completion
@@ -76,7 +76,7 @@ impl CommandLineInterface {
 }
 
 pub struct CLIBuilder {
-    cmds: Vec<Command<Arc<Server>>>,
+    cmds: Vec<CommandBuilder<Arc<Server>>>,
     prompt: Option<ColoredString>,
     help_msg: Option<ColoredString>,
 }
@@ -91,7 +91,7 @@ impl CLIBuilder {
     }
 
     pub fn command(mut self, cmd: CommandBuilder<Arc<Server>>) -> Self {
-        self.cmds.push(build_cmd(cmd));
+        self.cmds.push(cmd);
         self
     }
 

@@ -230,44 +230,33 @@ fn main() -> anyhow::Result<()> {
         .prompt(ColoredString::from("RustSpeak").red())
         .help_msg(ColoredString::from("This command doesn't exist, try using help to get a full list of all available commands").red()) // FIXME: color "help" in yellow
         .command(
-            CommandBuilder::new()
-                .name("help")
+            CommandBuilder::new("help", CommandHelp())
                 .desc("returns a list of available commands")
-                .add_aliases(&["?", "h"])
-                .cmd_impl(Box::new(CommandHelp())),
+                .aliases(&["?", "h"]),
         )
         .command(
-            CommandBuilder::new()
-                .name("stop")
+            CommandBuilder::new("stop", CommandShutdown())
                 .desc("shuts down the server gracefully")
-                .add_aliases(&["shutdown", "end", "kill", "off"])
-                .cmd_impl(Box::new(CommandShutdown())),
+                .aliases(&["shutdown", "end", "kill", "off"]),
         )
         .command(
-            CommandBuilder::new()
-                .name("user")
+            CommandBuilder::new("user", CommandUser())
                 .params(UsageBuilder::new().required(CommandParam {
                     name: "user".to_string(),
                     ty: CommandParamTy::String(CmdParamStrConstraints::None),
                 }).optional(CommandParam {
                     name: "action".to_string(),
                     ty: CommandParamTy::Enum(vec![("delete", EnumVal::None), ("group", EnumVal::None), ("perms", EnumVal::None)]),
-                }))
-                .cmd_impl(Box::new(CommandUser())),
+                })),
         )
         .command(
-            CommandBuilder::new()
-                .name("onlineusers")
-                .cmd_impl(Box::new(CommandOnlineUsers())),
+            CommandBuilder::new("onlineusers", CommandOnlineUsers()),
         )
         .command(
-            CommandBuilder::new()
-                .name("channels")
-                .cmd_impl(Box::new(CommandChannels())),
+            CommandBuilder::new("channels", CommandChannels()),
     )
         .command(
-            CommandBuilder::new()
-                .name("channel")
+            CommandBuilder::new("channel", CommandChannel())
                 .params(UsageBuilder::new().required(CommandParam {
                     name: "action".to_string(),
                     ty: CommandParamTy::Enum(vec![("create", EnumVal::Complex(UsageSubBuilder::new().required(CommandParam { // FIXME: expand this!
@@ -286,8 +275,7 @@ fn main() -> anyhow::Result<()> {
                         name: "property".to_string(),
                         ty: CommandParamTy::Enum(vec![("name", EnumVal::Simple(CommandParamTy::String(CmdParamStrConstraints::None))), ("slots", EnumVal::Simple(CommandParamTy::Int(CmdParamNumConstraints::None)))]), // FIXME: expand this!
                     })))]),
-                }))
-                .cmd_impl(Box::new(CommandChannel()))
+                })),
         );
 
     let main_server = Arc::new(ConcurrentOnceCell::new());
