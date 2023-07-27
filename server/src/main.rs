@@ -242,7 +242,7 @@ fn main() -> anyhow::Result<()> {
         .command(
             CommandBuilder::new("user", CommandUser())
                 .params(UsageBuilder::new().required(CommandParam {
-                    name: "user".to_string(),
+                    name: "name".to_string(),
                     ty: CommandParamTy::String(CmdParamStrConstraints::None),
                 }).optional(CommandParam {
                     name: "action".to_string(),
@@ -258,20 +258,12 @@ fn main() -> anyhow::Result<()> {
         .command(
             CommandBuilder::new("channel", CommandChannel())
                 .params(UsageBuilder::new().required(CommandParam {
+                    name: "name".to_string(),
+                    ty: CommandParamTy::String(CmdParamStrConstraints::None),
+                }).optional(CommandParam {
                     name: "action".to_string(),
-                    ty: CommandParamTy::Enum(vec![("create", EnumVal::Complex(UsageSubBuilder::new().required(CommandParam { // FIXME: expand this!
-                        name: "name".to_string(),
-                        ty: CommandParamTy::String(CmdParamStrConstraints::None),
-                    }))), ("delete", EnumVal::Complex(UsageSubBuilder::new().required(CommandParam {
-                        name: "name".to_string(),
-                        ty: CommandParamTy::String(CmdParamStrConstraints::None),
-                    }))), ("info", EnumVal::Complex(UsageSubBuilder::new().required(CommandParam {
-                        name: "name".to_string(),
-                        ty: CommandParamTy::String(CmdParamStrConstraints::None),
-                    }))), ("edit", EnumVal::Complex(UsageSubBuilder::new().required(CommandParam {
-                        name: "name".to_string(),
-                        ty: CommandParamTy::String(CmdParamStrConstraints::None),
-                    }).required(CommandParam {
+                    ty: CommandParamTy::Enum(vec![("create", EnumVal::Complex(UsageSubBuilder::new())), // FIXME: expand this!
+                                                  ("delete", EnumVal::None), ("edit", EnumVal::Complex(UsageSubBuilder::new().required(CommandParam {
                         name: "property".to_string(),
                         ty: CommandParamTy::Enum(vec![("name", EnumVal::Simple(CommandParamTy::String(CmdParamStrConstraints::None))), ("slots", EnumVal::Simple(CommandParamTy::Int(CmdParamNumConstraints::None)))]), // FIXME: expand this!
                     })))]),
@@ -695,6 +687,31 @@ impl CommandImpl for CommandHelp {
                     ret_usage.push_str(&*format!("{ty}"));
                     ret_usage.push(']');
                 }
+                for param in usage.optional() {
+                    ret_usage.push(' ');
+                    ret_usage.push('<');
+                    ret_usage.push_str(&*param.name);
+                    let mut ty = String::new();
+                    ty.push('(');
+                    ty.push_str(param.ty.to_string(2).as_str());
+                    ty.push(')');
+                    let ty = ColoredString::from(ty.as_str()).italic().color(LIGHT_GRAY);
+                    ret_usage.push_str(&*format!("{ty}"));
+                    ret_usage.push('>');
+                }
+                for param in usage.optional_prefixed() {
+                    ret_usage.push(' ');
+                    ret_usage.push_str(usage.optional_prefixed_prefix().as_ref().unwrap().as_str());
+                    ret_usage.push('<');
+                    ret_usage.push_str(&*param.name);
+                    let mut ty = String::new();
+                    ty.push('(');
+                    ty.push_str(param.ty.to_string(2).as_str());
+                    ty.push(')');
+                    let ty = ColoredString::from(ty.as_str()).italic().color(LIGHT_GRAY);
+                    ret_usage.push_str(&*format!("{ty}"));
+                    ret_usage.push('>');
+                }
                 ret_usage
             } else {
                 String::new()
@@ -764,6 +781,16 @@ impl CommandImpl for CommandChannel {
     type CTX = Arc<Server>;
 
     fn execute(&self, server: &Arc<Server>, input: &[&str]) -> anyhow::Result<()> {
+        if input.len() == 1 {
+            // FIXME: print channel info!
+            return Ok(());
+        }
+        match input[1] {
+            "create" => {},
+            "edit" => {},
+            "delete" => {},
+            _ => unreachable!(),
+        }
         todo!()
     }
 }

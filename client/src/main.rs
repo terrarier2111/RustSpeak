@@ -49,10 +49,7 @@ mod server;
 mod command;
 mod audio;
 pub mod data_structures;
-mod new_ui_serverlist;
-mod new_ui_main_menu;
 mod new_ui;
-mod new_ui_2;
 
 // FIXME: review all the endianness related shit!
 
