@@ -1,7 +1,7 @@
 use crate::utils::input;
 use colored::ColoredString;
 use std::collections::HashMap;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter, Write};
 use std::marker::PhantomData;
 use std::ops::Range;
 use std::sync::Arc;
@@ -57,6 +57,11 @@ impl CommandLineInterface {
                 Ok(false)
             },
             Some(cmd) => {
+                if cmd.params.as_ref().map(|all| all.inner.req.len()).unwrap_or(0) > parts.len() {
+                    // FIXME: print help properly!
+                    server.println("Too few parameters!");
+                    return Ok(false);
+                }
                 cmd.cmd_impl.execute(server, &parts)?;
                 Ok(true)
             }
@@ -224,10 +229,19 @@ pub struct CommandParam {
     pub ty: CommandParamTy,
 }
 
+impl CommandParam {
+
+    fn to_string(&self, indent: usize) -> String {
+        format!("{}({})", self.name.as_str(), self.ty.to_string(indent))
+    }
+
+}
+
 pub enum CommandParamTy {
     Int(CmdParamNumConstraints<usize>),
-    Float(CmdParamNumConstraints<f64>),
+    Float(CmdParamDecimalConstraints<f64>),
     String(CmdParamStrConstraints),
+    Enum(Vec<(&'static str, EnumVal)>),
 }
 
 impl CommandParamTy {
@@ -236,14 +250,71 @@ impl CommandParamTy {
             CommandParamTy::Int(_) => "integer",
             CommandParamTy::Float(_) => "decimal",
             CommandParamTy::String(_) => "string", // FIXME: is there a better/more user friendly name for this?
+            CommandParamTy::Enum(_) => "enum",
+        }
+    }
+
+    pub fn to_string(&self, indents: usize) -> String {
+        match self {
+            CommandParamTy::Int(constraints) => match constraints {
+                CmdParamNumConstraints::Range(range) => format!("int({} to {})", range.start, range.end),
+                CmdParamNumConstraints::Variants(variants) => {
+                    let mut finished = String::from("int(");
+                    let mut variants = variants.iter();
+                    if let Some(variant) = variants.next() {
+                        finished.push_str(format!("{}", variant).as_str());
+                        for variant in variants {
+                            finished.push_str(format!(", {}", variant).as_str());
+                        }
+                    }
+                    finished.push(')');
+                    finished
+                }
+                CmdParamNumConstraints::None => String::from("int"),
+            },
+            CommandParamTy::Float(constraints) => match constraints {
+                CmdParamDecimalConstraints::Range(range) => format!("decimal({} to {})", range.start, range.end),
+                CmdParamDecimalConstraints::None => String::from("decimal"),
+            },
+            CommandParamTy::String(constraints) => match constraints {
+                CmdParamStrConstraints::Range(range) => format!("string(length {} to {})", range.start, range.end),
+                CmdParamStrConstraints::None => String::from("string"),
+            },
+            CommandParamTy::Enum(variants) => {
+                let mut finished = String::from("variants:\r\n");
+                for variant in variants.iter() {
+                    finished.push_str(" ".repeat(indents).as_str());
+                    finished.push_str("- \"");
+                    finished.push_str(variant.0);
+                    match &variant.1 {
+                        EnumVal::Simple(ty) => {
+                            finished.push_str("\"(");
+                            finished.push_str(ty.to_string(indents + 1).as_str());
+                            finished.push(')');
+                        }
+                        EnumVal::Complex(params) => {
+                            finished.push_str("\": ");
+                            finished.push_str(params.to_string(indents + 1).as_str());
+                        }
+                        EnumVal::None => {
+                            finished.push('\"');
+                        }
+                    }
+                    finished.push_str("\r\n");
+                }
+                if !variants.is_empty() {
+                    finished.push_str(" ".repeat(indents).as_str());
+                }
+                finished
+            },
         }
     }
 }
 
-impl Display for CommandParamTy {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
+pub enum EnumVal {
+    Simple(CommandParamTy),
+    Complex(UsageSubBuilder<BuilderMutable>),
+    None,
 }
 
 pub enum CmdParamNumConstraints<T> {
@@ -252,8 +323,13 @@ pub enum CmdParamNumConstraints<T> {
     None,
 }
 
+pub enum CmdParamDecimalConstraints<T> {
+    Range(Range<T>),
+    None,
+}
+
 pub enum CmdParamStrConstraints {
-    Variants(&'static [&'static str]),
+    Range(Range<usize>),
     None,
 }
 
@@ -339,4 +415,97 @@ impl UsageBuilder<BuilderImmutable> {
     pub fn optional_prefixed(&self) -> &Vec<CommandParam> {
         &self.inner.opt_prefixed
     }
+}
+
+struct InnerSubBuilder {
+    prefix: Option<String>,
+    req: Vec<CommandParam>,
+    opt_prefixed: Vec<CommandParam>,
+}
+
+pub struct UsageSubBuilder<M = BuilderMutable> {
+    inner: InnerSubBuilder,
+    mutability: PhantomData<M>,
+}
+
+impl<'a> UsageSubBuilder<BuilderMutable> {
+    pub fn new() -> Self {
+        Self {
+            inner: InnerSubBuilder {
+                prefix: None,
+                req: vec![],
+                opt_prefixed: vec![],
+            },
+            mutability: Default::default(),
+        }
+    }
+
+    pub fn optional_prefixed_prefix(mut self, prefix: String) -> Self {
+        self.inner.prefix = Some(prefix);
+        self
+    }
+
+    pub fn required(mut self, param: CommandParam) -> Self {
+        self.inner.req.push(param);
+        self
+    }
+
+    pub fn optional_prefixed(mut self, param: CommandParam) -> Self {
+        if self.inner.prefix.is_none() {
+            panic!("a prefix has to be specified in order to add optional prefixed parameters");
+        }
+        self.inner.opt_prefixed.push(param);
+        self
+    }
+
+    fn finish(self) -> UsageSubBuilder<BuilderImmutable> {
+        UsageSubBuilder {
+            inner: self.inner,
+            mutability: Default::default(),
+        }
+    }
+}
+
+impl UsageSubBuilder<BuilderImmutable> {
+    #[inline(always)]
+    pub fn optional_prefixed_prefix(&self) -> &Option<String> {
+        &self.inner.prefix
+    }
+
+    #[inline(always)]
+    pub fn required(&self) -> &Vec<CommandParam> {
+        &self.inner.req
+    }
+
+    #[inline(always)]
+    pub fn optional_prefixed(&self) -> &Vec<CommandParam> {
+        &self.inner.opt_prefixed
+    }
+}
+
+impl<M> UsageSubBuilder<M> {
+
+    fn to_string(&self, indents: usize) -> String {
+        let mut finished = String::new();
+        let mut req = self.inner.req.iter();
+        if let Some(req_first) = req.next() {
+            finished.push_str(req_first.to_string(indents).as_str());
+            for req in req {
+                finished.push(' ');
+                finished.push_str(req.to_string(indents).as_str());
+            }
+        }
+        let mut opt = self.inner.opt_prefixed.iter();
+        if let Some(opt_first) = opt.next() {
+            finished.push_str(self.inner.prefix.as_ref().unwrap().as_str());
+            finished.push_str(opt_first.to_string(indents).as_str());
+            for opt in opt {
+                finished.push(' ');
+                finished.push_str(self.inner.prefix.as_ref().unwrap().as_str());
+                finished.push_str(opt.to_string(indents).as_str());
+            }
+        }
+        finished
+    }
+
 }

@@ -40,3 +40,14 @@ pub fn input<T: Display>(text: &Option<T>) -> std::io::Result<String> {
     }
     Ok(input)
 }
+
+#[macro_export]
+macro_rules! pluralize {
+    ($num: expr) => {
+        if $num > 1 {
+            "s"
+        } else {
+            ""
+        }
+    };
+}

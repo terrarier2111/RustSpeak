@@ -8,10 +8,7 @@
 #![feature(lazy_cell)]
 
 use crate::channel_db::{ChannelDb, ChannelDbEntry};
-use crate::cli::{
-    CLIBuilder, CmdParamStrConstraints, CommandBuilder, CommandImpl, CommandLineInterface,
-    CommandParam, CommandParamTy, UsageBuilder,
-};
+use crate::cli::{CLIBuilder, CmdParamNumConstraints, CmdParamStrConstraints, CommandBuilder, CommandImpl, CommandLineInterface, CommandParam, CommandParamTy, EnumVal, UsageBuilder, UsageSubBuilder};
 use crate::config::Config;
 use crate::network::{ClientConnection, handle_packet, NetworkServer};
 use crate::packet::{
@@ -43,8 +40,9 @@ use std::future::Future;
 use std::task::{Context, Poll};
 use std::time::Duration;
 use crossbeam_utils::Backoff;
-use futures::{FutureExt, StreamExt};
+use futures::StreamExt;
 use futures::task::noop_waker_ref;
+use pollster::FutureExt;
 use swap_arc::{SwapArc, SwapArcOption};
 use tokio::{join, select};
 use uuid::Uuid;
@@ -251,7 +249,7 @@ fn main() -> anyhow::Result<()> {
                     ty: CommandParamTy::String(CmdParamStrConstraints::None),
                 }).optional(CommandParam {
                     name: "action".to_string(),
-                    ty: CommandParamTy::String(CmdParamStrConstraints::Variants(&["delete", "group", "perms"])),
+                    ty: CommandParamTy::Enum(vec![("delete", EnumVal::None), ("group", EnumVal::None), ("perms", EnumVal::None)]),
                 }))
                 .cmd_impl(Box::new(CommandUser())),
         )
@@ -259,6 +257,35 @@ fn main() -> anyhow::Result<()> {
             CommandBuilder::new()
                 .name("onlineusers")
                 .cmd_impl(Box::new(CommandOnlineUsers())),
+        )
+        .command(
+            CommandBuilder::new()
+                .name("channels")
+                .cmd_impl(Box::new(CommandChannels())),
+    )
+        .command(
+            CommandBuilder::new()
+                .name("channel")
+                .params(UsageBuilder::new().required(CommandParam {
+                    name: "action".to_string(),
+                    ty: CommandParamTy::Enum(vec![("create", EnumVal::Complex(UsageSubBuilder::new().required(CommandParam { // FIXME: expand this!
+                        name: "name".to_string(),
+                        ty: CommandParamTy::String(CmdParamStrConstraints::None),
+                    }))), ("delete", EnumVal::Complex(UsageSubBuilder::new().required(CommandParam {
+                        name: "name".to_string(),
+                        ty: CommandParamTy::String(CmdParamStrConstraints::None),
+                    }))), ("info", EnumVal::Complex(UsageSubBuilder::new().required(CommandParam {
+                        name: "name".to_string(),
+                        ty: CommandParamTy::String(CmdParamStrConstraints::None),
+                    }))), ("edit", EnumVal::Complex(UsageSubBuilder::new().required(CommandParam {
+                        name: "name".to_string(),
+                        ty: CommandParamTy::String(CmdParamStrConstraints::None),
+                    }).required(CommandParam {
+                        name: "property".to_string(),
+                        ty: CommandParamTy::Enum(vec![("name", EnumVal::Simple(CommandParamTy::String(CmdParamStrConstraints::None))), ("slots", EnumVal::Simple(CommandParamTy::Int(CmdParamNumConstraints::None)))]), // FIXME: expand this!
+                    })))]),
+                }))
+                .cmd_impl(Box::new(CommandChannel()))
         );
 
     let main_server = Arc::new(ConcurrentOnceCell::new());
@@ -670,7 +697,7 @@ impl CommandImpl for CommandHelp {
                     ret_usage.push_str(&*param.name);
                     let mut ty = String::new();
                     ty.push('(');
-                    ty.push_str(param.ty.as_str());
+                    ty.push_str(param.ty.to_string(2).as_str());
                     ty.push(')');
                     let ty = ColoredString::from(ty.as_str()).italic().color(LIGHT_GRAY);
                     ret_usage.push_str(&*format!("{ty}"));
@@ -720,10 +747,40 @@ struct CommandOnlineUsers();
 impl CommandImpl for CommandOnlineUsers {
     fn execute(&self, server: &Arc<Server>, _input: &[&str]) -> anyhow::Result<()> {
         // FIXME: add groups printing support!
-        server.println(format!("There are {} users online:", server.online_users.len()).as_str());
+        if server.online_users.len() == 1 {
+            server.println("There is 1 user online:");
+        } else {
+            server.println(format!("There are {} users online:", server.online_users.len()).as_str());
+        }
         server.println("Name   UUID   SecLevel");
         for user in server.online_users.iter() {
             server.println(format!("{} | {:?} | {}", user.name.load(), user.uuid, user.last_verified_security_level).as_str());
+        }
+        Ok(())
+    }
+}
+
+struct CommandChannel();
+
+impl CommandImpl for CommandChannel {
+    fn execute(&self, server: &Arc<Server>, input: &[&str]) -> anyhow::Result<()> {
+        todo!()
+    }
+}
+
+struct CommandChannels();
+
+impl CommandImpl for CommandChannels {
+    fn execute(&self, server: &Arc<Server>, input: &[&str]) -> anyhow::Result<()> {
+        let channels = server.channels.read().block_on();
+        if channels.len() == 1 {
+            server.println("There is 1 channel:");
+        } else {
+            server.println(format!("There are {} channels:", channels.len()).as_str());
+        }
+        server.println("Name   UUID   Users/Slots");
+        for channel in channels.values() {
+            server.println(format!("{} | {:?} | {}/{}", channel.name.load(), channel.uuid, channel.clients.read().block_on().len(), channel.slots.load(Ordering::Acquire)).as_str());
         }
         Ok(())
     }
