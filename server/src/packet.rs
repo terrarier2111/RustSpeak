@@ -21,26 +21,31 @@ const PRIVATE_KEY_LEN_BITS: u32 = 4096;
 /// packets the server sends to the client
 /// size: u64
 /// id: u8
+#[repr(u8)]
 #[derive(Ordinal)]
 pub enum ServerPacket<'a> {
-    AuthResponse(AuthResponse<'a>),
-    ChannelUpdate(ChannelUpdate<'a>),
-    ClientConnected(RemoteProfile),
-    ClientDisconnected(RemoteProfile),
+    AuthResponse(AuthResponse<'a>) = 0,
+    ChannelUpdate(ChannelUpdate<'a>) = 1,
+    ClientConnected(RemoteProfile) = 2,
+    ClientDisconnected(RemoteProfile) = 3,
     ClientUpdateServerGroups {
         client: UserUuid,
         update: ClientUpdateServerGroups,
-    },
+    } = 4,
     KeepAlive {
         id: u64,
         send_time: Duration,
-    },
+    } = 5,
+    ChallengeRequest {
+        signed_data: Vec<u8>, // contains the public server key and a random challenge and all of that encrypted with the client's public key
+    } = 6,
 }
 
 /// packets the client sends to the server
 /// currently this packet's header is:
 /// size: u16
 /// id: u8
+#[repr(u8)]
 #[derive(Ordinal)]
 pub enum ClientPacket {
     AuthRequest {
@@ -50,16 +55,22 @@ pub enum ClientPacket {
         name: String,
         security_proofs: Vec<U256>, // TODO: add comment
         signed_data: Vec<u8>,       // contains a signed send time
-    },
-    Disconnect,
+    } = 0,
+    Disconnect = 1,
     KeepAlive {
         id: u64,
         send_time: Duration,
-    },
+    } = 2,
     UpdateClientServerGroups {
         client: UserUuid,
         update: ClientUpdateServerGroups,
-    },
+    } = 3,
+    ChallengeResponse {
+        signed_data: Vec<u8>, // contains a signed copy of server's public key
+    } = 4,
+    SwitchChannel {
+        channel: Uuid,
+    } = 5,
 }
 
 impl ClientPacket {
@@ -104,6 +115,9 @@ impl RWBytes for ServerPacket<'_> {
                 let send_time = Duration::read(src, client_key)?;
                 Ok(Self::KeepAlive { id, send_time })
             }
+            6 => {
+                todo!()
+            }
             _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(
                 "ServerPacket",
                 id,
@@ -133,6 +147,9 @@ impl RWBytes for ServerPacket<'_> {
             ServerPacket::KeepAlive { id, send_time } => {
                 dst.put_u64_le(*id);
                 send_time.write(dst)?;
+            }
+            ServerPacket::ChallengeRequest { signed_data } => {
+                signed_data.write(dst)?;
             }
         }
         Ok(())
@@ -172,6 +189,13 @@ impl RWBytes for ClientPacket {
                 let update = ClientUpdateServerGroups::read(src, client_key)?;
                 Ok(Self::UpdateClientServerGroups { client, update })
             }
+            4 => {
+                todo!()
+            }
+            5 => {
+                let channel = Uuid::read(src, client_key)?;
+                Ok(Self::SwitchChannel { channel })
+            }
             _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(
                 "ClientPacket",
                 id,
@@ -203,6 +227,12 @@ impl RWBytes for ClientPacket {
             ClientPacket::UpdateClientServerGroups { client, update } => {
                 client.write(dst)?;
                 update.write(dst)?;
+            }
+            ClientPacket::ChallengeResponse { .. } => {
+                todo!()
+            }
+            ClientPacket::SwitchChannel { channel } => {
+                channel.write(dst)?;
             }
         }
         Ok(())

@@ -4,15 +4,17 @@ use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Write};
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 use arc_swap::ArcSwap;
+use pollster::FutureExt;
 use swap_arc::SwapArc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 use crate::{ClientPacket, DEFAULT_CHANNEL_UUID, RWBytes, Server, UserUuid};
 use crate::conc_once_cell::ConcurrentOnceCell;
+use crate::packet::{ChannelSubClientUpdate, ChannelSubUpdate, ChannelUpdate, ServerPacket};
 use crate::utils::current_time_millis;
 
 // FIXME: look at: https://gitlab.com/veloren/veloren/-/issues/749 and https://gitlab.com/veloren/veloren/-/issues/1728
@@ -150,8 +152,8 @@ impl ClientConnection {
             'end: loop {
                 match this.read_reliable(8).await {
                     Ok(mut size) => {
-                        println!("got packet header!");
                         let size = size.get_u64_le();
+                        println!("got packet header {}", size);
                         let mut payload = match this.read_reliable(size as usize).await {
                             Ok(payload) => payload,
                             Err(err) => {
@@ -339,5 +341,34 @@ pub fn handle_packet(packet: ClientPacket, server: &Arc<Server>, client: &Arc<Cl
             // FIXME: store the keep alive value somewhere in the client
         }
         ClientPacket::UpdateClientServerGroups { .. } => {}
+        ClientPacket::ChallengeResponse { .. } => {
+            todo!()
+        }
+        ClientPacket::SwitchChannel { channel } => {
+            let new_channel = channel;
+            // FIXME: check join perms!
+            let client_id = client.uuid.get().unwrap().clone();
+            let curr_channel = client.channel.load().as_ref().clone();
+            if curr_channel == new_channel {
+                // FIXME: kick the user and close the connection once we already cancel such attempts at the client level!
+                return;
+            }
+            let channels = server.channels.write().block_on();
+            let channel = channels.get(&curr_channel).unwrap();
+            let idx = channel.clients.read().block_on().iter().enumerate().find(|user| user.1 == &client_id).unwrap().0;
+            channel.clients.write().block_on().remove(idx);
+            let idx = channel.proto_clients.read().unwrap().iter().enumerate().find(|user| &user.1.uuid == &client_id).unwrap().0;
+            let profile = RwLock::write(&channel.proto_clients).unwrap().remove(idx);
+            let channel = channels.get(&new_channel).unwrap();
+            channel.clients.write().block_on().push(client_id);
+            RwLock::write(&channel.proto_clients).unwrap().push(profile);
+            client.channel.store(Arc::new(new_channel));
+            let remove_packet = ServerPacket::ChannelUpdate(ChannelUpdate::SubUpdate { channel: curr_channel, update: ChannelSubUpdate::Client(ChannelSubClientUpdate::Remove(client_id)) }).encode().unwrap();
+            let add_packet = ServerPacket::ChannelUpdate(ChannelUpdate::SubUpdate { channel: new_channel, update: ChannelSubUpdate::Client(ChannelSubClientUpdate::Add(client_id)) }).encode().unwrap();
+            for client in server.online_users.iter() {
+                client.value().connection.send_reliable(&remove_packet).block_on().unwrap(); // FIXME: handler errors properly!
+                client.value().connection.send_reliable(&add_packet).block_on().unwrap(); // FIXME: handler errors properly!
+            }
+        }
     }
 }

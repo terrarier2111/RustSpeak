@@ -539,6 +539,30 @@ impl Server {
         self.cli.println(msg);
     }
 
+    pub fn read_channel_db(&self) -> anyhow::Result<Vec<ChannelDbEntry>> {
+        let channels = self.channel_db
+            .read_or_create(|| {
+                Ok(vec![ChannelDbEntry {
+                    id: DEFAULT_CHANNEL_UUID.as_u128(),
+                    name: Cow::Borrowed("Lobby"),
+                    desc: Default::default(),
+                    password: None,
+                    user_groups: vec![],
+                    perms: ChannelPerms {
+                        see: 0,
+                        join: 0,
+                        send: 0,
+                        modify: 100,
+                        talk: 0,
+                        assign_talk: 100,
+                        delete: 100,
+                    },
+                    slots: 100,
+                }])
+            })?;
+        Ok(channels)
+    }
+
 }
 
 pub struct User {
@@ -789,18 +813,36 @@ impl CommandImpl for CommandChannel {
         match input[1] {
             "create" => {
                 let mut id = rand::random::<u128>();
-                while server.channels.read().block_on().values().any(|channel| channel.uuid.as_u128() == id) {
+                let mut db = server.read_channel_db()?;
+                while db.iter().any(|channel| channel.id == id) {
                     id = rand::random::<u128>();
                 }
+                let desc = input.get(3).unwrap_or(&"").to_string();
+                let pw = input.get(4).map(|raw| Some(Cow::Owned(raw.to_string()))).unwrap_or(None);
+                let has_pw = pw.is_some();
+                let slots = usize::from_str(input[2]).unwrap() as u16;
                 let channel = ChannelDbEntry {
                     id,
                     name: Cow::Owned(input[0].to_string()),
-                    desc: Cow::Owned(input.get(3).unwrap_or(&"").to_string()),
-                    password: input.get(4).map(|raw| Some(Cow::Owned(raw.to_string()))).unwrap_or(None),
+                    desc: Cow::Owned(desc.clone()),
+                    password: pw,
                     user_groups: vec![],
                     perms: ChannelPerms::default(), // FIXME: make this configurable via cmd params!
-                    slots: usize::from_str(input[2]).unwrap() as u16,
+                    slots,
                 };
+                db.push(channel);
+                server.channel_db.write(&db).expect("An error occurred while writing the new database!");
+                server.channels.write().block_on().insert(Uuid::from_u128(id), Channel {
+                    uuid: Uuid::from_u128(id),
+                    password: AtomicBool::new(has_pw),
+                    name: Arc::new(SwapArc::new(Arc::new(input[0].to_string()))),
+                    desc: Arc::new(SwapArc::new(Arc::new(desc))),
+                    perms: Arc::new(Default::default()), // FIXME: make this configurable via cmd params!
+                    clients: Arc::new(Default::default()),
+                    proto_clients: Arc::new(Default::default()),
+                    slots: AtomicU16::new(slots),
+                });
+
                 server.println(format!("Created channel {}", input[0]).as_str());
             },
             "edit" => {},
@@ -815,15 +857,18 @@ impl CommandImpl for CommandChannel {
                 // FIXME: move all clients from the to-be-deleted channel into the default channel!
                 let mut channels = server.channels.write().block_on();
                 channels.remove(&channel.unwrap());
-                server.channel_db.write(&channels.values().map(|channel| ChannelDbEntry {
-                    name: Cow::Owned(channel.name.load().as_ref().clone()),
-                    id: channel.uuid.as_u128(),
-                    perms: channel.perms.load().as_ref().clone(),
-                    desc: Cow::Owned(channel.desc.load().as_ref().clone()),
-                    password: channel.password.load(Ordering::Acquire), // FIXME: this doesn't work!
-                    slots: channel.slots.load(Ordering::Acquire),
-                    user_groups: vec![],
-                }).collect::<Vec<_>>()).expect("An error occurred while writing the new database!");
+                let mut db = server.read_channel_db()?;
+                let entry = db.iter().enumerate().find(|entry| entry.1.id == channel.as_ref().unwrap().as_u128());
+                match entry {
+                    None => {
+                        return Err(anyhow::Error::from(ChannelInexistentError(input[0].to_string())));
+                    }
+                    Some(entry) => {
+                        let id = entry.0;
+                        db.remove(id);
+                    }
+                }
+                server.channel_db.write(&db).expect("An error occurred while writing the new database!");
                 server.println(format!("Deleted channel {}", input[0]).as_str());
             },
             _ => unreachable!(),

@@ -3,6 +3,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::mpsc::Receiver;
 use std::task::{Context, Poll};
+use bytes::BytesMut;
 use flume::r#async::RecvStream;
 use futures_util::{Stream, StreamExt, TryStreamExt};
 use iced::{executor, Renderer, Theme, time};
@@ -16,14 +17,16 @@ use iced::widget::{
 use iced::{Alignment, Application, Command, Element, Event, Length, Settings};
 use iced::alignment::Horizontal;
 use iced::futures::channel;
+use pollster::FutureExt;
 use rand::Rng;
-use crate::{certificate, Client};
+use swap_arc::DataPtrConvert;
+use crate::{certificate, Client, packet};
 use crate::config::Config;
 use crate::data_structures::conc_once_cell::ConcurrentOnceCell;
 use crate::network::AddressMode;
 use crate::profile::Profile;
 use crate::profile_db::{DbProfile, uuid_from_pub_key};
-use crate::protocol::UserUuid;
+use crate::protocol::{RWBytes, UserUuid};
 use crate::server::Server;
 
 pub struct Ui {
@@ -144,9 +147,10 @@ impl Application for Ui {
                 if let Some(server) = server.as_ref() {
                     let channel_names = server.channels_by_name.load();
                     let channel_id = channel_names.get(channel.as_str()).unwrap();
-                    let channels = server.channels.load();
-                    let channel = channels.get(channel_id).unwrap();
-                    // FIXME: join channel!
+                    // let channels = server.channels.load();
+                    // let channel = channels.get(channel_id).unwrap();
+                    let packet = packet::ClientPacket::SwitchChannel { channel: channel_id.clone() }.encode().unwrap();
+                    server.connection.get().unwrap().send_reliable(&packet).block_on().unwrap();
                 }
             }
             UiMessage::ServerConnected => {
