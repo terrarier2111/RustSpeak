@@ -263,7 +263,10 @@ fn main() -> anyhow::Result<()> {
                     ty: CommandParamTy::String(CmdParamStrConstraints::None),
                 }).optional(CommandParam {
                     name: "action".to_string(),
-                    ty: CommandParamTy::Enum(vec![("create", EnumVal::Complex(UsageSubBuilder::new())), // FIXME: expand this!
+                    ty: CommandParamTy::Enum(vec![("create", EnumVal::Complex(UsageSubBuilder::new().required(CommandParam {
+                        name: "slots".to_string(),
+                        ty: CommandParamTy::Int(CmdParamNumConstraints::None),
+                    }))), // FIXME: expand this!
                                                   ("delete", EnumVal::None), ("edit", EnumVal::Complex(UsageSubBuilder::new().required(CommandParam {
                         name: "property".to_string(),
                         ty: CommandParamTy::Enum(vec![("name", EnumVal::Simple(CommandParamTy::String(CmdParamStrConstraints::None))), ("slots", EnumVal::Simple(CommandParamTy::Int(CmdParamNumConstraints::None)))]), // FIXME: expand this!
@@ -837,7 +840,7 @@ impl CommandImpl for CommandChannel {
                     password: AtomicBool::new(has_pw),
                     name: Arc::new(SwapArc::new(Arc::new(input[0].to_string()))),
                     desc: Arc::new(SwapArc::new(Arc::new(desc))),
-                    perms: Arc::new(Default::default()), // FIXME: make this configurable via cmd params!
+                    perms: Arc::new(SwapArc::new(Arc::new(ChannelPerms::default()))), // FIXME: make this configurable via cmd params!
                     clients: Arc::new(Default::default()),
                     proto_clients: Arc::new(Default::default()),
                     slots: AtomicU16::new(slots),

@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
 use bytes::Buf;
+use dashmap::DashMap;
 use opus::{Application, Channels, Decoder, Encoder};
 use swap_arc::SwapArc;
 use tokio::sync::Mutex;
@@ -13,13 +15,15 @@ use crate::audio::{AudioMode, SAMPLE_RATE};
 use crate::data_structures::byte_buf_ring::BBRing;
 use crate::data_structures::conc_once_cell::ConcurrentOnceCell;
 use crate::new_ui::InterUiMessage;
-use crate::packet::{AuthResponse, ServerPacket};
+use crate::packet::{AuthResponse, ChannelSubClientUpdate, ChannelSubUpdate, ChannelUpdate, RemoteProfile, ServerPacket};
+use crate::protocol::UserUuid;
 
 pub struct Server {
     pub profile: Profile,
     pub connection: ConcurrentOnceCell<Arc<NetworkClient>>,
     pub channels: SwapArc<HashMap<Uuid, Channel>>,
     pub channels_by_name: SwapArc<HashMap<String, Uuid>>, // FIXME: maintain this!
+    pub clients: DashMap<UserUuid, RemoteProfile>,
     pub state: ServerState,
     pub name: String,
     pub audio: Arc<ServerAudio>,
@@ -66,6 +70,7 @@ impl Server {
             connection: ConcurrentOnceCell::new(),
             channels: Default::default(),
             channels_by_name: Default::default(),
+            clients: Default::default(),
             state: ServerState::new(),
             name: server_name.clone(),
             audio: Arc::new(ServerAudio {
@@ -321,6 +326,9 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
                     let mut channels_by_uuid = HashMap::new();
                     let mut channels_by_name = HashMap::new();
                     for channel in channels {
+                        for user in &channel.clients {
+                            server.clients.insert(user.key().clone(), user.value().clone());
+                        }
                         channels_by_name.insert(channel.name.clone(), channel.id);
                         channels_by_uuid.insert(channel.id, channel);
                     }
@@ -334,9 +342,39 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
                 }
             }
         }
-        ServerPacket::ChannelUpdate(_) => {}
-        ServerPacket::ClientConnected(_) => {}
-        ServerPacket::ClientDisconnected(_) => {}
+        ServerPacket::ChannelUpdate(update) => {
+            match update {
+                ChannelUpdate::Create(_) => {}
+                ChannelUpdate::SubUpdate { channel, update } => {
+                    match update {
+                        ChannelSubUpdate::Name(_) => {}
+                        ChannelSubUpdate::Desc(_) => {}
+                        ChannelSubUpdate::Perms(_) => {}
+                        ChannelSubUpdate::Client(update) => {
+                            match update {
+                                ChannelSubClientUpdate::Add(user) => {
+                                    println!("name: {}", client.server.load().as_ref().expect("t1").channels.load().get(&channel).expect("t2").name.clone());
+                                    let profile = client.server.load().as_ref().unwrap().clients.get(&user).unwrap().clone();
+                                    client.server.load().as_ref().expect("t1").channels.load().as_ref().get(&channel).expect("t2").clients.insert(user, profile.clone());
+                                    client.inter_ui_msg_queue.0.send(InterUiMessage::ChannelAddUser(channel, profile)).unwrap();
+                                }
+                                ChannelSubClientUpdate::Remove(user) => {
+                                    client.server.load().as_ref().expect("t1").channels.load().as_ref().get(&channel).expect("t2").clients.remove(&user).expect("t3").1;
+                                    client.inter_ui_msg_queue.0.send(InterUiMessage::ChannelRemoveUser(channel, user)).unwrap();
+                                }
+                            }
+                        }
+                    }
+                }
+                ChannelUpdate::Delete(_) => {}
+            }
+        }
+        ServerPacket::ClientConnected(_) => {
+            // FIXME: add client to default channel!
+        }
+        ServerPacket::ClientDisconnected(_) => {
+            // FIXME: remove client from channel!
+        }
         ServerPacket::ClientUpdateServerGroups { .. } => {}
         ServerPacket::KeepAlive { .. } => {}
         ServerPacket::ChallengeRequest { .. } => {}

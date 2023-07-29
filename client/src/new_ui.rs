@@ -20,10 +20,12 @@ use iced::futures::channel;
 use pollster::FutureExt;
 use rand::Rng;
 use swap_arc::DataPtrConvert;
+use uuid::Uuid;
 use crate::{certificate, Client, packet};
 use crate::config::Config;
 use crate::data_structures::conc_once_cell::ConcurrentOnceCell;
 use crate::network::AddressMode;
+use crate::packet::RemoteProfile;
 use crate::profile::Profile;
 use crate::profile_db::{DbProfile, uuid_from_pub_key};
 use crate::protocol::{RWBytes, UserUuid};
@@ -45,9 +47,18 @@ struct Data {
 }
 
 struct ChannelText {
+    uuid: Uuid,
+    slots: usize,
     current: bool,
     text: String,
     name: String,
+    users: Vec<UserText>,
+}
+
+struct UserText {
+    name: String,
+    uuid: UserUuid,
+    text: String,
 }
 
 impl Ui {
@@ -157,11 +168,35 @@ impl Application for Ui {
                 let server = self.client.server.load();
                 let channels_loaded = server.as_ref().unwrap().channels.load();
                 let channel_texts = channels_loaded.iter().map(|channel| ChannelText {
-                    current: channel.1.clients.iter().any(|client| &client.uuid == self.data.active_profile.as_ref().unwrap()),
+                    uuid: channel.1.id,
+                    slots: channel.1.slots as usize,
+                    current: channel.1.clients.get(self.data.active_profile.as_ref().unwrap()).is_some(),
                     text: format!("{} ({}/{})", channel.1.name.as_str(), channel.1.clients.len(), channel.1.slots),
                     name: channel.1.name.clone(),
+                    users: channel.1.clients.iter().map(|client| UserText {
+                        name: client.value().name.clone(),
+                        uuid: client.value().uuid.clone(),
+                        text: client.value().name.clone(),
+                    }).collect(),
                 }).collect::<Vec<_>>();
                 self.data.channel_texts = channel_texts;
+            }
+            UiMessage::ChannelRemoveUser(channel, user) => {
+                let mut channel = self.data.channel_texts.iter_mut().find(|channel_text| &channel_text.uuid == &channel).unwrap();
+                let idx = channel.users.iter().enumerate().find(|user_text| &user_text.1.uuid == &user).unwrap().0;
+                channel.users.remove(idx);
+                channel.current = channel.users.iter().any(|client| &client.uuid == self.data.active_profile.as_ref().unwrap());
+                channel.text = format!("{} ({}/{})", channel.name.as_str(), channel.users.len(), channel.slots);
+            }
+            UiMessage::ChannelAddUser(channel, user) => {
+                let mut channel = self.data.channel_texts.iter_mut().find(|channel_text| &channel_text.uuid == &channel).unwrap();
+                channel.users.push(UserText {
+                    name: user.name.clone(),
+                    uuid: user.uuid.clone(),
+                    text: user.name.clone(),
+                });
+                channel.current = channel.users.iter().any(|client| &client.uuid == self.data.active_profile.as_ref().unwrap());
+                channel.text = format!("{} ({}/{})", channel.name.as_str(), channel.users.len(), channel.slots);
             }
         }
         Command::none()
@@ -270,6 +305,8 @@ impl<'a> Stream for MakeUiMessage<'a> {
             Poll::Ready(val) => Poll::Ready(val.map(|val| match val {
                 InterUiMessage::Error(err) => UiMessage::OpenErr(err),
                 InterUiMessage::ServerConnected => UiMessage::ServerConnected,
+                InterUiMessage::ChannelRemoveUser(channel, user) => UiMessage::ChannelRemoveUser(channel, user),
+                InterUiMessage::ChannelAddUser(channel, user) => UiMessage::ChannelAddUser(channel, user),
             })),
             Poll::Pending => Poll::Pending,
         }
@@ -284,12 +321,16 @@ pub enum UiMessage {
     ConnectToSrv(String),
     SwitchAccount(String),
     ChannelClicked(String),
+    ChannelRemoveUser(Uuid, UserUuid),
+    ChannelAddUser(Uuid, RemoteProfile),
     OpenErr(String),
     ServerConnected,
 }
 
 #[derive(Debug, Clone)]
 pub enum InterUiMessage {
+    ChannelRemoveUser(Uuid, UserUuid),
+    ChannelAddUser(Uuid, RemoteProfile),
     Error(String),
     ServerConnected,
 }

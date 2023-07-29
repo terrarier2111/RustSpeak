@@ -3,9 +3,11 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use ordinalizer::Ordinal;
 use ruint::aliases::U256;
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 use std::time::Duration;
+use dashmap::DashMap;
 use uuid::Uuid;
 
 /// packets the server sends to the client
@@ -350,9 +352,9 @@ impl RWBytes for ChannelSubUpdate<'_> {
 
 #[derive(Debug, Clone, Ordinal)]
 pub enum ChannelSubClientUpdate {
-    Add(Uuid), // FIXME: we have to ensure that all updates get flushed if there is any way the receiving client
+    Add(UserUuid), // FIXME: we have to ensure that all updates get flushed if there is any way the receiving client
     // FIXME: could not have a (up-to-date) client with the passed uuid in their database
-    Remove(Uuid),
+    Remove(UserUuid),
 }
 
 impl RWBytes for ChannelSubClientUpdate {
@@ -363,11 +365,11 @@ impl RWBytes for ChannelSubClientUpdate {
 
         match disc {
             0 => {
-                let uuid = Uuid::read(src)?;
+                let uuid = UserUuid::read(src)?;
                 Ok(Self::Add(uuid))
             }
             1 => {
-                let uuid = Uuid::read(src)?;
+                let uuid = UserUuid::read(src)?;
                 Ok(Self::Remove(uuid))
             }
             _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(
@@ -433,7 +435,7 @@ impl RWBytes for ClientUpdateServerGroups {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RemoteProfile {
     pub name: String,
     pub uuid: UserUuid,
@@ -471,7 +473,7 @@ pub struct Channel {
     pub(crate) name: String,
     pub(crate) desc: String,
     pub(crate) perms: ChannelPerms,
-    pub(crate) clients: Vec<RemoteProfile>,
+    pub(crate) clients: DashMap<UserUuid, RemoteProfile>,
     pub(crate) slots: u16,
 }
 
@@ -484,7 +486,14 @@ impl RWBytes for Channel {
         let name = String::read(src)?;
         let desc = String::read(src)?;
         let perms = ChannelPerms::read(src)?;
-        let clients = Vec::<RemoteProfile>::read(src)?;
+        let clients = {
+            let raw = Vec::<RemoteProfile>::read(src)?;
+            let mut result = DashMap::new();
+            for profile in raw {
+                result.insert(profile.uuid, profile);
+            }
+            result
+        };
         let slots = u16::read(src)?;
 
         Ok(Self {
@@ -504,7 +513,7 @@ impl RWBytes for Channel {
         self.name.write(dst)?;
         self.desc.write(dst)?;
         self.perms.write(dst)?;
-        self.clients.write(dst)?;
+        self.clients.iter().map(|x| x.value().clone()).collect::<Vec<_>>().write(dst)?;
         self.slots.write(dst)?;
 
         Ok(())
