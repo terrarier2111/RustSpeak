@@ -98,6 +98,7 @@ pub struct ClientConnection {
     stable_id: usize,
     last_keep_alive: AtomicUsize,
     closed: AtomicBool,
+    finished: AtomicBool,
     // FIXME: cache buffers in order to avoid performance penalty for allocating new ones
 }
 
@@ -115,6 +116,7 @@ impl ClientConnection {
             stable_id,
             last_keep_alive: Default::default(),
             closed: Default::default(),
+            finished: Default::default(),
         })
     }
 
@@ -305,8 +307,19 @@ impl ClientConnection {
     }
 
     fn finish_up(&self) {
+        if self.finished.compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed).is_err() {
+            return;
+        }
         if let Some(uuid) = self.uuid.get() {
             self.server.online_users.remove(uuid);
+            let channels = self.server.channels.read().block_on();
+            let mut clients = channels.get(self.channel.load().as_ref()).unwrap().clients.write().block_on();
+            let idx = clients.iter().enumerate().find(|user| user.1 == uuid).unwrap().0; // FIXME: should we make this a hashmap?
+            clients.remove(idx);
+
+            let mut clients = RwLock::write(&channels.get(self.channel.load().as_ref()).unwrap().proto_clients).unwrap();
+            let idx = clients.iter().enumerate().find(|user| &user.1.uuid == uuid).unwrap().0; // FIXME: should we make this a hashmap?
+            clients.remove(idx);
         }
     }
 }
