@@ -6,7 +6,7 @@ use std::task::{Context, Poll};
 use bytes::BytesMut;
 use flume::r#async::RecvStream;
 use futures_util::{Stream, StreamExt, TryStreamExt};
-use iced::{executor, Renderer, Theme, time};
+use iced::{Color, executor, Renderer, Theme, time};
 use iced::keyboard;
 use iced::subscription::{self, Subscription};
 use iced::theme;
@@ -180,6 +180,7 @@ impl Application for Ui {
                     }).collect(),
                 }).collect::<Vec<_>>();
                 self.data.channel_texts = channel_texts;
+                self.ty = UiType::Menu;
             }
             UiMessage::ChannelRemoveUser(channel, user) => {
                 let mut channel = self.data.channel_texts.iter_mut().find(|channel_text| &channel_text.uuid == &channel).unwrap();
@@ -240,13 +241,18 @@ impl Application for Ui {
                 let frame = if let Some(server) = server.as_ref() {
                     let mut channels = vec![];
                     for channel in self.data.channel_texts.iter() {
-                        channels.push(row![
+                        let mut users: Vec<Element<UiMessage, Renderer>> = vec![];
+                        for user in channel.users.iter() {
+                            users.push(button(text(user.name.as_str())/*.style(theme::Text::Color(Color::from_rgb(1.0, 0.0, 0.0)))*/).style(theme::Button::Destructive).into());
+                        }
+                        channels.push(Into::<Element<UiMessage, Renderer>>::into(row![Into::<Element<UiMessage, Renderer>>::into(
                             button(text(channel.text.as_str())).on_press(UiMessage::ChannelClicked(channel.name.clone())).style(if channel.current {
                                 theme::Button::Secondary
                             } else {
                                 theme::Button::Primary
                             }),
-                        ].into());
+                        )/*, Into::<Element<UiMessage, Renderer>>::into(column(users))*/]));
+                        channels.extend(users);
                     }
                     container(column(vec![column(channels).into(), frame])).into()
                 } else {
