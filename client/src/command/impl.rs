@@ -26,8 +26,7 @@ impl CommandImpl for CommandProfiles {
                 }
             },
             "bump_sl" => {
-                if let Some(profile) = client.profile_db.cache_ref().get(&input[1].to_string()) {
-                    let mut profile = profile.value().clone();
+                if let Some(mut profile) = client.profile_db.cache_ref().get(&input[1].to_string()).map(|profile| profile.value().clone()) {
                     let req_lvl = input[2].parse::<u8>()?;
                     let priv_key = PKey::private_key_from_der(&*profile.priv_key)?;
                     let pub_key = priv_key.public_key_to_der()?;
@@ -35,7 +34,7 @@ impl CommandImpl for CommandProfiles {
                     client.profile_db.insert(profile)?;
                     client.println(format!("Successfully levelled up security level to {}", req_lvl).as_str());
                 } else {
-                    println!("Couldn't find profile {}", input[1]);
+                    client.println(format!("Couldn't find profile {}", input[1]).as_str());
                 }
             }
             _ => {}

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::mem::size_of;
+use std::sync::Mutex;
 use crate::RWBytes;
 use bytes::{Bytes, BytesMut};
 use dashmap::DashMap;
@@ -11,10 +12,11 @@ use openssl::pkey::PKey;
 use openssl::sha::sha256;
 use serde_derive::{Deserialize, Serialize};
 use crate::profile::PRIVATE_KEY_LEN_BITS;
-use crate::security_level::generate_token_num;
+use crate::security_level::{DEFAULT_SECURITY_LEVEL, generate_token_num};
 
 pub struct ProfileDb {
     profiles: DashMap<String, DbProfile>,
+    internal_cache: Mutex<Vec<RawDbProfile>>,
     path: String,
 }
 
@@ -38,6 +40,7 @@ impl ProfileDb {
                 default
             }
         };
+        let internal_cache = result.clone();
         let result = result.into_iter().map(|entry| DbProfile {
             name: entry.name,
             alias: entry.alias,
@@ -52,17 +55,13 @@ impl ProfileDb {
                 }
                 profiles
             },
+            internal_cache: Mutex::new(internal_cache),
             path,
         })
     }
 
     pub fn insert(&self, user: DbProfile) -> anyhow::Result<()> {
-        let mut profiles = self.profiles.iter().map(|entry| RawDbProfile {
-            name: entry.name.clone(),
-            alias: entry.alias.clone(),
-            priv_key: entry.priv_key.clone(),
-            security_proofs: entry.security_proofs.iter().map(|entry| U256Container::new(entry.clone())).collect::<Vec<_>>(),
-        }).collect::<Vec<_>>();
+        let mut profiles = self.internal_cache.lock().unwrap();
         profiles.push(RawDbProfile {
             name: user.name.clone(),
             alias: user.alias.clone(),
@@ -119,7 +118,7 @@ impl DbProfile {
         let priv_key = PKey::from_rsa(keys)?;
         let uuid = uuid_from_pub_key(&*priv_key.public_key_to_der()?); // FIXME: IMPORTANT: (THIS COULD BE SECURITY RELEVANT) could we switch to using the raw public key instead of using the "der" version of it?
         let mut proofs = vec![];
-        generate_token_num(1, uuid, &mut proofs);
+        generate_token_num(DEFAULT_SECURITY_LEVEL, uuid, &mut proofs);
         Ok(Self {
             name,
             alias,

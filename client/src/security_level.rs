@@ -72,6 +72,8 @@ pub fn verified_security_level(uuid: U256, hashes: Vec<U256>) -> Option<u8> {
     Some(hashes_len as u8)
 }
 
+pub const DEFAULT_SECURITY_LEVEL: u8 = 12;
+
 pub fn generate_token_num(req_level: u8, uuid: U256, pre_computed_tokens: &mut Vec<U256>) {
     let req_level = req_level as usize;
     /*loop {
