@@ -24,7 +24,7 @@ pub struct Server {
     pub default_channel: ConcurrentOnceCell<Uuid>,
     pub channels: SwapArc<HashMap<Uuid, Channel>>,
     pub channels_by_name: SwapArc<HashMap<String, Uuid>>, // FIXME: maintain this!
-    pub clients: DashMap<UserUuid, RemoteProfile>,
+    pub clients: DashMap<UserUuid, ConnectedRemoteProfile>,
     pub state: ServerState,
     pub name: String,
     pub audio: Arc<ServerAudio>,
@@ -330,7 +330,12 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
                     let mut channels_by_name = HashMap::new();
                     for channel in channels {
                         for user in &channel.clients {
-                            server.clients.insert(user.key().clone(), user.value().clone());
+                            server.clients.insert(user.key().clone(), ConnectedRemoteProfile {
+                                name: user.value().name.clone(),
+                                uuid: user.value().uuid.clone(),
+                                server_groups: user.value().server_groups.clone(),
+                                channel: channel.id.clone(),
+                            });
                         }
                         channels_by_name.insert(channel.name.clone(), channel.id);
                         channels_by_uuid.insert(channel.id, channel);
@@ -357,7 +362,15 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
                         ChannelSubUpdate::Client(update) => {
                             match update {
                                 ChannelSubClientUpdate::Add(user) => {
-                                    let profile = client.server.load().as_ref().unwrap().clients.get(&user).unwrap().clone();
+                                    let profile = client.server.load().as_ref().unwrap().clients.get_mut(&user).map(|mut val| {
+                                        val.value_mut().channel = channel;
+                                        val
+                                    }).unwrap().clone();
+                                    let profile = RemoteProfile {
+                                        name: profile.name,
+                                        uuid: profile.uuid,
+                                        server_groups: profile.server_groups,
+                                    };
                                     client.server.load().as_ref().unwrap().channels.load().as_ref().get(&channel).unwrap().clients.insert(user, profile.clone());
                                     client.inter_ui_msg_queue.0.send(InterUiMessage::ChannelAddUser(channel, profile)).unwrap();
                                 }
@@ -375,11 +388,18 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
         ServerPacket::ClientConnected(profile) => {
             let default_channel = server.default_channel.get().cloned().unwrap();
             server.channels.load().get(&default_channel).unwrap().clients.insert(profile.uuid.clone(), profile.clone());
-            server.clients.insert(profile.uuid.clone(), profile.clone());
+            server.clients.insert(profile.uuid.clone(), ConnectedRemoteProfile {
+                name: profile.name.clone(),
+                uuid: profile.uuid.clone(),
+                server_groups: profile.server_groups.clone(),
+                channel: default_channel.clone(),
+            });
             client.inter_ui_msg_queue.0.send(InterUiMessage::ChannelAddUser(default_channel, profile)).unwrap();
         }
-        ServerPacket::ClientDisconnected(_) => {
-            // FIXME: remove client from channel!
+        ServerPacket::ClientDisconnected(profile) => {
+            let client_profile = server.clients.remove(&profile.uuid).unwrap().1;
+            server.channels.load().get(&client_profile.channel).unwrap().clients.insert(profile.uuid.clone(), profile);
+            client.inter_ui_msg_queue.0.send(InterUiMessage::ChannelRemoveUser(client_profile.channel, client_profile.uuid)).unwrap();
         }
         ServerPacket::ClientUpdateServerGroups { .. } => {}
         ServerPacket::KeepAlive { .. } => {}
@@ -417,4 +437,12 @@ impl ServerState {
         self.0.load(Ordering::Acquire) == STATE_CONNECTED
     }
 
+}
+
+#[derive(Debug, Clone)]
+pub struct ConnectedRemoteProfile {
+    pub name: String,
+    pub uuid: UserUuid,
+    pub server_groups: Vec<Uuid>,
+    pub channel: Uuid,
 }

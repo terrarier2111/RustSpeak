@@ -14,7 +14,7 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 use crate::{ClientPacket, DEFAULT_CHANNEL_UUID, RWBytes, Server, UserUuid};
 use crate::conc_once_cell::ConcurrentOnceCell;
-use crate::packet::{ChannelSubClientUpdate, ChannelSubUpdate, ChannelUpdate, ServerPacket};
+use crate::packet::{ChannelSubClientUpdate, ChannelSubUpdate, ChannelUpdate, RemoteProfile, ServerPacket};
 use crate::utils::current_time_millis;
 
 // FIXME: look at: https://gitlab.com/veloren/veloren/-/issues/749 and https://gitlab.com/veloren/veloren/-/issues/1728
@@ -311,7 +311,7 @@ impl ClientConnection {
             return;
         }
         if let Some(uuid) = self.uuid.get() {
-            self.server.online_users.remove(uuid);
+            let send_packet = self.server.online_users.remove(uuid).is_some();
             let channels = self.server.channels.read().block_on();
             let mut clients = channels.get(self.channel.load().as_ref()).unwrap().clients.write().block_on();
             let idx = clients.iter().enumerate().find(|user| user.1 == uuid).unwrap().0; // FIXME: should we make this a hashmap?
@@ -319,7 +319,13 @@ impl ClientConnection {
 
             let mut clients = RwLock::write(&channels.get(self.channel.load().as_ref()).unwrap().proto_clients).unwrap();
             let idx = clients.iter().enumerate().find(|user| &user.1.uuid == uuid).unwrap().0; // FIXME: should we make this a hashmap?
-            clients.remove(idx);
+            let profile = clients.remove(idx);
+            if send_packet {
+                let disconnect_packet = ServerPacket::ClientDisconnected(profile).encode().unwrap();
+                for client in self.server.online_users.iter() {
+                    client.value().connection.send_reliable(&disconnect_packet).block_on().unwrap(); // FIXME: handler errors properly!
+                }
+            }
         }
     }
 }
