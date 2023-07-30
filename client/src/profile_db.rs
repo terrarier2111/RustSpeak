@@ -1,51 +1,111 @@
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::{Read, Write};
+use std::mem::size_of;
 use crate::RWBytes;
 use bytes::{Bytes, BytesMut};
+use dashmap::DashMap;
 use ruint::aliases::U256;
 use sled::{Db, Iter, IVec};
 use openssl::pkey::PKey;
 use openssl::sha::sha256;
+use serde_derive::{Deserialize, Serialize};
 use crate::profile::PRIVATE_KEY_LEN_BITS;
-use crate::protocol::UserUuid;
 use crate::security_level::generate_token_num;
 
 pub struct ProfileDb {
-    db: Db,
+    profiles: DashMap<String, DbProfile>,
+    path: String,
 }
 
 impl ProfileDb {
-    pub fn new(path: String) -> anyhow::Result<Self> {
+    pub fn new<F: FnOnce() -> anyhow::Result<Vec<DbProfile>>>(path: String, default: F) -> anyhow::Result<Self> {
+        let result = match File::open(&path) {
+            Ok(mut db_file) => {
+                let mut content = String::new();
+                db_file.read_to_string(&mut content)?;
+                let profile_db: Vec<RawDbProfile> = serde_json::from_str(&content)?;
+                profile_db
+            }
+            Err(_) => {
+                let default = default()?.into_iter().map(|entry| RawDbProfile {
+                    name: entry.name,
+                    alias: entry.alias,
+                    priv_key: entry.priv_key,
+                    security_proofs: entry.security_proofs.into_iter().map(|entry| U256Container::new(entry)).collect::<Vec<_>>(),
+                }).collect::<Vec<_>>();
+                write(&path, &default)?;
+                default
+            }
+        };
+        let result = result.into_iter().map(|entry| DbProfile {
+            name: entry.name,
+            alias: entry.alias,
+            priv_key: entry.priv_key,
+            security_proofs: entry.security_proofs.into_iter().map(|entry| entry.unwrap()).collect::<Vec<_>>(),
+        }).collect::<Vec<_>>();
         Ok(Self {
-            db: sled::open(path)?,
-        })
-    }
-
-    pub fn get(&self, name: &String) -> anyhow::Result<Option<DbProfile>> {
-        Ok(match self.db.get(name)? {
-            None => None,
-            Some(x) => Some(DbProfile::from_bytes(x)?),
+            profiles: {
+                let mut profiles = DashMap::new();
+                for entry in result {
+                    profiles.insert(entry.name.clone(), entry);
+                }
+                profiles
+            },
+            path,
         })
     }
 
     pub fn insert(&self, user: DbProfile) -> anyhow::Result<()> {
-        self.db.insert(user.name.clone(), user.to_bytes()?)?;
+        let mut profiles = self.profiles.iter().map(|entry| RawDbProfile {
+            name: entry.name.clone(),
+            alias: entry.alias.clone(),
+            priv_key: entry.priv_key.clone(),
+            security_proofs: entry.security_proofs.iter().map(|entry| U256Container::new(entry.clone())).collect::<Vec<_>>(),
+        }).collect::<Vec<_>>();
+        profiles.push(RawDbProfile {
+            name: user.name.clone(),
+            alias: user.alias.clone(),
+            priv_key: user.priv_key.clone(),
+            security_proofs: user.security_proofs.iter().map(|entry| U256Container::new(entry.clone())).collect::<Vec<_>>(),
+        });
+        write(&self.path, &profiles)?;
+        self.profiles.insert(user.name.clone(), user);
         Ok(())
     }
 
-    pub fn iter(&self) -> Iter {
-        self.db.iter()
+    #[inline(always)]
+    pub fn cache_ref(&self) -> &DashMap<String, DbProfile> {
+        &self.profiles
     }
 
     pub fn len(&self) -> usize {
-        self.db.len()
+        self.profiles.len()
     }
 }
 
-#[derive(Debug)]
+fn write(path: &String, profiles: &Vec<RawDbProfile>) -> anyhow::Result<()> {
+    let val = serde_json::to_string(profiles)?;
+    let mut file = File::create(path)?;
+    file.write(val.as_bytes())?;
+
+    Ok(())
+}
+
+#[derive(Debug, Clone)]
 pub struct DbProfile {
     pub name: String, // this is the name that is used by the client
     pub alias: String, // this is the alias the server will see
     pub priv_key: Vec<u8>,
     pub security_proofs: Vec<U256>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RawDbProfile {
+    name: String, // this is the name that is used by the client
+    alias: String, // this is the alias the server will see
+    priv_key: Vec<u8>,
+    security_proofs: Vec<U256Container>,
 }
 
 pub fn uuid_from_pub_key(pub_key: &[u8]) -> U256 {
@@ -68,25 +128,6 @@ impl DbProfile {
         })
     }
 
-    fn to_bytes(self) -> anyhow::Result<IVec> {
-        let mut buf = BytesMut::new();
-        self.name.write(&mut buf)?;
-        self.alias.write(&mut buf)?;
-        self.priv_key.write(&mut buf)?;
-        self.security_proofs.write(&mut buf)?;
-        Ok(IVec::from(buf.to_vec()))
-    }
-
-    pub(crate) fn from_bytes(bytes: IVec) -> anyhow::Result<Self> {
-        let mut buf = Bytes::from(bytes.to_vec());
-        Ok(Self {
-            name: String::read(&mut buf)?,
-            alias: String::read(&mut buf)?,
-            priv_key: Vec::<u8>::read(&mut buf)?,
-            security_proofs: Vec::<U256>::read(&mut buf)?,
-        })
-    }
-
     pub fn pub_key(&self) -> anyhow::Result<Vec<u8>> {
         Ok(PKey::private_key_from_der(&self.priv_key)?.public_key_to_der()?)
     }
@@ -94,4 +135,26 @@ impl DbProfile {
     pub fn uuid(&self) -> anyhow::Result<U256> {
         Ok(uuid_from_pub_key(&self.pub_key()?))
     }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct U256Container {
+    raw: [u8; size_of::<U256>()],
+    #[serde(skip)]
+    _align: [U256; 0],
+}
+
+impl U256Container {
+
+    pub fn new(val: U256) -> Self {
+        Self {
+            raw: val.to_le_bytes(),
+            _align: [],
+        }
+    }
+
+    pub fn unwrap(&self) -> U256 {
+        U256::from_le_bytes(self.raw.clone())
+    }
+
 }

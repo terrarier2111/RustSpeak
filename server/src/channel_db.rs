@@ -4,16 +4,19 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
+use std::mem::size_of;
 use std::path::Path;
+use ruint::aliases::U256;
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize)]
 pub struct ChannelDbEntry<'a> {
     pub id: u128, // channel uuid
+    pub sort_id: u64,
     pub name: Cow<'a, str>,
     pub desc: Cow<'a, str>,
     pub password: Option<Cow<'a, str>>,
-    pub user_groups: Vec<(u128, u128)>, // user uuid and channel group uuid
+    pub user_groups: Vec<(U256Container, u128)>, // user uuid and channel group uuid
     pub perms: ChannelPerms,
     pub slots: u16, // FIXME: add option for unlimited slots via `-1` value!
 }
@@ -53,4 +56,26 @@ impl ChannelDb {
 
         Ok(())
     }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct U256Container {
+    raw: [u8; size_of::<U256>()],
+    #[serde(skip)]
+    _align: [U256; 0],
+}
+
+impl U256Container {
+
+    fn new(val: U256) -> Self {
+        Self {
+            raw: val.to_le_bytes(),
+            _align: [],
+        }
+    }
+
+    fn unwrap(&self) -> U256 {
+        U256::from_le_bytes(self.raw.clone())
+    }
+
 }

@@ -69,10 +69,6 @@ async fn main() -> anyhow::Result<()> {
     let (cfg, profile_db) = load_data()?;
     let cfg = Arc::new(SwapArc::new(Arc::new(cfg)));
     let profile_db = Arc::new(profile_db);
-    // if there is no profile, generate a default one
-    if profile_db.iter().next().is_none() {
-        profile_db.insert(DbProfile::new(String::from("default"), String::from("RustSpeakUser")).unwrap()).unwrap();
-    }
     let cli = CLIBuilder::new()
         .prompt(ColoredString::from("RustSpeak").green())
         .help_msg(ColoredString::from("This command doesn't exist").red())
@@ -255,6 +251,9 @@ fn load_data() -> anyhow::Result<(Config, ProfileDb)> {
             .to_str()
             .unwrap()
             .to_string(),
+        || {
+            Ok(vec![DbProfile::new(String::from("default"), String::from("RustSpeakUser")).unwrap()])
+        }
     )?;
     Ok((config, profile_db))
 }

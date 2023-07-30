@@ -101,6 +101,7 @@ fn main() -> anyhow::Result<()> {
         .read_or_create(|| {
             Ok(vec![ChannelDbEntry {
                 id: DEFAULT_CHANNEL_UUID.as_u128(),
+                sort_id: 0,
                 name: Cow::Borrowed("Lobby"),
                 desc: Default::default(),
                 password: None,
@@ -547,6 +548,7 @@ impl Server {
             .read_or_create(|| {
                 Ok(vec![ChannelDbEntry {
                     id: DEFAULT_CHANNEL_UUID.as_u128(),
+                    sort_id: 0,
                     name: Cow::Borrowed("Lobby"),
                     desc: Default::default(),
                     password: None,
@@ -817,6 +819,12 @@ impl CommandImpl for CommandChannel {
             "create" => {
                 let mut id = rand::random::<u128>();
                 let mut db = server.read_channel_db()?;
+                let mut last_id = 0;
+                for channel in db.iter() {
+                    if channel.sort_id > last_id {
+                        last_id = channel.sort_id;
+                    }
+                }
                 while db.iter().any(|channel| channel.id == id) {
                     id = rand::random::<u128>();
                 }
@@ -826,6 +834,7 @@ impl CommandImpl for CommandChannel {
                 let slots = usize::from_str(input[2]).unwrap() as u16;
                 let channel = ChannelDbEntry {
                     id,
+                    sort_id: last_id + 1,
                     name: Cow::Owned(input[0].to_string()),
                     desc: Cow::Owned(desc.clone()),
                     password: pw,

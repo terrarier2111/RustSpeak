@@ -65,7 +65,7 @@ impl Ui {
     
     pub fn new() -> Self {
         let client = CLIENT.get().unwrap();
-        let profiles = client.profile_db.iter().map(|profile| DbProfile::from_bytes(profile.unwrap().1).unwrap()).collect::<Vec<_>>();
+        let profiles = client.profile_db.cache_ref().iter().map(|profile| profile.value().clone()).collect::<Vec<_>>();
         let profiles_texts = profiles.iter().map(|profile| format!("{} (\"{}\")", profile.name.as_str(), profile.alias.as_str())).collect();
         Self {
             ty: UiType::Menu,
@@ -111,20 +111,17 @@ impl Application for Ui {
             UiMessage::AccountsPressed => self.ty = UiType::Accounts,
             UiMessage::ConnectToSrv(server_name) => {
                 let profile = if let Some(curr_profile) = &self.client.config.load().get_default_account() {
-                    let profile = self.client.profile_db.iter().find_map(|raw| {
-                        let profile = DbProfile::from_bytes(raw.unwrap().1).unwrap();
-                        if &UserUuid::from_u256(profile.uuid().unwrap()) == curr_profile {
-                            Some(profile)
+                    let profile = self.client.profile_db.cache_ref().iter().find_map(|profile| {
+                        if &UserUuid::from_u256(profile.value().uuid().unwrap()) == curr_profile {
+                            Some(profile.value().clone())
                         } else {
                             None
                         }
                     }).unwrap();
                     Profile::from_existing(profile.name, profile.alias, profile.priv_key, profile.security_proofs)
                 } else {
-                    let mut profiles = self.client.profile_db.iter().collect::<Vec<_>>();
-                    println!("profiles222: {}", profiles.len());
-                    let profile = profiles.remove(rand::thread_rng().gen_range(0..profiles.len())).unwrap().1;
-                    let profile = DbProfile::from_bytes(profile).unwrap();
+                    let mut profiles = self.client.profile_db.cache_ref().iter().map(|entry| entry.value().clone()).collect::<Vec<_>>();
+                    let profile = profiles.remove(rand::thread_rng().gen_range(0..profiles.len()));
                     let profile = Profile::from_existing(profile.name, profile.alias, profile.priv_key, profile.security_proofs);
                     profile
                 };
@@ -140,8 +137,8 @@ impl Application for Ui {
             }
             UiMessage::SwitchAccount(account) => {
                 let old_cfg = self.client.config.load();
-                if let Some(account) = self.client.profile_db.get(&account).ok().flatten() {
-                    let config = old_cfg.set_default_account(UserUuid::from_u256(account.uuid().unwrap()));
+                if let Some(account) = self.client.profile_db.cache_ref().get(&account) {
+                    let config = old_cfg.set_default_account(UserUuid::from_u256(account.value().uuid().unwrap()));
                     config.save().unwrap();
                     let config = Arc::new(config);
                     self.client.config.store(config.clone());
@@ -199,6 +196,12 @@ impl Application for Ui {
                 channel.current = channel.users.iter().any(|client| &client.uuid == self.data.active_profile.as_ref().unwrap());
                 channel.text = format!("{} ({}/{})", channel.name.as_str(), channel.users.len(), channel.slots);
             }
+            UiMessage::UpdateProfiles => {
+                let profiles = self.client.profile_db.cache_ref().iter().map(|profile| profile.value().clone()).collect::<Vec<_>>();
+                let profiles_texts = profiles.iter().map(|profile| format!("{} (\"{}\")", profile.name.as_str(), profile.alias.as_str())).collect();
+                self.data.profiles_texts = profiles_texts;
+                self.data.profiles = profiles;
+            }
         }
         Command::none()
     }
@@ -245,14 +248,15 @@ impl Application for Ui {
                         for user in channel.users.iter() {
                             users.push(button(text(user.name.as_str())/*.style(theme::Text::Color(Color::from_rgb(1.0, 0.0, 0.0)))*/).style(theme::Button::Destructive).into());
                         }
-                        channels.push(Into::<Element<UiMessage, Renderer>>::into(row![Into::<Element<UiMessage, Renderer>>::into(
+                        let channel = Into::<Element<UiMessage, Renderer>>::into(
                             button(text(channel.text.as_str())).on_press(UiMessage::ChannelClicked(channel.name.clone())).style(if channel.current {
                                 theme::Button::Secondary
                             } else {
                                 theme::Button::Primary
                             }),
-                        )/*, Into::<Element<UiMessage, Renderer>>::into(column(users))*/]));
-                        channels.extend(users);
+                        );
+                        channels.push(Into::<Element<UiMessage, Renderer>>::into(column![channel, Into::<Element<UiMessage, Renderer>>::into(column(users))])); // FIXME: pad users to the left
+                        // channels.extend(users);
                     }
                     container(column(vec![column(channels).into(), frame])).into()
                 } else {
@@ -267,12 +271,16 @@ impl Application for Ui {
             UiType::Accounts => {
                 let mut accounts = vec![];
                 for (i, profile) in self.data.profiles.iter().enumerate() {
-                    accounts.push(button(self.data.profiles_texts[i].as_str()).on_press(UiMessage::SwitchAccount(profile.name.clone())).into());
+                    accounts.push(button(self.data.profiles_texts[i].as_str()).on_press(UiMessage::SwitchAccount(profile.name.clone())).style(if self.data.active_profile == Some(UserUuid::from_u256(profile.uuid().unwrap())) {
+                        theme::Button::Secondary
+                    } else {
+                        theme::Button::Primary
+                    }).into());
                 }
                 if let Some(err_screen) = err_screen {
-                    container(column(vec![err_screen.into(), row(accounts).into(), frame])).into()
+                    container(column(vec![err_screen.into(), column(accounts).into(), frame])).into()
                 } else {
-                    container(column(vec![row(accounts).into(), frame])).into()
+                    container(column(vec![column(accounts).into(), frame])).into()
                 }
             }
             UiType::ServerList => {
@@ -313,6 +321,7 @@ impl<'a> Stream for MakeUiMessage<'a> {
                 InterUiMessage::ServerConnected => UiMessage::ServerConnected,
                 InterUiMessage::ChannelRemoveUser(channel, user) => UiMessage::ChannelRemoveUser(channel, user),
                 InterUiMessage::ChannelAddUser(channel, user) => UiMessage::ChannelAddUser(channel, user),
+                InterUiMessage::UpdateProfiles => UiMessage::UpdateProfiles,
             })),
             Poll::Pending => Poll::Pending,
         }
@@ -329,6 +338,7 @@ pub enum UiMessage {
     ChannelClicked(String),
     ChannelRemoveUser(Uuid, UserUuid),
     ChannelAddUser(Uuid, RemoteProfile),
+    UpdateProfiles,
     OpenErr(String),
     ServerConnected,
 }
@@ -337,6 +347,7 @@ pub enum UiMessage {
 pub enum InterUiMessage {
     ChannelRemoveUser(Uuid, UserUuid),
     ChannelAddUser(Uuid, RemoteProfile),
+    UpdateProfiles,
     Error(String),
     ServerConnected,
 }

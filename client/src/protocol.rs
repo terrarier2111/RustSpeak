@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use uuid::Uuid;
+use crate::profile_db::U256Container;
 
 pub const PROTOCOL_VERSION: u64 = 1;
 

@@ -353,13 +353,12 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
                         ChannelSubUpdate::Client(update) => {
                             match update {
                                 ChannelSubClientUpdate::Add(user) => {
-                                    println!("name: {}", client.server.load().as_ref().expect("t1").channels.load().get(&channel).expect("t2").name.clone());
                                     let profile = client.server.load().as_ref().unwrap().clients.get(&user).unwrap().clone();
-                                    client.server.load().as_ref().expect("t1").channels.load().as_ref().get(&channel).expect("t2").clients.insert(user, profile.clone());
+                                    client.server.load().as_ref().unwrap().channels.load().as_ref().get(&channel).unwrap().clients.insert(user, profile.clone());
                                     client.inter_ui_msg_queue.0.send(InterUiMessage::ChannelAddUser(channel, profile)).unwrap();
                                 }
                                 ChannelSubClientUpdate::Remove(user) => {
-                                    client.server.load().as_ref().expect("t1").channels.load().as_ref().get(&channel).expect("t2").clients.remove(&user).expect("t3").1;
+                                    client.server.load().as_ref().unwrap().channels.load().as_ref().get(&channel).unwrap().clients.remove(&user).unwrap().1;
                                     client.inter_ui_msg_queue.0.send(InterUiMessage::ChannelRemoveUser(channel, user)).unwrap();
                                 }
                             }
