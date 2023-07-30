@@ -325,7 +325,6 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
         ServerPacket::AuthResponse(response) => {
             match response {
                 AuthResponse::Success { channels, default_channel_id, server_groups, own_groups } => {
-                    println!("got response!");
                     let mut channels_by_uuid = HashMap::new();
                     let mut channels_by_name = HashMap::new();
                     for channel in channels {

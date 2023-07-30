@@ -466,7 +466,7 @@ impl RWBytes for RemoteProfile {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Channel {
     pub(crate) id: Uuid,
     pub(crate) password: bool, // FIXME: add capability to hide users if a password is set
@@ -475,6 +475,7 @@ pub struct Channel {
     pub(crate) perms: ChannelPerms,
     pub(crate) clients: DashMap<UserUuid, RemoteProfile>,
     pub(crate) slots: u16,
+    pub(crate) sort_id: u16,
 }
 
 impl RWBytes for Channel {
@@ -495,6 +496,7 @@ impl RWBytes for Channel {
             result
         };
         let slots = u16::read(src)?;
+        let sort_id = u16::read(src)?;
 
         Ok(Self {
             id,
@@ -504,6 +506,7 @@ impl RWBytes for Channel {
             perms,
             clients,
             slots,
+            sort_id,
         })
     }
 
@@ -515,6 +518,7 @@ impl RWBytes for Channel {
         self.perms.write(dst)?;
         self.clients.iter().map(|x| x.value().clone()).collect::<Vec<_>>().write(dst)?;
         self.slots.write(dst)?;
+        self.sort_id.write(dst)?;
 
         Ok(())
     }

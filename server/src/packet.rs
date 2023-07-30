@@ -10,7 +10,7 @@ use ruint::aliases::U256;
 use serde_derive::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::fmt::{Debug, Display};
-use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use swap_arc::SwapArc;
@@ -541,6 +541,7 @@ pub struct Channel {
     pub clients: Arc<tokio::sync::RwLock<Vec<UserUuid>>>, // FIXME: try making this lock free!
     pub proto_clients: Arc<RwLock<Vec<RemoteProfile>>>, // FIXME: is it worth making RemoteProfiles ref-counted?
     pub slots: AtomicU16,
+    pub sort_id: AtomicU16,
 }
 
 // FIXME: use Arc<Channel<'_>> so that we don't need a clone impl for Channel<'_>
@@ -555,6 +556,7 @@ impl Clone for Channel {
             clients: self.clients.clone(),
             proto_clients: self.proto_clients.clone(),
             slots: AtomicU16::new(self.slots.load(Ordering::Acquire)),
+            sort_id: AtomicU16::new(self.sort_id.load(Ordering::Acquire)),
         }
     }
 }
@@ -582,6 +584,7 @@ impl RWBytes for Channel {
         let perms = Arc::new(SwapArc::new(Arc::new(ChannelPerms::read(src, client_key)?)));
         let clients = Arc::new(RwLock::new(Vec::<RemoteProfile>::read(src, client_key)?));
         let slots = AtomicU16::new(u16::read(src, client_key)?);
+        let sort_id = AtomicU16::new(u16::read(src, client_key)?);
 
         Ok(Self {
             uuid,
@@ -592,6 +595,7 @@ impl RWBytes for Channel {
             proto_clients: clients,
             clients: Arc::new(tokio::sync::RwLock::new(vec![])),
             slots,
+            sort_id,
         })
     }
 
@@ -603,6 +607,7 @@ impl RWBytes for Channel {
         RWBytes::write(&self.perms, dst)?;
         RWBytes::write(&self.proto_clients, dst)?;
         self.slots.write(dst)?;
+        self.sort_id.write(dst)?;
 
         Ok(())
     }

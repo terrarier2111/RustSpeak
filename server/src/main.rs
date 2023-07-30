@@ -128,6 +128,7 @@ fn main() -> anyhow::Result<()> {
             clients: Arc::new(Default::default()),
             proto_clients: Arc::new(Default::default()),
             slots: AtomicU16::new(entry.slots),
+            sort_id: AtomicU16::new(entry.sort_id),
         })
         .collect::<Vec<_>>();
     let channels = {
@@ -830,22 +831,29 @@ impl CommandImpl for CommandChannel {
             "create" => {
                 let mut id = rand::random::<u128>();
                 let mut db = server.read_channel_db()?;
-                let mut last_id = 0;
-                for channel in db.iter() {
-                    if channel.sort_id > last_id {
-                        last_id = channel.sort_id;
-                    }
-                }
                 while db.iter().any(|channel| channel.id == id) {
                     id = rand::random::<u128>();
                 }
-                let desc = input.get(3).unwrap_or(&"").to_string();
-                let pw = input.get(4).map(|raw| Some(Cow::Owned(raw.to_string()))).unwrap_or(None);
+                let desc = if input.len() >= 6 {
+                    input[5..].join(" ").to_string()
+                } else {
+                    String::new()
+                };
+                let pw = input.get(3).map(|raw| Some(Cow::Owned(raw.to_string()))).unwrap_or(None);
                 let has_pw = pw.is_some();
                 let slots = usize::from_str(input[2]).unwrap() as u16;
+                let sort_id = input.get(4).map(|raw| usize::from_str(raw).unwrap() as u16).unwrap_or_else(|| {
+                    let mut last_id = 0;
+                    for channel in db.iter() {
+                        if channel.sort_id > last_id {
+                            last_id = channel.sort_id;
+                        }
+                    }
+                    last_id + 1
+                });
                 let channel = ChannelDbEntry {
                     id,
-                    sort_id: last_id + 1,
+                    sort_id,
                     name: Cow::Owned(input[0].to_string()),
                     desc: Cow::Owned(desc.clone()),
                     password: pw,
@@ -864,6 +872,7 @@ impl CommandImpl for CommandChannel {
                     clients: Arc::new(Default::default()),
                     proto_clients: Arc::new(Default::default()),
                     slots: AtomicU16::new(slots),
+                    sort_id: AtomicU16::new(sort_id),
                 });
 
                 server.println(format!("Created channel {}", input[0]).as_str());

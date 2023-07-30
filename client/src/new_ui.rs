@@ -164,17 +164,22 @@ impl Application for Ui {
             UiMessage::ServerConnected => {
                 let server = self.client.server.load();
                 let channels_loaded = server.as_ref().unwrap().channels.load();
-                let channel_texts = channels_loaded.iter().map(|channel| ChannelText {
-                    uuid: channel.1.id,
-                    slots: channel.1.slots as usize,
-                    current: channel.1.clients.get(self.data.active_profile.as_ref().unwrap()).is_some(),
-                    text: format!("{} ({}/{})", channel.1.name.as_str(), channel.1.clients.len(), channel.1.slots),
-                    name: channel.1.name.clone(),
-                    users: channel.1.clients.iter().map(|client| UserText {
-                        name: client.value().name.clone(),
-                        uuid: client.value().uuid.clone(),
-                        text: client.value().name.clone(),
-                    }).collect(),
+                let mut channels = channels_loaded.iter().map(|channel| channel.1.clone()).collect::<Vec<_>>();
+                channels.sort_by(|channel, channel2| channel.sort_id.cmp(&channel2.sort_id));
+                let channel_texts = channels.into_iter().map(|channel| {
+                    let current = channel.clients.get(self.data.active_profile.as_ref().unwrap()).is_some();
+                    ChannelText {
+                        uuid: channel.id,
+                        slots: channel.slots as usize,
+                        current,
+                        text: format!("{} ({}/{})", channel.name.as_str(), channel.clients.len(), channel.slots),
+                        name: channel.name,
+                        users: channel.clients.into_iter().map(|client| UserText {
+                            name: client.1.name.clone(),
+                            uuid: client.1.uuid,
+                            text: client.1.name,
+                        }).collect(),
+                    }
                 }).collect::<Vec<_>>();
                 self.data.channel_texts = channel_texts;
                 self.ty = UiType::Menu;

@@ -12,7 +12,7 @@ use uuid::Uuid;
 #[derive(Serialize, Deserialize)]
 pub struct ChannelDbEntry<'a> {
     pub id: u128, // channel uuid
-    pub sort_id: u64,
+    pub sort_id: u16,
     pub name: Cow<'a, str>,
     pub desc: Cow<'a, str>,
     pub password: Option<Cow<'a, str>>,
