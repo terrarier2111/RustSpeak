@@ -21,6 +21,7 @@ use crate::protocol::UserUuid;
 pub struct Server {
     pub profile: Profile,
     pub connection: ConcurrentOnceCell<Arc<NetworkClient>>,
+    pub default_channel: ConcurrentOnceCell<Uuid>,
     pub channels: SwapArc<HashMap<Uuid, Channel>>,
     pub channels_by_name: SwapArc<HashMap<String, Uuid>>, // FIXME: maintain this!
     pub clients: DashMap<UserUuid, RemoteProfile>,
@@ -68,6 +69,7 @@ impl Server {
         let server = Arc::new(Self {
             profile: profile.clone(),
             connection: ConcurrentOnceCell::new(),
+            default_channel: ConcurrentOnceCell::new(),
             channels: Default::default(),
             channels_by_name: Default::default(),
             clients: Default::default(),
@@ -323,6 +325,7 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
         ServerPacket::AuthResponse(response) => {
             match response {
                 AuthResponse::Success { channels, default_channel_id, server_groups, own_groups } => {
+                    println!("got response!");
                     let mut channels_by_uuid = HashMap::new();
                     let mut channels_by_name = HashMap::new();
                     for channel in channels {
@@ -334,6 +337,7 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
                     }
                     server.channels.store(Arc::new(channels_by_uuid));
                     server.channels_by_name.store(Arc::new(channels_by_name));
+                    server.default_channel.try_init_silent(default_channel_id).unwrap();
                     server.finish_auth(client.clone()).await;
                     client.inter_ui_msg_queue.0.send(InterUiMessage::ServerConnected).unwrap();
                 }
@@ -368,8 +372,11 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
                 ChannelUpdate::Delete(_) => {}
             }
         }
-        ServerPacket::ClientConnected(_) => {
-            // FIXME: add client to default channel!
+        ServerPacket::ClientConnected(profile) => {
+            let default_channel = server.default_channel.get().cloned().unwrap();
+            server.channels.load().get(&default_channel).unwrap().clients.insert(profile.uuid.clone(), profile.clone());
+            server.clients.insert(profile.uuid.clone(), profile.clone());
+            client.inter_ui_msg_queue.0.send(InterUiMessage::ChannelAddUser(default_channel, profile)).unwrap();
         }
         ServerPacket::ClientDisconnected(_) => {
             // FIXME: remove client from channel!

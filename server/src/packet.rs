@@ -500,6 +500,7 @@ impl RWBytes for ClientUpdateServerGroups {
     }
 }
 
+#[derive(Clone)]
 pub struct RemoteProfile {
     pub name: String,
     pub uuid: UserUuid,

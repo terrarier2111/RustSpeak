@@ -467,6 +467,20 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                         server.println(format!("uuid_cmp: {}", uuid == user.uuid).as_str());
                         server.println(format!("uuid: {:?}", uuid).as_str());
                         server.println(format!("user uuid: {:?}", user.uuid).as_str());
+
+                        let profile = RemoteProfile {
+                            name,
+                            uuid,
+                            server_groups: user.groups.clone(),
+                        };
+
+                        // broadcast user join to other users
+                        let packet = ServerPacket::ClientConnected(profile.clone());
+                        let encoded = packet.encode()?;
+                        for user in server.online_users.iter() {
+                            user.connection.send_reliable(&encoded).await?;
+                        }
+
                         server.online_users.insert(uuid, User {
                             uuid,
                             name: SwapArc::new(Arc::new(user.name.into())),
@@ -477,15 +491,12 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                         });
                         let channels = server.channels.read().await;
                         let channel = channels.get(&new_conn.channel.load()).unwrap();
-                        channel.clients.write().await.push(uuid); // FIXME: remove the user from the channel again later on!
-                        RwLock::write(&channel.proto_clients).unwrap().push(RemoteProfile {
-                            name,
-                            uuid,
-                            server_groups: user.groups.clone(),
-                        }); // FIXME: remove the user from the channel again later on!
+                        channel.clients.write().await.push(uuid);
+                        RwLock::write(&channel.proto_clients).unwrap().push(profile.clone());
                         // println!("channels: {}", channels.len());
                         let channels = channels.values();
                         let channels = channels.cloned().collect::<Vec<_>>();
+
                         let auth = ServerPacket::AuthResponse(AuthResponse::Success {
                             default_channel_id: Uuid::from_u128(server.config.default_channel_id),
                             server_groups: server_groups.cloned().collect::<Vec<_>>(), // FIXME: try getting rid of this clone!
