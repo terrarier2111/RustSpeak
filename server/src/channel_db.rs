@@ -18,7 +18,7 @@ pub struct ChannelDbEntry<'a> {
     pub password: Option<Cow<'a, str>>,
     pub user_groups: Vec<(U256Container, u128)>, // user uuid and channel group uuid
     pub perms: ChannelPerms,
-    pub slots: u16, // FIXME: add option for unlimited slots via `-1` value!
+    pub slots: i16, // a value of -1 indicates unlimited users, all other negative values are illegal
 }
 
 pub struct ChannelDb {

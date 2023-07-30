@@ -33,7 +33,7 @@ use std::fmt::{Debug, Display, Formatter, Write};
 use std::fs::File;
 use std::net::IpAddr;
 use std::ops::Deref;
-use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI16, AtomicU16, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::{fs, thread};
 use std::future::Future;
@@ -115,7 +115,7 @@ fn main() -> anyhow::Result<()> {
                     assign_talk: 100,
                     delete: 100,
                 },
-                slots: 100,
+                slots: -1,
             }])
         })?
         .into_iter()
@@ -127,7 +127,7 @@ fn main() -> anyhow::Result<()> {
             perms: Arc::new(SwapArc::new(Arc::new(entry.perms))),
             clients: Arc::new(Default::default()),
             proto_clients: Arc::new(Default::default()),
-            slots: AtomicU16::new(entry.slots),
+            slots: AtomicI16::new(entry.slots),
             sort_id: AtomicU16::new(entry.sort_id),
         })
         .collect::<Vec<_>>();
@@ -841,7 +841,10 @@ impl CommandImpl for CommandChannel {
                 };
                 let pw = input.get(3).map(|raw| Some(Cow::Owned(raw.to_string()))).unwrap_or(None);
                 let has_pw = pw.is_some();
-                let slots = usize::from_str(input[2]).unwrap() as u16;
+                let slots = isize::from_str(input[2]).unwrap() as i16;
+                if slots < -1 {
+                    panic!("A slot count below -1 is illegal");
+                }
                 let sort_id = input.get(4).map(|raw| usize::from_str(raw).unwrap() as u16).unwrap_or_else(|| {
                     let mut last_id = 0;
                     for channel in db.iter() {
@@ -871,7 +874,7 @@ impl CommandImpl for CommandChannel {
                     perms: Arc::new(SwapArc::new(Arc::new(ChannelPerms::default()))), // FIXME: make this configurable via cmd params!
                     clients: Arc::new(Default::default()),
                     proto_clients: Arc::new(Default::default()),
-                    slots: AtomicU16::new(slots),
+                    slots: AtomicI16::new(slots),
                     sort_id: AtomicU16::new(sort_id),
                 });
 
@@ -957,7 +960,12 @@ impl CommandImpl for CommandChannels {
         }
         server.println("Name   UUID   Users/Slots");
         for channel in channels.values() {
-            server.println(format!("{} | {:?} | {}/{}", channel.name.load(), channel.uuid, channel.clients.read().block_on().len(), channel.slots.load(Ordering::Acquire)).as_str());
+            let slots = channel.slots.load(Ordering::Acquire);
+            server.println(format!("{} | {:?} | {}/{}", channel.name.load(), channel.uuid, channel.clients.read().block_on().len(), if slots == -1 {
+                String::from("unlimited")
+            } else {
+                slots.to_string()
+            }).as_str());
         }
         Ok(())
     }

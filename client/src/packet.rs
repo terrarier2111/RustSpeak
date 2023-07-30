@@ -474,7 +474,7 @@ pub struct Channel {
     pub(crate) desc: String,
     pub(crate) perms: ChannelPerms,
     pub(crate) clients: DashMap<UserUuid, RemoteProfile>,
-    pub(crate) slots: u16,
+    pub(crate) slots: i16,
     pub(crate) sort_id: u16,
 }
 
@@ -495,7 +495,7 @@ impl RWBytes for Channel {
             }
             result
         };
-        let slots = u16::read(src)?;
+        let slots = i16::read(src)?;
         let sort_id = u16::read(src)?;
 
         Ok(Self {

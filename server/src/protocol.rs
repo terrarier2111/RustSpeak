@@ -7,7 +7,7 @@ use std::error::Error;
 use std::fmt::{Debug, Display, Formatter, Write};
 use std::mem::{discriminant, transmute};
 use std::ops::Deref;
-use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI16, AtomicI32, AtomicI64, AtomicI8, AtomicU16, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
@@ -73,6 +73,58 @@ impl RWBytes for u128 {
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
         dst.put_u128_le(*self);
+        Ok(())
+    }
+}
+
+impl RWBytes for i64 {
+    type Ty = Self;
+
+    fn read(src: &mut Bytes, _client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+        Ok(src.get_i64_le())
+    }
+
+    fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
+        dst.put_i64_le(*self);
+        Ok(())
+    }
+}
+
+impl RWBytes for i32 {
+    type Ty = Self;
+
+    fn read(src: &mut Bytes, _client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+        Ok(src.get_i32_le())
+    }
+
+    fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
+        dst.put_i32_le(*self);
+        Ok(())
+    }
+}
+
+impl RWBytes for i16 {
+    type Ty = Self;
+
+    fn read(src: &mut Bytes, _client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+        Ok(src.get_i16_le())
+    }
+
+    fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
+        dst.put_i16_le(*self);
+        Ok(())
+    }
+}
+
+impl RWBytes for i8 {
+    type Ty = Self;
+
+    fn read(src: &mut Bytes, _client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+        Ok(src.get_i8())
+    }
+
+    fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
+        dst.put_i8(*self);
         Ok(())
     }
 }
@@ -383,6 +435,54 @@ impl RWBytes for AtomicU64 {
 
     fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
         u64::read(src, client_key)
+    }
+
+    fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
+        self.load(Ordering::Acquire).write(dst)
+    }
+}
+
+impl RWBytes for AtomicI8 {
+    type Ty = i8;
+
+    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+        i8::read(src, client_key)
+    }
+
+    fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
+        self.load(Ordering::Acquire).write(dst)
+    }
+}
+
+impl RWBytes for AtomicI16 {
+    type Ty = i16;
+
+    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+        i16::read(src, client_key)
+    }
+
+    fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
+        self.load(Ordering::Acquire).write(dst)
+    }
+}
+
+impl RWBytes for AtomicI32 {
+    type Ty = i32;
+
+    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+        i32::read(src, client_key)
+    }
+
+    fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
+        self.load(Ordering::Acquire).write(dst)
+    }
+}
+
+impl RWBytes for AtomicI64 {
+    type Ty = i64;
+
+    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+        i64::read(src, client_key)
     }
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {

@@ -48,7 +48,7 @@ struct Data {
 
 struct ChannelText {
     uuid: Uuid,
-    slots: usize,
+    slots: isize,
     current: bool,
     text: String,
     name: String,
@@ -170,9 +170,13 @@ impl Application for Ui {
                     let current = channel.clients.get(self.data.active_profile.as_ref().unwrap()).is_some();
                     ChannelText {
                         uuid: channel.id,
-                        slots: channel.slots as usize,
+                        slots: channel.slots as isize,
                         current,
-                        text: format!("{} ({}/{})", channel.name.as_str(), channel.clients.len(), channel.slots),
+                        text: format!("{} ({}/{})", channel.name.as_str(), channel.clients.len(), if channel.slots == -1 {
+                            String::from("unlimited")
+                        } else {
+                            channel.slots.to_string()
+                        }),
                         name: channel.name,
                         users: channel.clients.into_iter().map(|client| UserText {
                             name: client.1.name.clone(),
@@ -189,7 +193,11 @@ impl Application for Ui {
                 let idx = channel.users.iter().enumerate().find(|user_text| &user_text.1.uuid == &user).unwrap().0;
                 channel.users.remove(idx);
                 channel.current = channel.users.iter().any(|client| &client.uuid == self.data.active_profile.as_ref().unwrap());
-                channel.text = format!("{} ({}/{})", channel.name.as_str(), channel.users.len(), channel.slots);
+                channel.text = format!("{} ({}/{})", channel.name.as_str(), channel.users.len(), if channel.slots == -1 {
+                    String::from("unlimited")
+                } else {
+                    channel.slots.to_string()
+                });
             }
             UiMessage::ChannelAddUser(channel, user) => {
                 let mut channel = self.data.channel_texts.iter_mut().find(|channel_text| &channel_text.uuid == &channel).unwrap();
@@ -199,7 +207,11 @@ impl Application for Ui {
                     text: user.name.clone(),
                 });
                 channel.current = channel.users.iter().any(|client| &client.uuid == self.data.active_profile.as_ref().unwrap());
-                channel.text = format!("{} ({}/{})", channel.name.as_str(), channel.users.len(), channel.slots);
+                channel.text = format!("{} ({}/{})", channel.name.as_str(), channel.users.len(), if channel.slots == -1 {
+                    String::from("unlimited")
+                } else {
+                    channel.slots.to_string()
+                });
             }
             UiMessage::UpdateProfiles => {
                 let profiles = self.client.profile_db.cache_ref().iter().map(|profile| profile.value().clone()).collect::<Vec<_>>();

@@ -58,6 +58,58 @@ impl RWBytes for u128 {
     }
 }
 
+impl RWBytes for i64 {
+    type Ty = Self;
+
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        Ok(src.get_i64_le())
+    }
+
+    fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
+        dst.put_i64_le(*self);
+        Ok(())
+    }
+}
+
+impl RWBytes for i32 {
+    type Ty = Self;
+
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        Ok(src.get_i32_le())
+    }
+
+    fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
+        dst.put_i32_le(*self);
+        Ok(())
+    }
+}
+
+impl RWBytes for i16 {
+    type Ty = Self;
+
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        Ok(src.get_i16_le())
+    }
+
+    fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
+        dst.put_i16_le(*self);
+        Ok(())
+    }
+}
+
+impl RWBytes for i8 {
+    type Ty = Self;
+
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        Ok(src.get_i8())
+    }
+
+    fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
+        dst.put_i8(*self);
+        Ok(())
+    }
+}
+
 impl RWBytes for u64 {
     type Ty = Self;
 
