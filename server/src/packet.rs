@@ -618,7 +618,6 @@ pub struct ChannelPerms {
     pub(crate) see: u64, // every channel one can see is automatically subscribed to
     // pub(crate) subscribe: u64,
     pub(crate) join: u64,
-    pub(crate) send: u64,
     pub(crate) modify: u64,
     pub(crate) talk: u64,
     pub(crate) assign_talk: u64,
@@ -631,7 +630,6 @@ impl Default for ChannelPerms {
         Self {
             see: 0,
             join: 0,
-            send: 0,
             modify: 100,
             talk: 0,
             assign_talk: 100,
@@ -646,7 +644,6 @@ impl RWBytes for ChannelPerms {
     fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
         let see = u64::read(src, client_key)?;
         let join = u64::read(src, client_key)?;
-        let send = u64::read(src, client_key)?;
         let modify = u64::read(src, client_key)?;
         let talk = u64::read(src, client_key)?;
         let assign_talk = u64::read(src, client_key)?;
@@ -655,7 +652,6 @@ impl RWBytes for ChannelPerms {
         Ok(Self {
             see,
             join,
-            send,
             modify,
             talk,
             assign_talk,
@@ -666,7 +662,6 @@ impl RWBytes for ChannelPerms {
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
         self.see.write(dst)?;
         self.join.write(dst)?;
-        self.send.write(dst)?;
         self.modify.write(dst)?;
         self.talk.write(dst)?;
         self.assign_talk.write(dst)?;
@@ -681,7 +676,7 @@ pub struct ServerGroup {
     pub uuid: Uuid,
     pub name: String,
     pub priority: u64,
-    pub perms: ServerGroupPerms,
+    pub perms: PermsSnapshot,
 }
 
 impl RWBytes for ServerGroup {
@@ -691,7 +686,7 @@ impl RWBytes for ServerGroup {
         let uuid = Uuid::read(src, client_key)?;
         let name = String::read(src, client_key)?;
         let priority = u64::read(src, client_key)?;
-        let perms = ServerGroupPerms::read(src, client_key)?;
+        let perms = PermsSnapshot::read(src, client_key)?;
 
         Ok(Self {
             uuid,
@@ -711,22 +706,21 @@ impl RWBytes for ServerGroup {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct ServerGroupPerms {
+#[derive(Serialize, Deserialize, Clone, Default)]
+pub struct PermsSnapshot { // FIXME: snapshot isn't a good name!
     pub server_group_assign: u64,
     pub server_group_unassign: u64,
     pub channel_see: u64,
     pub channel_join: u64,
-    pub channel_send: u64,
     pub channel_modify: u64,
     pub channel_talk: u64,
     pub channel_assign_talk: u64,
     pub channel_delete: u64,
-    pub channel_kick: u64,
+    pub can_send: bool,
     pub channel_create: ChannelCreatePerms,
 }
 
-impl RWBytes for ServerGroupPerms {
+impl RWBytes for PermsSnapshot {
     type Ty = Self;
 
     fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
@@ -734,12 +728,11 @@ impl RWBytes for ServerGroupPerms {
         let server_group_unassign = u64::read(src, client_key)?;
         let channel_see = u64::read(src, client_key)?;
         let channel_join = u64::read(src, client_key)?;
-        let channel_send = u64::read(src, client_key)?;
         let channel_modify = u64::read(src, client_key)?;
         let channel_talk = u64::read(src, client_key)?;
         let channel_assign_talk = u64::read(src, client_key)?;
         let channel_delete = u64::read(src, client_key)?;
-        let channel_kick = u64::read(src, client_key)?;
+        let can_send = bool::read(src, client_key)?;
         let channel_create = ChannelCreatePerms::read(src, client_key)?;
 
         Ok(Self {
@@ -747,12 +740,11 @@ impl RWBytes for ServerGroupPerms {
             server_group_unassign,
             channel_see,
             channel_join,
-            channel_send,
             channel_modify,
             channel_talk,
             channel_assign_talk,
             channel_delete,
-            channel_kick,
+            can_send,
             channel_create,
         })
     }
@@ -762,23 +754,23 @@ impl RWBytes for ServerGroupPerms {
         self.server_group_unassign.write(dst)?;
         self.channel_see.write(dst)?;
         self.channel_join.write(dst)?;
-        self.channel_send.write(dst)?;
         self.channel_modify.write(dst)?;
         self.channel_talk.write(dst)?;
         self.channel_assign_talk.write(dst)?;
         self.channel_delete.write(dst)?;
-        self.channel_kick.write(dst)?;
+        self.can_send.write(dst)?;
         self.channel_create.write(dst)?;
 
         Ok(())
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 pub struct ChannelCreatePerms {
     pub power: u64,
     pub set_desc: bool,
     pub set_password: bool,
+    pub resort_channel: bool,
     // FIXME: add other features that channels have
 }
 
@@ -789,11 +781,13 @@ impl RWBytes for ChannelCreatePerms {
         let power = u64::read(src, client_key)?;
         let set_desc = bool::read(src, client_key)?;
         let set_password = bool::read(src, client_key)?;
+        let resort_channel = bool::read(src, client_key)?;
 
         Ok(Self {
             power,
             set_desc,
             set_password,
+            resort_channel,
         })
     }
 
@@ -801,6 +795,7 @@ impl RWBytes for ChannelCreatePerms {
         self.power.write(dst)?;
         self.set_desc.write(dst)?;
         self.set_password.write(dst)?;
+        self.resort_channel.write(dst)?;
 
         Ok(())
     }

@@ -1,4 +1,4 @@
-use crate::packet::ServerGroupPerms;
+use crate::packet::PermsSnapshot;
 use serde_derive::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::fs::File;
@@ -9,7 +9,7 @@ use uuid::Uuid;
 pub struct ServerGroupEntry<'a> {
     pub uuid: u128,
     pub name: Cow<'a, str>,
-    pub perms: ServerGroupPerms,
+    pub perms: PermsSnapshot,
 }
 
 pub struct ServerGroupDb {

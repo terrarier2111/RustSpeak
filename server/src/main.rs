@@ -13,7 +13,7 @@ use crate::config::Config;
 use crate::network::{ClientConnection, handle_packet, NetworkServer};
 use crate::packet::{
     AuthFailure, AuthResponse, Channel, ChannelCreatePerms, ChannelPerms, ClientPacket,
-    RemoteProfile, ServerGroup, ServerGroupPerms, ServerPacket,
+    RemoteProfile, ServerGroup, PermsSnapshot, ServerPacket,
 };
 use crate::protocol::{RWBytes, UserUuid, PROTOCOL_VERSION};
 use crate::server_group_db::{ServerGroupDb, ServerGroupEntry};
@@ -109,7 +109,6 @@ fn main() -> anyhow::Result<()> {
                 perms: ChannelPerms {
                     see: 0,
                     join: 0,
-                    send: 0,
                     modify: 100,
                     talk: 0,
                     assign_talk: 100,
@@ -152,42 +151,42 @@ fn main() -> anyhow::Result<()> {
             ServerGroupEntry {
                 uuid: ADMIN_GROUP_UUID.as_u128(),
                 name: Cow::Borrowed("admin"),
-                perms: ServerGroupPerms {
+                perms: PermsSnapshot {
                     server_group_assign: 0,
                     server_group_unassign: 0,
                     channel_see: 0,
                     channel_join: 0,
-                    channel_send: 0,
                     channel_modify: 0,
                     channel_talk: 0,
                     channel_assign_talk: 0,
                     channel_delete: 0,
-                    channel_kick: 0,
+                    can_send: false,
                     channel_create: ChannelCreatePerms {
                         power: 0,
                         set_desc: false,
                         set_password: false,
+                        resort_channel: false,
                     },
                 },
             },
             ServerGroupEntry {
                 uuid: DEFAULT_GROUP_UUID.as_u128(),
                 name: Cow::Borrowed("default"),
-                perms: ServerGroupPerms {
+                perms: PermsSnapshot {
                     server_group_assign: 0,
                     server_group_unassign: 0,
                     channel_see: 0,
                     channel_join: 0,
-                    channel_send: 0,
                     channel_modify: 0,
                     channel_talk: 0,
                     channel_assign_talk: 0,
                     channel_delete: 0,
-                    channel_kick: 0,
+                    can_send: false,
                     channel_create: ChannelCreatePerms {
                         power: 0,
                         set_desc: false,
                         set_password: false,
+                        resort_channel: false,
                     },
                 },
             },
@@ -199,21 +198,21 @@ fn main() -> anyhow::Result<()> {
             uuid: Uuid::from_u128(server_group.uuid),
             name: server_group.name.to_string(),
             priority: 0,
-            perms: ServerGroupPerms {
+            perms: PermsSnapshot {
                 server_group_assign: 0,
                 server_group_unassign: 0,
                 channel_see: 0,
                 channel_join: 0,
-                channel_send: 0,
                 channel_modify: 0,
                 channel_talk: 0,
                 channel_assign_talk: 0,
                 channel_delete: 0,
-                channel_kick: 0,
+                can_send: false,
                 channel_create: ChannelCreatePerms {
                     power: 0,
                     set_desc: false,
                     set_password: false,
+                    resort_channel: false,
                 },
             },
         })
@@ -461,6 +460,7 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                                 last_security_proof: last_security_proof.unwrap(),
                                 last_verified_security_level: security_proof_result,
                                 groups: vec![],
+                                perms: PermsSnapshot::default(),
                             };
                             server.user_db.insert(user.clone())?;
                             user
@@ -482,6 +482,89 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                             user.connection.send_reliable(&encoded).await?;
                         }
 
+                        let active_perms = {
+                            let mut active = ActivePerms {
+                                server_group_assign: user.perms.server_group_assign,
+                                server_group_unassign: user.perms.server_group_unassign,
+                                channel_see: user.perms.channel_see,
+                                channel_join: user.perms.channel_join,
+                                channel_modify: user.perms.channel_modify,
+                                channel_talk: user.perms.channel_talk,
+                                channel_assign_talk: user.perms.channel_assign_talk,
+                                channel_delete: user.perms.channel_delete,
+                                send: if user.perms.can_send {
+                                    user.perms.channel_join
+                                } else {
+                                    0
+                                },
+                                channel_create: ActiveChannelCreatePerms {
+                                    power: user.perms.channel_create.power,
+                                    set_desc: if user.perms.channel_create.set_desc {
+                                        user.perms.channel_create.power
+                                    } else {
+                                        0
+                                    },
+                                    set_password: if user.perms.channel_create.set_password {
+                                        user.perms.channel_create.power
+                                    } else {
+                                        0
+                                    },
+                                    resort_channel: if user.perms.channel_create.resort_channel {
+                                        user.perms.channel_create.power
+                                    } else {
+                                        0
+                                    },
+                                },
+                            };
+
+                            for group in user.groups.iter() {
+                                let groups = server.server_groups.read().block_on();
+                                let group = groups.get(group).unwrap();
+                                if group.perms.server_group_assign > active.server_group_assign {
+                                    active.server_group_assign = group.perms.server_group_assign;
+                                }
+                                if group.perms.server_group_unassign > active.server_group_unassign {
+                                    active.server_group_unassign = group.perms.server_group_unassign;
+                                }
+                                if group.perms.channel_join > active.channel_join {
+                                    active.channel_join = group.perms.channel_join;
+                                }
+                                if group.perms.can_send && group.perms.channel_join > active.send {
+                                    active.send = group.perms.channel_join;
+                                }
+                                if group.perms.channel_talk > active.channel_talk {
+                                    active.channel_talk = group.perms.channel_talk;
+                                }
+                                if group.perms.channel_see > active.channel_see {
+                                    active.channel_see = group.perms.channel_see;
+                                }
+                                if group.perms.channel_delete > active.channel_delete {
+                                    active.channel_delete = group.perms.channel_delete;
+                                }
+                                if group.perms.channel_assign_talk > active.channel_assign_talk {
+                                    active.channel_assign_talk = group.perms.channel_assign_talk;
+                                }
+                                if group.perms.channel_modify > active.channel_modify {
+                                    active.channel_modify = group.perms.channel_modify;
+                                }
+                                if group.perms.channel_create.power > active.channel_create.power {
+                                    active.channel_create.power = group.perms.channel_create.power;
+                                }
+                                if group.perms.channel_create.resort_channel && group.perms.channel_create.power > active.channel_create.resort_channel {
+                                    active.channel_create.resort_channel = group.perms.channel_create.power;
+                                }
+                                if group.perms.channel_create.set_password && group.perms.channel_create.power > active.channel_create.set_password {
+                                    active.channel_create.set_password = group.perms.channel_create.power;
+                                }
+                                if group.perms.channel_create.set_desc && group.perms.channel_create.power > active.channel_create.set_desc {
+                                    active.channel_create.set_desc = group.perms.channel_create.power;
+                                }
+                                // FIXME: extend this once there are more perms!
+                            }
+
+                            active
+                        };
+
                         server.online_users.insert(uuid, User {
                             uuid,
                             name: SwapArc::new(Arc::new(user.name.into())),
@@ -489,6 +572,8 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                             last_verified_security_level: user.last_verified_security_level,
                             groups: RwLock::new(user.groups.clone()),
                             connection: new_conn.clone(),
+                            perms: SwapArc::new(Arc::new(user.perms)),
+                            active_perms: SwapArc::new(Arc::new(active_perms)),
                         });
                         let channels = server.channels.read().await;
                         let channel = channels.get(&new_conn.channel.load()).unwrap();
@@ -568,7 +653,6 @@ impl Server {
                     perms: ChannelPerms {
                         see: 0,
                         join: 0,
-                        send: 0,
                         modify: 100,
                         talk: 0,
                         assign_talk: 100,
@@ -589,7 +673,29 @@ pub struct User {
     pub last_verified_security_level: u8,
     pub groups: RwLock<Vec<Uuid>>,
     pub connection: Arc<ClientConnection>,
-    // FIXME: add individual user perms
+    pub perms: SwapArc<PermsSnapshot>,
+    pub active_perms: SwapArc<ActivePerms>,
+}
+
+pub struct ActivePerms {
+    pub server_group_assign: u64,
+    pub server_group_unassign: u64,
+    pub channel_see: u64,
+    pub channel_join: u64,
+    pub channel_modify: u64,
+    pub channel_talk: u64,
+    pub channel_assign_talk: u64,
+    pub channel_delete: u64,
+    pub send: u64,
+    pub channel_create: ActiveChannelCreatePerms,
+}
+
+pub struct ActiveChannelCreatePerms {
+    pub power: u64,
+    pub set_desc: u64,
+    pub set_password: u64,
+    pub resort_channel: u64,
+    // FIXME: add other features that channels have
 }
 
 struct ErrorAuthProtoVer {
@@ -839,13 +945,13 @@ impl CommandImpl for CommandChannel {
                 } else {
                     String::new()
                 };
-                let pw = input.get(3).map(|raw| Some(Cow::Owned(raw.to_string()))).unwrap_or(None);
+                let pw = input.get(4).map(|raw| Some(Cow::Owned(raw.to_string()))).unwrap_or(None);
                 let has_pw = pw.is_some();
                 let slots = isize::from_str(input[2]).unwrap() as i16;
                 if slots < -1 {
                     panic!("A slot count below -1 is illegal");
                 }
-                let sort_id = input.get(4).map(|raw| usize::from_str(raw).unwrap() as u16).unwrap_or_else(|| {
+                let sort_id = input.get(3).map(|raw| usize::from_str(raw).unwrap() as u16).unwrap_or_else(|| {
                     let mut last_id = 0;
                     for channel in db.iter() {
                         if channel.sort_id > last_id {

@@ -6,6 +6,7 @@ use std::borrow::Cow;
 use std::io::Read;
 use ruint::aliases::U256;
 use uuid::Uuid;
+use crate::packet::PermsSnapshot;
 
 pub struct UserDb {
     db: Db,
@@ -45,7 +46,7 @@ pub struct DbUser {
     pub last_security_proof: U256,
     pub last_verified_security_level: u8,
     pub groups: Vec<Uuid>,
-    // FIXME: add individual user perms
+    pub perms: PermsSnapshot,
 }
 
 impl DbUser {
@@ -56,6 +57,7 @@ impl DbUser {
         self.last_security_proof.write(&mut buf)?;
         self.last_verified_security_level.write(&mut buf)?;
         self.groups.write(&mut buf)?;
+        self.perms.write(&mut buf)?;
         Ok(IVec::from(buf.to_vec()))
     }
 
@@ -67,6 +69,7 @@ impl DbUser {
             last_security_proof: U256::read(&mut buf, None)?,
             last_verified_security_level: u8::read(&mut buf, None)?,
             groups: Vec::<Uuid>::read(&mut buf, None)?,
+            perms: PermsSnapshot::read(&mut buf, None)?,
         })
     }
 }

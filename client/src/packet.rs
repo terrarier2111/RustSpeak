@@ -529,7 +529,6 @@ pub struct ChannelPerms {
     see: u64, // every channel one can see is automatically subscribed to
     // subscribe: u64,
     join: u64,
-    send: u64,
     modify: u64,
     talk: u64,
     assign_talk: u64,
@@ -543,7 +542,6 @@ impl RWBytes for ChannelPerms {
     fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         let see = u64::read(src)?;
         let join = u64::read(src)?;
-        let send = u64::read(src)?;
         let modify = u64::read(src)?;
         let talk = u64::read(src)?;
         let assign_talk = u64::read(src)?;
@@ -552,7 +550,6 @@ impl RWBytes for ChannelPerms {
         Ok(Self {
             see,
             join,
-            send,
             modify,
             talk,
             assign_talk,
@@ -563,7 +560,6 @@ impl RWBytes for ChannelPerms {
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
         self.see.write(dst)?;
         self.join.write(dst)?;
-        self.send.write(dst)?;
         self.modify.write(dst)?;
         self.talk.write(dst)?;
         self.assign_talk.write(dst)?;
@@ -614,12 +610,11 @@ pub struct GroupPerms {
     pub server_group_unassign: u64,
     pub channel_see: u64,
     pub channel_join: u64,
-    pub channel_send: u64,
     pub channel_modify: u64,
     pub channel_talk: u64,
     pub channel_assign_talk: u64,
     pub channel_delete: u64,
-    pub channel_kick: u64,
+    pub can_send: bool,
     pub channel_create: ChannelCreatePerms,
 }
 
@@ -631,12 +626,11 @@ impl RWBytes for GroupPerms {
         let server_group_unassign = u64::read(src)?;
         let channel_see = u64::read(src)?;
         let channel_join = u64::read(src)?;
-        let channel_send = u64::read(src)?;
         let channel_modify = u64::read(src)?;
         let channel_talk = u64::read(src)?;
         let channel_assign_talk = u64::read(src)?;
         let channel_delete = u64::read(src)?;
-        let channel_kick = u64::read(src)?;
+        let can_send = bool::read(src)?;
         let channel_create = ChannelCreatePerms::read(src)?;
 
         Ok(Self {
@@ -644,12 +638,11 @@ impl RWBytes for GroupPerms {
             server_group_unassign,
             channel_see,
             channel_join,
-            channel_send,
             channel_modify,
             channel_talk,
             channel_assign_talk,
             channel_delete,
-            channel_kick,
+            can_send,
             channel_create,
         })
     }
@@ -659,12 +652,11 @@ impl RWBytes for GroupPerms {
         self.server_group_unassign.write(dst)?;
         self.channel_see.write(dst)?;
         self.channel_join.write(dst)?;
-        self.channel_send.write(dst)?;
         self.channel_modify.write(dst)?;
         self.channel_talk.write(dst)?;
         self.channel_assign_talk.write(dst)?;
         self.channel_delete.write(dst)?;
-        self.channel_kick.write(dst)?;
+        self.can_send.write(dst)?;
         self.channel_create.write(dst)?;
 
         Ok(())
@@ -676,6 +668,7 @@ pub struct ChannelCreatePerms {
     pub power: u64,
     pub set_desc: bool,
     pub set_password: bool,
+    pub resort_channel: bool,
     // FIXME: add other features that channels have
 }
 
@@ -686,11 +679,13 @@ impl RWBytes for ChannelCreatePerms {
         let power = u64::read(src)?;
         let set_desc = bool::read(src)?;
         let set_password = bool::read(src)?;
+        let resort_channel = bool::read(src)?;
 
         Ok(Self {
             power,
             set_desc,
             set_password,
+            resort_channel,
         })
     }
 
@@ -698,6 +693,7 @@ impl RWBytes for ChannelCreatePerms {
         self.power.write(dst)?;
         self.set_desc.write(dst)?;
         self.set_password.write(dst)?;
+        self.resort_channel.write(dst)?;
 
         Ok(())
     }

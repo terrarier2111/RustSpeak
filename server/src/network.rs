@@ -323,7 +323,7 @@ impl ClientConnection {
             if send_packet {
                 let disconnect_packet = ServerPacket::ClientDisconnected(profile).encode().unwrap();
                 for client in self.server.online_users.iter() {
-                    client.value().connection.send_reliable(&disconnect_packet).block_on().unwrap(); // FIXME: handler errors properly!
+                    client.value().connection.send_reliable(&disconnect_packet).block_on().unwrap(); // FIXME: handle errors properly!
                 }
             }
         }
@@ -365,7 +365,6 @@ pub fn handle_packet(packet: ClientPacket, server: &Arc<Server>, client: &Arc<Cl
         }
         ClientPacket::SwitchChannel { channel } => {
             let new_channel = channel;
-            // FIXME: check join perms!
             let client_id = client.uuid.get().unwrap().clone();
             let curr_channel = client.channel.load().as_ref().clone();
             if curr_channel == new_channel {
@@ -374,6 +373,11 @@ pub fn handle_packet(packet: ClientPacket, server: &Arc<Server>, client: &Arc<Cl
             }
             let channels = server.channels.write().block_on();
             let channel = channels.get(&curr_channel).unwrap();
+            // check join perms
+            if channel.perms.load().join > server.online_users.get(client.uuid.get().unwrap()).unwrap().perms.load().channel_join {
+                // FIXME: give feedback
+                return;
+            }
             let idx = channel.clients.read().block_on().iter().enumerate().find(|user| user.1 == &client_id).unwrap().0;
             channel.clients.write().block_on().remove(idx);
             let idx = channel.proto_clients.read().unwrap().iter().enumerate().find(|user| &user.1.uuid == &client_id).unwrap().0;
@@ -385,8 +389,8 @@ pub fn handle_packet(packet: ClientPacket, server: &Arc<Server>, client: &Arc<Cl
             let remove_packet = ServerPacket::ChannelUpdate(ChannelUpdate::SubUpdate { channel: curr_channel, update: ChannelSubUpdate::Client(ChannelSubClientUpdate::Remove(client_id)) }).encode().unwrap();
             let add_packet = ServerPacket::ChannelUpdate(ChannelUpdate::SubUpdate { channel: new_channel, update: ChannelSubUpdate::Client(ChannelSubClientUpdate::Add(client_id)) }).encode().unwrap();
             for client in server.online_users.iter() {
-                client.value().connection.send_reliable(&remove_packet).block_on().unwrap(); // FIXME: handler errors properly!
-                client.value().connection.send_reliable(&add_packet).block_on().unwrap(); // FIXME: handler errors properly!
+                client.value().connection.send_reliable(&remove_packet).block_on().unwrap(); // FIXME: handle errors properly!
+                client.value().connection.send_reliable(&add_packet).block_on().unwrap(); // FIXME: handle errors properly!
             }
         }
     }
