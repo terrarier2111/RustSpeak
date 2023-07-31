@@ -12,9 +12,9 @@ use pollster::FutureExt;
 use swap_arc::SwapArc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
-use crate::{ClientPacket, DEFAULT_CHANNEL_UUID, RWBytes, Server, UserUuid};
+use crate::{ClientPacket, DEFAULT_CHANNEL_UUID, RWBytes, Server, User, UserUuid};
 use crate::conc_once_cell::ConcurrentOnceCell;
-use crate::packet::{ChannelSubClientUpdate, ChannelSubUpdate, ChannelUpdate, RemoteProfile, ServerPacket};
+use crate::packet::{Channel, ChannelSubClientUpdate, ChannelSubUpdate, ChannelUpdate, RemoteProfile, ServerPacket};
 use crate::utils::current_time_millis;
 
 // FIXME: look at: https://gitlab.com/veloren/veloren/-/issues/749 and https://gitlab.com/veloren/veloren/-/issues/1728
@@ -89,11 +89,10 @@ impl NetworkServer {
 }
 
 pub struct ClientConnection {
-    pub uuid: ConcurrentOnceCell<UserUuid>,
+    pub user: ConcurrentOnceCell<Arc<User>>,
     pub conn: Connection,
     pub default_stream: (Mutex<SendStream>, Mutex<RecvStream>),
     pub keep_alive_stream: ConcurrentOnceCell<(Mutex<SendStream>, Mutex<RecvStream>)>,
-    pub channel: ArcSwap<Uuid>,
     server: Arc<Server>,
     stable_id: usize,
     last_keep_alive: AtomicUsize,
@@ -107,11 +106,10 @@ impl ClientConnection {
         let (send, recv) = bi_conn;
         let stable_id = conn.stable_id();
         Ok(Self {
-            uuid: ConcurrentOnceCell::new(),
+            user: ConcurrentOnceCell::new(),
             conn,
             default_stream: (Mutex::new(send), Mutex::new(recv)),
             keep_alive_stream: ConcurrentOnceCell::new(),
-            channel: ArcSwap::new(Arc::new(DEFAULT_CHANNEL_UUID)), // FIXME: add possibility to allow privileged users to login into other channels than the default channel!
             server,
             stable_id,
             last_keep_alive: Default::default(),
@@ -134,8 +132,8 @@ impl ClientConnection {
                         // FIXME: somehow give feedback to client
                         if this.closed.compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed).is_ok() {
                             this.close().await;
-                            if let Some(user) = this.uuid.get() {
-                                this.server.println(format!("User {:?} with ip {} timed out", user, this.conn.remote_address()).as_str());
+                            if let Some(user) = this.user.get() {
+                                this.server.println(format!("User {:?} with ip {} timed out", user.uuid, this.conn.remote_address()).as_str());
                             } else {
                                 this.server.println(format!("Connection with address {} timed out!", this.conn.remote_address()).as_str());
                             }
@@ -162,8 +160,8 @@ impl ClientConnection {
                                 if this.closed.compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed).is_ok() {
                                     // FIXME: somehow give feedback to client
                                     this.close().await;
-                                    if let Some(user) = this.uuid.get() {
-                                        this.server.println(format!("An error happened in the connection of user {:?} with ip {}: {}", user, this.conn.remote_address(), err).as_str());
+                                    if let Some(user) = this.user.get() {
+                                        this.server.println(format!("An error happened in the connection of user {:?} with ip {}: {}", user.uuid, this.conn.remote_address(), err).as_str());
                                     } else {
                                         this.server.println(format!("An error happened in the connection of {}: {}", this.conn.remote_address(), err).as_str());
                                     }
@@ -180,8 +178,8 @@ impl ClientConnection {
                                 if this.closed.compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed).is_ok() {
                                     // FIXME: somehow give feedback to client
                                     this.close().await;
-                                    if let Some(user) = this.uuid.get() {
-                                        this.server.println(format!("An error happened in the connection of user {:?} with ip {}: {}", user, this.conn.remote_address(), err).as_str());
+                                    if let Some(user) = this.user.get() {
+                                        this.server.println(format!("An error happened in the connection of user {:?} with ip {}: {}", user.uuid, this.conn.remote_address(), err).as_str());
                                     } else {
                                         this.server.println(format!("An error happened in the connection of {}: {}", this.conn.remote_address(), err).as_str());
                                     }
@@ -194,8 +192,8 @@ impl ClientConnection {
                         if this.closed.compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed).is_ok() {
                             // FIXME: somehow give feedback to client
                             this.close().await;
-                            if let Some(user) = this.uuid.get() {
-                                this.server.println(format!("An error happened in the connection of user {:?} with ip {}: {}", user, this.conn.remote_address(), err).as_str());
+                            if let Some(user) = this.user.get() {
+                                this.server.println(format!("An error happened in the connection of user {:?} with ip {}: {}", user.uuid, this.conn.remote_address(), err).as_str());
                             } else {
                                 this.server.println(format!("An error happened in the connection of {}: {}", this.conn.remote_address(), err).as_str());
                             }
@@ -213,11 +211,10 @@ impl ClientConnection {
                 match this.read_unreliable().await {
                     Ok(data) => {
                         // println!("received voice traffic {}", data.len());
-                        for client in this.server.channels.read().await.get(&this.channel.load()).unwrap().clients.read().await.iter() {
-                            if client != this.uuid.get().unwrap() || DEBUG_VOICE {
-                                if let Some(user) = this.server.online_users.get(client) {
-                                    user.connection.send_unreliable(data.clone()).await.unwrap();
-                                }
+                        let user = this.user.get().unwrap();
+                        for client in user.channel.load().clients.read().await.iter() {
+                            if client != &user.uuid || DEBUG_VOICE {
+                                user.connection.send_unreliable(data.clone()).await.unwrap();
                             }
                         }
                     }
@@ -225,8 +222,8 @@ impl ClientConnection {
                         if this.closed.compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed).is_ok() {
                             // FIXME: somehow give feedback to client
                             this.close().await;
-                            if let Some(user) = this.uuid.get() {
-                                this.server.println(format!("An error in the connection of user {:?} with ip {} happened: {}", user, this.conn.remote_address(), err).as_str());
+                            if let Some(user) = this.user.get() {
+                                this.server.println(format!("An error in the connection of user {:?} with ip {} happened: {}", user.uuid, this.conn.remote_address(), err).as_str());
                             } else {
                                 this.server.println(format!("An error in the connection of {} happened: {}", this.conn.remote_address(), err).as_str());
                             }
@@ -310,15 +307,15 @@ impl ClientConnection {
         if self.finished.compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed).is_err() {
             return;
         }
-        if let Some(uuid) = self.uuid.get() {
-            let send_packet = self.server.online_users.remove(uuid).is_some();
-            let channels = self.server.channels.read().block_on();
-            let mut clients = channels.get(self.channel.load().as_ref()).unwrap().clients.write().block_on();
-            let idx = clients.iter().enumerate().find(|user| user.1 == uuid).unwrap().0; // FIXME: should we make this a hashmap?
+        if let Some(user) = self.user.get() {
+            let send_packet = self.server.online_users.remove(&user.uuid).is_some();
+            let channel = self.user.get().unwrap().channel.load();
+            let mut clients = channel.clients.write().block_on();
+            let idx = clients.iter().enumerate().find(|client| client.1 == &user.uuid).unwrap().0; // FIXME: should we make this a hashmap?
             clients.remove(idx);
 
-            let mut clients = RwLock::write(&channels.get(self.channel.load().as_ref()).unwrap().proto_clients).unwrap();
-            let idx = clients.iter().enumerate().find(|user| &user.1.uuid == uuid).unwrap().0; // FIXME: should we make this a hashmap?
+            let mut clients = RwLock::write(&channel.proto_clients).unwrap();
+            let idx = clients.iter().enumerate().find(|client| &client.1.uuid == &user.uuid).unwrap().0; // FIXME: should we make this a hashmap?
             let profile = clients.remove(idx);
             if send_packet {
                 let disconnect_packet = ServerPacket::ClientDisconnected(profile).encode().unwrap();
@@ -354,7 +351,7 @@ pub fn handle_packet(packet: ClientPacket, server: &Arc<Server>, client: &Arc<Cl
     match packet {
         ClientPacket::AuthRequest { .. } => unreachable!(),
         ClientPacket::Disconnect => {
-            server.online_users.remove(client.uuid.get().unwrap()); // FIXME: verify that this can't be received before AuthRequest is handled!
+            server.online_users.remove(&client.user.get().unwrap().uuid); // FIXME: verify that this can't be received before AuthRequest is handled!
         }
         ClientPacket::KeepAlive { .. } => {
             // FIXME: store the keep alive value somewhere in the client
@@ -365,16 +362,15 @@ pub fn handle_packet(packet: ClientPacket, server: &Arc<Server>, client: &Arc<Cl
         }
         ClientPacket::SwitchChannel { channel } => {
             let new_channel = channel;
-            let client_id = client.uuid.get().unwrap().clone();
-            let curr_channel = client.channel.load().as_ref().clone();
-            if curr_channel == new_channel {
+            let user = client.user.get().unwrap();
+            let client_id = user.uuid.clone();
+            let channel = user.channel.load().clone();
+            if channel.uuid == new_channel {
                 // FIXME: kick the user and close the connection once we already cancel such attempts at the client level!
                 return;
             }
-            let channels = server.channels.write().block_on();
-            let channel = channels.get(&curr_channel).unwrap();
             // check join perms
-            if channel.perms.load().join > server.online_users.get(client.uuid.get().unwrap()).unwrap().perms.load().channel_join {
+            if channel.perms.load().join > client.user.get().unwrap().perms.load().channel_join {
                 // FIXME: give feedback
                 return;
             }
@@ -382,11 +378,10 @@ pub fn handle_packet(packet: ClientPacket, server: &Arc<Server>, client: &Arc<Cl
             channel.clients.write().block_on().remove(idx);
             let idx = channel.proto_clients.read().unwrap().iter().enumerate().find(|user| &user.1.uuid == &client_id).unwrap().0;
             let profile = RwLock::write(&channel.proto_clients).unwrap().remove(idx);
-            let channel = channels.get(&new_channel).unwrap();
             channel.clients.write().block_on().push(client_id);
             RwLock::write(&channel.proto_clients).unwrap().push(profile);
-            client.channel.store(Arc::new(new_channel));
-            let remove_packet = ServerPacket::ChannelUpdate(ChannelUpdate::SubUpdate { channel: curr_channel, update: ChannelSubUpdate::Client(ChannelSubClientUpdate::Remove(client_id)) }).encode().unwrap();
+            user.channel.store(channel.clone());
+            let remove_packet = ServerPacket::ChannelUpdate(ChannelUpdate::SubUpdate { channel: channel.uuid, update: ChannelSubUpdate::Client(ChannelSubClientUpdate::Remove(client_id)) }).encode().unwrap();
             let add_packet = ServerPacket::ChannelUpdate(ChannelUpdate::SubUpdate { channel: new_channel, update: ChannelSubUpdate::Client(ChannelSubClientUpdate::Add(client_id)) }).encode().unwrap();
             for client in server.online_users.iter() {
                 client.value().connection.send_reliable(&remove_packet).block_on().unwrap(); // FIXME: handle errors properly!

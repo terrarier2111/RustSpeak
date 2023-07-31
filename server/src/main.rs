@@ -40,6 +40,7 @@ use std::future::Future;
 use std::str::FromStr;
 use std::task::{Context, Poll};
 use std::time::Duration;
+use arc_swap::ArcSwap;
 use crossbeam_utils::Backoff;
 use futures::StreamExt;
 use futures::task::noop_waker_ref;
@@ -134,7 +135,7 @@ fn main() -> anyhow::Result<()> {
         let mut result = HashMap::new();
 
         for channel in channels {
-            result.insert(channel.uuid.clone(), channel);
+            result.insert(channel.uuid.clone(), Arc::new(channel));
         }
 
         result
@@ -447,8 +448,6 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                         }
                         // FIXME: compare auth_id with the auth_id in our data base if this isn't the first login!
                         // FIXME: insert data send the proper data back!
-                        new_conn.uuid.try_init(uuid).unwrap();
-                        server.println(format!("{} ({:?}) successfully connected", name, uuid).as_str());
                         let server_groups = server.server_groups.read().await;
                         let server_groups = server_groups.values();
                         let user = if let Some(user) = server.user_db.get(&uuid)? {
@@ -465,14 +464,32 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                             server.user_db.insert(user.clone())?;
                             user
                         };
-                        server.println(format!("uuid_cmp: {}", uuid == user.uuid).as_str());
-                        server.println(format!("uuid: {:?}", uuid).as_str());
-                        server.println(format!("user uuid: {:?}", user.uuid).as_str());
+
+                        let channels = server.channels.read().await;
+                        let channel = channels.get(&DEFAULT_CHANNEL_UUID).unwrap(); // FIXME: add possibility to allow privileged users to login into other channels than the default channel!
+
+                        let groups = user.groups.clone();
+                        let active_perms = calculate_active_perms(&server, &user.perms, &groups);
+
+                        let user = Arc::new(User {
+                            uuid,
+                            name: SwapArc::new(Arc::new(user.name.into())),
+                            last_security_proof: user.last_security_proof,
+                            last_verified_security_level: user.last_verified_security_level,
+                            groups: RwLock::new(groups.clone()),
+                            connection: new_conn.clone(),
+                            perms: SwapArc::new(Arc::new(user.perms)),
+                            active_perms: SwapArc::new(Arc::new(active_perms)),
+                            channel: ArcSwap::new(channel.clone()),
+                        });
+
+                        new_conn.user.try_init_silent(user.clone()).unwrap();
+                        server.println(format!("{} ({:?}) successfully connected", name, uuid).as_str());
 
                         let profile = RemoteProfile {
                             name,
                             uuid,
-                            server_groups: user.groups.clone(),
+                            server_groups: groups.clone(),
                         };
 
                         // broadcast user join to other users
@@ -482,111 +499,17 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                             user.connection.send_reliable(&encoded).await?;
                         }
 
-                        let active_perms = {
-                            let mut active = ActivePerms {
-                                server_group_assign: user.perms.server_group_assign,
-                                server_group_unassign: user.perms.server_group_unassign,
-                                channel_see: user.perms.channel_see,
-                                channel_join: user.perms.channel_join,
-                                channel_modify: user.perms.channel_modify,
-                                channel_talk: user.perms.channel_talk,
-                                channel_assign_talk: user.perms.channel_assign_talk,
-                                channel_delete: user.perms.channel_delete,
-                                send: if user.perms.can_send {
-                                    user.perms.channel_join
-                                } else {
-                                    0
-                                },
-                                channel_create: ActiveChannelCreatePerms {
-                                    power: user.perms.channel_create.power,
-                                    set_desc: if user.perms.channel_create.set_desc {
-                                        user.perms.channel_create.power
-                                    } else {
-                                        0
-                                    },
-                                    set_password: if user.perms.channel_create.set_password {
-                                        user.perms.channel_create.power
-                                    } else {
-                                        0
-                                    },
-                                    resort_channel: if user.perms.channel_create.resort_channel {
-                                        user.perms.channel_create.power
-                                    } else {
-                                        0
-                                    },
-                                },
-                            };
-
-                            for group in user.groups.iter() {
-                                let groups = server.server_groups.read().block_on();
-                                let group = groups.get(group).unwrap();
-                                if group.perms.server_group_assign > active.server_group_assign {
-                                    active.server_group_assign = group.perms.server_group_assign;
-                                }
-                                if group.perms.server_group_unassign > active.server_group_unassign {
-                                    active.server_group_unassign = group.perms.server_group_unassign;
-                                }
-                                if group.perms.channel_join > active.channel_join {
-                                    active.channel_join = group.perms.channel_join;
-                                }
-                                if group.perms.can_send && group.perms.channel_join > active.send {
-                                    active.send = group.perms.channel_join;
-                                }
-                                if group.perms.channel_talk > active.channel_talk {
-                                    active.channel_talk = group.perms.channel_talk;
-                                }
-                                if group.perms.channel_see > active.channel_see {
-                                    active.channel_see = group.perms.channel_see;
-                                }
-                                if group.perms.channel_delete > active.channel_delete {
-                                    active.channel_delete = group.perms.channel_delete;
-                                }
-                                if group.perms.channel_assign_talk > active.channel_assign_talk {
-                                    active.channel_assign_talk = group.perms.channel_assign_talk;
-                                }
-                                if group.perms.channel_modify > active.channel_modify {
-                                    active.channel_modify = group.perms.channel_modify;
-                                }
-                                if group.perms.channel_create.power > active.channel_create.power {
-                                    active.channel_create.power = group.perms.channel_create.power;
-                                }
-                                if group.perms.channel_create.resort_channel && group.perms.channel_create.power > active.channel_create.resort_channel {
-                                    active.channel_create.resort_channel = group.perms.channel_create.power;
-                                }
-                                if group.perms.channel_create.set_password && group.perms.channel_create.power > active.channel_create.set_password {
-                                    active.channel_create.set_password = group.perms.channel_create.power;
-                                }
-                                if group.perms.channel_create.set_desc && group.perms.channel_create.power > active.channel_create.set_desc {
-                                    active.channel_create.set_desc = group.perms.channel_create.power;
-                                }
-                                // FIXME: extend this once there are more perms!
-                            }
-
-                            active
-                        };
-
-                        server.online_users.insert(uuid, User {
-                            uuid,
-                            name: SwapArc::new(Arc::new(user.name.into())),
-                            last_security_proof: user.last_security_proof,
-                            last_verified_security_level: user.last_verified_security_level,
-                            groups: RwLock::new(user.groups.clone()),
-                            connection: new_conn.clone(),
-                            perms: SwapArc::new(Arc::new(user.perms)),
-                            active_perms: SwapArc::new(Arc::new(active_perms)),
-                        });
-                        let channels = server.channels.read().await;
-                        let channel = channels.get(&new_conn.channel.load()).unwrap();
+                        server.online_users.insert(uuid, user);
                         channel.clients.write().await.push(uuid);
                         RwLock::write(&channel.proto_clients).unwrap().push(profile.clone());
                         // println!("channels: {}", channels.len());
                         let channels = channels.values();
-                        let channels = channels.cloned().collect::<Vec<_>>();
+                        let channels = channels.map(|val| val.deref().clone()).collect::<Vec<_>>();
 
                         let auth = ServerPacket::AuthResponse(AuthResponse::Success {
                             default_channel_id: Uuid::from_u128(server.config.default_channel_id),
                             server_groups: server_groups.cloned().collect::<Vec<_>>(), // FIXME: try getting rid of this clone!
-                            own_groups: user.groups,
+                            own_groups: groups,
                             channels,
                         });
                         let encoded = auth.encode()?;
@@ -614,8 +537,8 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
 
 pub struct Server {
     pub server_groups: tokio::sync::RwLock<HashMap<Uuid, Arc<ServerGroup>>>,
-    pub channels: tokio::sync::RwLock<HashMap<Uuid, Channel>>,
-    pub online_users: DashMap<UserUuid, User>, // FIXME: add a timed cache for offline users
+    pub channels: tokio::sync::RwLock<HashMap<Uuid, Arc<Channel>>>,
+    pub online_users: DashMap<UserUuid, Arc<User>>, // FIXME: add a timed cache for offline users
     pub network_server: NetworkServer,
     pub config: Config, // FIXME: make this mutable somehow
     pub user_db: UserDb,
@@ -675,6 +598,7 @@ pub struct User {
     pub connection: Arc<ClientConnection>,
     pub perms: SwapArc<PermsSnapshot>,
     pub active_perms: SwapArc<ActivePerms>,
+    pub channel: ArcSwap<Channel>,
 }
 
 pub struct ActivePerms {
@@ -696,6 +620,89 @@ pub struct ActiveChannelCreatePerms {
     pub set_password: u64,
     pub resort_channel: u64,
     // FIXME: add other features that channels have
+}
+
+fn calculate_active_perms(server: &Arc<Server>, perms: &PermsSnapshot, groups: &Vec<Uuid>) -> ActivePerms {
+    let mut active = ActivePerms {
+        server_group_assign: perms.server_group_assign,
+        server_group_unassign: perms.server_group_unassign,
+        channel_see: perms.channel_see,
+        channel_join: perms.channel_join,
+        channel_modify: perms.channel_modify,
+        channel_talk: perms.channel_talk,
+        channel_assign_talk: perms.channel_assign_talk,
+        channel_delete: perms.channel_delete,
+        send: if perms.can_send {
+            perms.channel_join
+        } else {
+            0
+        },
+        channel_create: ActiveChannelCreatePerms {
+            power: perms.channel_create.power,
+            set_desc: if perms.channel_create.set_desc {
+                perms.channel_create.power
+            } else {
+                0
+            },
+            set_password: if perms.channel_create.set_password {
+                perms.channel_create.power
+            } else {
+                0
+            },
+            resort_channel: if perms.channel_create.resort_channel {
+                perms.channel_create.power
+            } else {
+                0
+            },
+        },
+    };
+
+    for group in groups.iter() {
+        let groups = server.server_groups.read().block_on();
+        let group = groups.get(group).unwrap();
+        if group.perms.server_group_assign > active.server_group_assign {
+            active.server_group_assign = group.perms.server_group_assign;
+        }
+        if group.perms.server_group_unassign > active.server_group_unassign {
+            active.server_group_unassign = group.perms.server_group_unassign;
+        }
+        if group.perms.channel_join > active.channel_join {
+            active.channel_join = group.perms.channel_join;
+        }
+        if group.perms.can_send && group.perms.channel_join > active.send {
+            active.send = group.perms.channel_join;
+        }
+        if group.perms.channel_talk > active.channel_talk {
+            active.channel_talk = group.perms.channel_talk;
+        }
+        if group.perms.channel_see > active.channel_see {
+            active.channel_see = group.perms.channel_see;
+        }
+        if group.perms.channel_delete > active.channel_delete {
+            active.channel_delete = group.perms.channel_delete;
+        }
+        if group.perms.channel_assign_talk > active.channel_assign_talk {
+            active.channel_assign_talk = group.perms.channel_assign_talk;
+        }
+        if group.perms.channel_modify > active.channel_modify {
+            active.channel_modify = group.perms.channel_modify;
+        }
+        if group.perms.channel_create.power > active.channel_create.power {
+            active.channel_create.power = group.perms.channel_create.power;
+        }
+        if group.perms.channel_create.resort_channel && group.perms.channel_create.power > active.channel_create.resort_channel {
+            active.channel_create.resort_channel = group.perms.channel_create.power;
+        }
+        if group.perms.channel_create.set_password && group.perms.channel_create.power > active.channel_create.set_password {
+            active.channel_create.set_password = group.perms.channel_create.power;
+        }
+        if group.perms.channel_create.set_desc && group.perms.channel_create.power > active.channel_create.set_desc {
+            active.channel_create.set_desc = group.perms.channel_create.power;
+        }
+        // FIXME: extend this once there are more perms!
+    }
+
+    active
 }
 
 struct ErrorAuthProtoVer {
@@ -972,7 +979,7 @@ impl CommandImpl for CommandChannel {
                 };
                 db.push(channel);
                 server.channel_db.write(&db).expect("An error occurred while writing the new database!");
-                server.channels.write().block_on().insert(Uuid::from_u128(id), Channel {
+                server.channels.write().block_on().insert(Uuid::from_u128(id), Arc::new(Channel {
                     uuid: Uuid::from_u128(id),
                     password: AtomicBool::new(has_pw),
                     name: Arc::new(SwapArc::new(Arc::new(input[0].to_string()))),
@@ -982,7 +989,7 @@ impl CommandImpl for CommandChannel {
                     proto_clients: Arc::new(Default::default()),
                     slots: AtomicI16::new(slots),
                     sort_id: AtomicU16::new(sort_id),
-                });
+                }));
 
                 server.println(format!("Created channel {}", input[0]).as_str());
             },
@@ -996,8 +1003,7 @@ impl CommandImpl for CommandChannel {
                     return Err(anyhow::Error::from(DefaultChannelNotDeletableError(input[0].to_string())));
                 }
                 // FIXME: move all clients from the to-be-deleted channel into the default channel!
-                let mut channels = server.channels.write().block_on();
-                channels.remove(&channel.unwrap());
+                server.channels.write().block_on().remove(&channel.unwrap());
                 let mut db = server.read_channel_db()?;
                 let entry = db.iter().enumerate().find(|entry| entry.1.id == channel.as_ref().unwrap().as_u128());
                 match entry {
