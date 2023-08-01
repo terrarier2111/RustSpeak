@@ -361,31 +361,35 @@ pub fn handle_packet(packet: ClientPacket, server: &Arc<Server>, client: &Arc<Cl
             todo!()
         }
         ClientPacket::SwitchChannel { channel } => {
-            let new_channel = channel;
-            let user = client.user.get().unwrap();
-            let client_id = user.uuid.clone();
-            let channel = user.channel.load().clone();
-            if channel.uuid == new_channel {
-                // FIXME: kick the user and close the connection once we already cancel such attempts at the client level!
-                return;
-            }
-            // check join perms
-            if channel.perms.load().join > client.user.get().unwrap().perms.load().channel_join {
-                // FIXME: give feedback
-                return;
-            }
-            let idx = channel.clients.read().block_on().iter().enumerate().find(|user| user.1 == &client_id).unwrap().0;
-            channel.clients.write().block_on().remove(idx);
-            let idx = channel.proto_clients.read().unwrap().iter().enumerate().find(|user| &user.1.uuid == &client_id).unwrap().0;
-            let profile = RwLock::write(&channel.proto_clients).unwrap().remove(idx);
-            channel.clients.write().block_on().push(client_id);
-            RwLock::write(&channel.proto_clients).unwrap().push(profile);
-            user.channel.store(channel.clone());
-            let remove_packet = ServerPacket::ChannelUpdate(ChannelUpdate::SubUpdate { channel: channel.uuid, update: ChannelSubUpdate::Client(ChannelSubClientUpdate::Remove(client_id)) }).encode().unwrap();
-            let add_packet = ServerPacket::ChannelUpdate(ChannelUpdate::SubUpdate { channel: new_channel, update: ChannelSubUpdate::Client(ChannelSubClientUpdate::Add(client_id)) }).encode().unwrap();
-            for client in server.online_users.iter() {
-                client.value().connection.send_reliable(&remove_packet).block_on().unwrap(); // FIXME: handle errors properly!
-                client.value().connection.send_reliable(&add_packet).block_on().unwrap(); // FIXME: handle errors properly!
+            let new_channel_id = channel;
+            if let Some(new_channel) = server.channels.read().block_on().get(&channel) {
+                let user = client.user.get().unwrap();
+                let client_id = user.uuid.clone();
+                let channel = user.channel.load().clone();
+                if channel.uuid == new_channel_id {
+                    // FIXME: kick the user and close the connection once we already cancel such attempts at the client level!
+                    return;
+                }
+                // check join perms
+                if channel.perms.load().join > client.user.get().unwrap().perms.load().channel_join {
+                    // FIXME: give feedback
+                    return;
+                }
+                let idx = channel.clients.read().block_on().iter().enumerate().find(|user| user.1 == &client_id).unwrap().0;
+                channel.clients.write().block_on().remove(idx);
+                let idx = channel.proto_clients.read().unwrap().iter().enumerate().find(|user| &user.1.uuid == &client_id).unwrap().0;
+                let profile = RwLock::write(&channel.proto_clients).unwrap().remove(idx);
+                new_channel.clients.write().block_on().push(client_id);
+                RwLock::write(&new_channel.proto_clients).unwrap().push(profile);
+                user.channel.store(new_channel.clone());
+                let remove_packet = ServerPacket::ChannelUpdate(ChannelUpdate::SubUpdate { channel: channel.uuid, update: ChannelSubUpdate::Client(ChannelSubClientUpdate::Remove(client_id)) }).encode().unwrap();
+                let add_packet = ServerPacket::ChannelUpdate(ChannelUpdate::SubUpdate { channel: new_channel_id, update: ChannelSubUpdate::Client(ChannelSubClientUpdate::Add(client_id)) }).encode().unwrap();
+                for client in server.online_users.iter() {
+                    client.value().connection.send_reliable(&remove_packet).block_on().unwrap(); // FIXME: handle errors properly!
+                    client.value().connection.send_reliable(&add_packet).block_on().unwrap(); // FIXME: handle errors properly!
+                }
+            } else {
+                // FIXME: give negative feedback to client!
             }
         }
     }
