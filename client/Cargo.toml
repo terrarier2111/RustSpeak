@@ -60,10 +60,10 @@ opus = "0.3.0"
 iced = "0.10.0"
 
 # wgpu rendering/graphics
-wgpu = "0.17.0"
+wgpu = "0.16.0"
 winit = "0.28.6"
-wgpu-biolerless = { git = "https://github.com/terrarier2111/wgpu-boilerless", features = ["winit"] }
-wgpu_glyph = { git = "https://github.com/terrarier2111/wgpu_glyph" }
+wgpu-biolerless = { git = "https://github.com/terrarier2111/wgpu-boilerless", rev = "939db18", features = ["winit"] }
+wgpu_glyph = { git = "https://github.com/terrarier2111/wgpu_glyph", rev = "e5f799a" } # FIXME: replace this with glyphon and cosmic-text
 # font-kit = "0.11"
 fontdue = "0.7.2"
 guillotiere = "0.6.2"

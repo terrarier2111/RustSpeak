@@ -160,7 +160,7 @@ async fn main() -> anyhow::Result<()> {
         "Client started up successfully, waiting for commands..."
     );
 
-    Ok(ui::start_ui(client, UiImpl::Iced)?)
+    Ok(ui::start_ui(client, UiImpl::Wgpu)?)
 }
 
 fn load_data() -> anyhow::Result<(Config, ProfileDb)> {
