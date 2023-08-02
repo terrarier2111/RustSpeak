@@ -25,8 +25,6 @@ use std::thread::sleep;
 use colored::{ColoredString, Colorize};
 use cpal::traits::{DeviceTrait, HostTrait};
 use flume::{Receiver, Sender};
-use iced::{Application, Settings};
-use iced::futures::channel;
 use crate::audio::{Audio, AudioConfig};
 use crate::command::cli::{CLIBuilder, CmdParamStrConstraints, CommandBuilder, CommandImpl, CommandLineInterface, CommandParam, CommandParamTy, UsageBuilder};
 use crate::command::r#impl::CommandProfiles;
@@ -34,7 +32,7 @@ use crate::security_level::generate_token_num;
 use crate::server::Server;
 use pollster::FutureExt;
 use swap_arc::{SwapArc, SwapArcOption};
-use crate::new_ui::{InterUiMessage, Ui};
+use crate::ui::{InterUiMessage, UiImpl};
 
 mod certificate;
 mod config;
@@ -49,7 +47,7 @@ mod server;
 mod command;
 mod audio;
 pub mod data_structures;
-mod new_ui;
+mod ui;
 
 // FIXME: review all the endianness related shit!
 
@@ -162,8 +160,7 @@ async fn main() -> anyhow::Result<()> {
         "Client started up successfully, waiting for commands..."
     );
 
-    new_ui::init_client(client);
-    Ok(Ui::run(Settings::default())?)
+    Ok(ui::start_ui(client, UiImpl::Iced)?)
 }
 
 fn load_data() -> anyhow::Result<(Config, ProfileDb)> {

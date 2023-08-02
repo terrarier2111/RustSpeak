@@ -14,7 +14,7 @@ use crate::{AddressMode, Channel, Client, ClientConfig, ClientPacket, NetworkCli
 use crate::audio::{AudioMode, SAMPLE_RATE};
 use crate::data_structures::byte_buf_ring::BBRing;
 use crate::data_structures::conc_once_cell::ConcurrentOnceCell;
-use crate::new_ui::InterUiMessage;
+use crate::ui::InterUiMessage;
 use crate::packet::{AuthResponse, ChannelSubClientUpdate, ChannelSubUpdate, ChannelUpdate, RemoteProfile, ServerPacket};
 use crate::protocol::UserUuid;
 

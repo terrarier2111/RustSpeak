@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display, Formatter, Write};
 use std::sync::Arc;
 use openssl::pkey::PKey;
 use crate::{Client, CommandImpl, DbProfile, generate_token_num, uuid_from_pub_key};
-use crate::new_ui::InterUiMessage;
+use crate::ui::InterUiMessage;
 
 pub struct CommandProfiles();
 

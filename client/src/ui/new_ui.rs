@@ -30,6 +30,7 @@ use crate::profile::Profile;
 use crate::profile_db::{DbProfile, uuid_from_pub_key};
 use crate::protocol::{RWBytes, UserUuid};
 use crate::server::Server;
+use crate::ui::InterUiMessage;
 
 pub struct Ui {
     pub ty: UiType,
@@ -357,14 +358,5 @@ pub enum UiMessage {
     ChannelAddUser(Uuid, RemoteProfile),
     UpdateProfiles,
     OpenErr(String),
-    ServerConnected,
-}
-
-#[derive(Debug, Clone)]
-pub enum InterUiMessage {
-    ChannelRemoveUser(Uuid, UserUuid),
-    ChannelAddUser(Uuid, RemoteProfile),
-    UpdateProfiles,
-    Error(String),
     ServerConnected,
 }
