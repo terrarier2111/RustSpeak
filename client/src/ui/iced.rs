@@ -1,25 +1,17 @@
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::mpsc::Receiver;
 use std::task::{Context, Poll};
-use bytes::BytesMut;
 use flume::r#async::RecvStream;
-use futures_util::{Stream, StreamExt, TryStreamExt};
-use iced::{Color, executor, Renderer, Theme, time};
-use iced::keyboard;
+use futures_util::{Stream, StreamExt};
+use iced::{executor, Alignment, Renderer, Theme};
 use iced::subscription::{self, Subscription};
 use iced::theme;
-use iced::widget::{
-    self, button, column, container, horizontal_space, vertical_space, pick_list, row, text,
-    text_input,
+use iced::widget::{button, column, container, vertical_space, row, text,
 };
-use iced::{Alignment, Application, Command, Element, Event, Length, Settings};
-use iced::alignment::Horizontal;
-use iced::futures::channel;
+use iced::{Application, Command, Element, Length, Settings};
 use pollster::FutureExt;
 use rand::Rng;
-use swap_arc::DataPtrConvert;
 use uuid::Uuid;
 use crate::{certificate, Client, packet};
 use crate::config::Config;
@@ -27,10 +19,15 @@ use crate::data_structures::conc_once_cell::ConcurrentOnceCell;
 use crate::network::AddressMode;
 use crate::packet::RemoteProfile;
 use crate::profile::Profile;
-use crate::profile_db::{DbProfile, uuid_from_pub_key};
-use crate::protocol::{RWBytes, UserUuid};
+use crate::profile_db::DbProfile;
+use crate::protocol::UserUuid;
 use crate::server::Server;
 use crate::ui::InterUiMessage;
+
+pub(crate) fn run(client: Arc<Client>) -> anyhow::Result<()> {
+    init_client(client);
+    Ok(Ui::run(Settings::default())?)
+}
 
 pub struct Ui {
     pub ty: UiType,

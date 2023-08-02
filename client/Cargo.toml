@@ -55,5 +55,15 @@ image = "0.24.6"
 console = "0.15.7"
 crossbeam-utils = "0.8.15"
 opus = "0.3.0"
-iced = "0.9.0"
-time = { version = "0.3.5", features = ["local-offset"] }
+
+# iced rendering/graphics
+iced = "0.10.0"
+
+# wgpu rendering/graphics
+wgpu = "0.17.0"
+winit = "0.28.6"
+wgpu-biolerless = { git = "https://github.com/terrarier2111/wgpu-boilerless", features = ["winit"] }
+wgpu_glyph = { git = "https://github.com/terrarier2111/wgpu_glyph" }
+# font-kit = "0.11"
+fontdue = "0.7.2"
+guillotiere = "0.6.2"

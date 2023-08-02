@@ -1,12 +1,11 @@
 use std::sync::Arc;
-use iced::{Application, Settings};
 use uuid::Uuid;
 use crate::Client;
 use crate::packet::RemoteProfile;
 use crate::protocol::UserUuid;
-use crate::ui::new_ui::Ui;
 
-pub mod new_ui;
+mod iced;
+mod wgpu;
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum UiImpl {
@@ -17,11 +16,10 @@ pub enum UiImpl {
 pub fn start_ui(client: Arc<Client>, ui: UiImpl) -> anyhow::Result<()> {
     match ui {
         UiImpl::Wgpu => {
-            todo!()
+            wgpu::run(client)
         }
         UiImpl::Iced => {
-            new_ui::init_client(client);
-            Ok(Ui::run(Settings::default())?)
+            iced::run(client)
         }
     }
 }
