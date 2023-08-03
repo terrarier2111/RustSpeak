@@ -1,9 +1,10 @@
+use std::ops::Deref;
 use std::sync::Arc;
 use wgpu::TextureFormat;
 use wgpu_biolerless::StateBuilder;
 use winit::event::{ElementState, Event, MouseButton, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoopBuilder};
-use winit::window::WindowBuilder;
+use winit::window::{Window, WindowBuilder};
 use crate::Client;
 use crate::data_structures::conc_once_cell::ConcurrentOnceCell;
 use crate::ui::wgpu::atlas::Atlas;
@@ -35,6 +36,7 @@ pub(crate) struct UiCtx {
     pub(crate) screen_sys: Arc<ScreenSystem>,
     pub(crate) renderer: Arc<Renderer>,
     pub(crate) atlas: Arc<Atlas>,
+    pub(crate) window: Arc<Window>,
 }
 
 static UI_CTX: ConcurrentOnceCell<Arc<UiCtx>> = ConcurrentOnceCell::new();
@@ -45,12 +47,12 @@ pub(crate) fn ctx() -> &'static Arc<UiCtx> {
 
 pub fn run(client: Arc<Client>) -> anyhow::Result<()> {
     let event_loop = EventLoopBuilder::new().build();
-    let window = WindowBuilder::new()
+    let window = Arc::new(WindowBuilder::new()
         .with_title("RustSpeak")
         .build(&event_loop)
-        .unwrap();
+        .unwrap());
     let state = Arc::new(pollster::block_on(
-        StateBuilder::new().window(&window).build(),
+        StateBuilder::new().window(window.deref()).build(),
     )?);
     let atlas = Arc::new(Atlas::new(
         state.clone(),
@@ -65,6 +67,7 @@ pub fn run(client: Arc<Client>) -> anyhow::Result<()> {
         screen_sys: screen_sys.clone(),
         renderer: renderer.clone(),
         atlas: atlas.clone(),
+        window: window.clone(),
     })).unwrap();
 
     let mut mouse_pos = (0.0, 0.0);

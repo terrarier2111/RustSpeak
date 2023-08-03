@@ -4,7 +4,7 @@ use atomic_float::AtomicF64;
 use wgpu_glyph::{BuiltInLineBreaker, Extra, Layout, Section, Text};
 use crate::Client;
 use crate::ui::wgpu::ctx;
-use crate::ui::wgpu::render::{ColorSource, Model, TexTy, Vertex};
+use crate::ui::wgpu::render::{ColorSource, GlyphBuilder, GlyphId, GlyphInfo, Model, TexTy, Vertex};
 
 pub trait Component: Send + Sync {
     fn build_model(&self) -> Model;
@@ -157,13 +157,13 @@ impl Container {
     }
 }
 
-pub struct Button<'a, T = ()> {
-    pub inner_box: TextBox<'a>,
+pub struct Button<T = ()> {
+    pub inner_box: TextBox,
     pub data: Option<Box<T>>,
     pub on_click: Arc<Box<dyn Fn(&mut Button, &Arc<Client>) + Send + Sync>>,
 }
 
-impl Component for Button<'_> {
+impl Component for Button {
     fn build_model(&self) -> Model {
         self.inner_box.build_model()
     }
@@ -265,15 +265,15 @@ impl Component for ColorBox {
     fn on_hover(&mut self, _client: &Arc<Client>, _mode: HoverMode) {}
 }
 
-pub struct TextBox<'a> {
+pub struct TextBox {
     pub pos: (f32, f32),
     pub width: f32,
     pub height: f32,
     pub coloring: Coloring<6>,
-    pub text: TextSection<'a>,
+    pub text: GlyphId,
 }
 
-impl Component for TextBox<'_> {
+impl Component for TextBox {
     fn build_model(&self) -> Model {
         let (x_off, y_off) = ((2.0 * self.pos.0), (2.0 * self.pos.1));
         let vertices = [
@@ -328,15 +328,16 @@ impl Component for TextBox<'_> {
 
     fn do_render(&self, client: &Arc<Client>) {
         let ctx = ctx();
-        let (width, height) = ctx.renderer.dimensions.get();
-        ctx.renderer.queue_glyph(0, Section {
+        // let (width, height) = ctx.renderer.dimensions.get();
+        // ctx.renderer.add_glyph(&self.text);
+        /*ctx.renderer.queue_glyph(0, Section {
             screen_position: (self.pos.0 * width as f32/*(self.pos.0 - 1.0) / 2.0*/, /*0.0*/(1.0 - self.pos.1/* - self.height*/) * height as f32/*(self.pos.1 - 1.0) / 2.0*/),
             bounds: (self.width * width as f32, self.height * height as f32),
             layout: self.text.layout,
             text: self.text.text.iter().enumerate().map(|txt| {
                 txt.1.with_text(&*self.text.texts[txt.0])
             }).collect::<Vec<_>>(),
-        });
+        });*/
     }
 
     fn pos(&self) -> (f32, f32) {

@@ -1,10 +1,11 @@
 use std::sync::{Arc, RwLock};
+use glyphon::Metrics;
 use image::GenericImageView;
 use crate::Client;
 use wgpu_glyph::{HorizontalAlign, Layout, Text, VerticalAlign};
 use crate::ui::wgpu::atlas::AtlasAlloc;
 use crate::ui::wgpu::ctx;
-use crate::ui::wgpu::render::TexTy;
+use crate::ui::wgpu::render::{GlyphBuilder, TexTy};
 use crate::ui::wgpu::screen_sys::Screen;
 use crate::ui::wgpu::ui::{Color, ColorBox, Coloring, Container, Tex, TextBox, TextSection};
 
@@ -42,8 +43,9 @@ const CLOSE_HEIGHT: f32 = 0.025;
 impl Screen for ConnectionFailureScreen {
     fn on_active(&mut self, client: &Arc<Client>) {
         println!("dims: {}", ctx().renderer.dimensions.get().0);
+        let pos = (0.5 - BOX_WIDTH / 2.0, 0.5 - BOX_HEIGHT / 2.0);
         self.container.add(Arc::new(RwLock::new(Box::new(TextBox {
-            pos: (0.5 - BOX_WIDTH / 2.0, 0.5 - BOX_HEIGHT / 2.0),
+            pos,
             width: BOX_WIDTH,
             height: BOX_HEIGHT,
             coloring: Coloring::Color::<6>([Color {
@@ -52,11 +54,13 @@ impl Screen for ConnectionFailureScreen {
                 b: 0.0,
                 a: 1.0,
             }; 6]),
-            text: TextSection {
+            text: GlyphBuilder::new(&format!("Failed connecting with \"{}\"", &self.server_name),
+                                    Metrics::new(30.0, 42.0).scale(45.0 * (ctx().renderer.dimensions.get().0 as f32 / 1920.0)),
+            pos, (BOX_WIDTH, BOX_HEIGHT)).build()/*TextSection {
                 layout: Layout::default_single_line().v_align(VerticalAlign::Bottom/*Bottom*//*VerticalAlign::Center*/).h_align(HorizontalAlign::Left),
                 text: vec![Text::default().with_scale(45.0 * (ctx().renderer.dimensions.get().0 as f32 / 1920.0))],
                 texts: vec![format!("Failed connecting with \"{}\"", &self.server_name)],
-            },
+            }*/,
         }))));
         self.container.add(Arc::new(RwLock::new(Box::new(ColorBox {
             pos: (0.5 - CLOSE_WIDTH, 0.5 - CLOSE_HEIGHT),
@@ -74,8 +78,9 @@ impl Screen for ConnectionFailureScreen {
 
     fn on_resize(&mut self, client: &Arc<Client>) {
         self.container.clear();
+        let pos = (0.5 - BOX_WIDTH / 2.0, 0.5 - BOX_HEIGHT / 2.0);
         self.container.add(Arc::new(RwLock::new(Box::new(TextBox {
-            pos: (0.5 - BOX_WIDTH / 2.0, 0.5 - BOX_HEIGHT / 2.0),
+            pos,
             width: BOX_WIDTH,
             height: BOX_HEIGHT,
             coloring: Coloring::Color::<6>([Color {
@@ -84,11 +89,13 @@ impl Screen for ConnectionFailureScreen {
                 b: 0.0,
                 a: 1.0,
             }; 6]),
-            text: TextSection {
+            text: GlyphBuilder::new(&format!("Failed connecting with \"{}\"", &self.server_name),
+                                    Metrics::new(30.0, 42.0).scale(45.0 * (ctx().renderer.dimensions.get().0 as f32 / 1920.0)),
+            pos, (BOX_WIDTH, BOX_HEIGHT)).build()/*TextSection {
                 layout: Layout::default_single_line().v_align(VerticalAlign::Bottom/*Bottom*//*VerticalAlign::Center*/).h_align(HorizontalAlign::Left),
                 text: vec![Text::default().with_scale(45.0 * (ctx().renderer.dimensions.get().0 as f32 / 1920.0))],
                 texts: vec![format!("Failed connecting with \"{}\"", &self.server_name)],
-            },
+            }*/,
         }))));
         self.container.add(Arc::new(RwLock::new(Box::new(ColorBox {
             pos: (0.5 - CLOSE_WIDTH, 0.5 - CLOSE_HEIGHT),

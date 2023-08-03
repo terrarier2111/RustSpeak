@@ -1,9 +1,11 @@
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use crate::{AddressMode, certificate, Client, Profile, Server};
 use std::sync::{Arc, RwLock};
+use glyphon::Metrics;
 use rand::Rng;
 use wgpu_glyph::{HorizontalAlign, Layout, Text, VerticalAlign};
 use crate::ui::wgpu::{ctx, DARK_GRAY_UI};
+use crate::ui::wgpu::render::GlyphBuilder;
 use crate::ui::wgpu::screen::connection_failure::ConnectionFailureScreen;
 use crate::ui::wgpu::screen_sys::Screen;
 use crate::ui::wgpu::ui::{Button, Coloring, Container, TextBox, TextSection};
@@ -28,9 +30,10 @@ impl Screen for ServerList {
         let ctx = ctx();
         let entry_offset = 1.0 / ENTRIES_ON_PAGE as f32;
         for entry in client.config.load().fav_servers.iter().enumerate() {
+            let pos = (0.0, 1.0 - ((entry.0 + 1) as f32 * entry_offset));
             self.container.add(Arc::new(RwLock::new(Box::new(Button {
                 inner_box: TextBox {
-                    pos: (0.0, 1.0 - ((entry.0 + 1) as f32 * entry_offset)),
+                    pos,
                     width: 0.2,
                     height: 0.1,
                     coloring: Coloring::Color([
@@ -41,11 +44,11 @@ impl Screen for ServerList {
                         DARK_GRAY_UI,
                         DARK_GRAY_UI,
                     ]),
-                    text: TextSection {
+                    text: GlyphBuilder::new(&entry.1.name, Metrics::new(30.0, 42.0).scale(30.0), pos, (0.2, 0.1)).build()/*TextSection {
                         layout: Layout::default_single_line().v_align(VerticalAlign::Bottom/*Bottom*//*VerticalAlign::Center*/).h_align(HorizontalAlign::Left),
                         text: vec![Text::default().with_scale(30.0)],
                         texts: vec![entry.1.name.clone()],
-                    }
+                    }*/,
                 },
                 data: None,
                 on_click: Arc::new(Box::new(|button, client| {
