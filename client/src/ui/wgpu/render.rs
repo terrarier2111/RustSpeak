@@ -20,8 +20,10 @@ use crate::ui::wgpu::LIGHT_GRAY_GPU;
 
 pub struct Renderer {
     pub state: Arc<State>,
-    tex_pipeline: RenderPipeline,
-    color_pipeline: RenderPipeline,
+    tex_generic_pipeline: RenderPipeline,
+    color_generic_pipeline: RenderPipeline,
+    tex_circle_pipeline: RenderPipeline,
+    color_circle_pipeline: RenderPipeline,
     pub dimensions: Dimensions,
     glyphs: Mutex<Vec<GlyphInfo>>,
 }
@@ -56,8 +58,10 @@ impl Renderer {
         });
         let (width, height) = window.window_size();
         Ok(Self {
-            tex_pipeline: Self::atlas_pipeline(&state),
-            color_pipeline: Self::color_pipeline(&state),
+            tex_generic_pipeline: Self::atlas_generic_pipeline(&state),
+            color_generic_pipeline: Self::color_generic_pipeline(&state),
+            tex_circle_pipeline: Self::atlas_circle_pipeline(&state),
+            color_circle_pipeline: Self::color_circle_pipeline(&state),
             state,
             dimensions: Dimensions::new(width, height),
             glyphs: Mutex::new(glyphs),
@@ -76,37 +80,69 @@ impl Renderer {
                         atlas.update(&mut encoder);
                     }*/
                     atlas.update(&mut encoder);
-                    let mut atlas_models: HashMap<AtlasId, Vec<AtlasVertex>> = HashMap::new();
-                    let mut color_models = vec![];
+                    let mut generic_atlas_models: HashMap<AtlasId, Vec<GenericAtlasVertex>> = HashMap::new();
+                    let mut generic_color_models = vec![];
+                    let mut circle_atlas_models: HashMap<AtlasId, Vec<CircleAtlasVertex>> = HashMap::new();
+                    let mut circle_color_models = vec![];
                     for model in models {
                         match &model.color_src {
                             ColorSource::PerVert => {
-                                color_models.extend(model.vertices.into_iter().map(
+                                model.vertices.into_iter().for_each(
                                     |vert| match vert {
-                                        Vertex::Color { pos, color } => ColorVertex { pos, color },
-                                        Vertex::Atlas { .. } => abort(), // FIXME: is it really necessary to abort because of perf stuff?
+                                        Vertex::GenericColor { pos, color } => generic_color_models.push(GenericColorVertex { pos, color }),
+                                        Vertex::GenericAtlas { .. } => abort(), // FIXME: is it really necessary to abort because of perf stuff?
+                                        Vertex::CircleColor { pos, color, radius, border_thickness } => circle_color_models.push(CircleColorVertex {
+                                            pos,
+                                            color,
+                                            radius,
+                                            border_thickness,
+                                        }),
+                                        Vertex::CircleAtlas { .. } => abort(),
                                     },
-                                ));
+                                );
                             }
                             ColorSource::Atlas(atlas) => {
                                 // FIXME: make different atlases work!
-                                let vertices = model.vertices.into_iter().map(|vert| match vert {
-                                    Vertex::Color { .. } => abort(),
-                                    Vertex::Atlas { pos, alpha, uv } => {
-                                        AtlasVertex { pos, alpha, uv }
-                                    }
+                                let mut generic_vertices = vec![];
+                                let mut circle_vertices = vec![];
+                                model.vertices.into_iter().for_each(|vert| match vert {
+                                    Vertex::GenericColor { .. } => abort(),
+                                    Vertex::GenericAtlas { pos, alpha, uv } => generic_vertices.push(GenericAtlasVertex {
+                                        pos,
+                                        alpha,
+                                        uv,
+                                    }),
+                                    Vertex::CircleColor { .. } => abort(),
+                                    Vertex::CircleAtlas { pos, alpha, uv, radius, border_thickness } => circle_vertices.push(CircleAtlasVertex {
+                                        pos,
+                                        alpha,
+                                        uv,
+                                        radius,
+                                        border_thickness,
+                                    }),
                                 });
-                                if let Some(mut models) = atlas_models.get_mut(&atlas.id()) {
-                                    models.extend(vertices);
+                                if !generic_vertices.is_empty() {
+                                    if let Some(mut models) = generic_atlas_models.get_mut(&atlas.id()) {
+                                        models.extend(generic_vertices);
+                                    } else {
+                                        generic_atlas_models
+                                            .insert(atlas.id(), generic_vertices);
+                                    }
                                 } else {
-                                    atlas_models
-                                        .insert(atlas.id(), vertices.collect::<Vec<AtlasVertex>>());
+                                    if let Some(mut models) = circle_atlas_models.get_mut(&atlas.id()) {
+                                        models.extend(circle_vertices);
+                                    } else {
+                                        circle_atlas_models
+                                            .insert(atlas.id(), circle_vertices);
+                                    }
                                 }
                             }
                         }
                     }
-                    let color_buffer =
-                        state.create_buffer(color_models.as_slice(), BufferUsages::VERTEX);
+                    let generic_color_buffer =
+                        state.create_buffer(generic_color_models.as_slice(), BufferUsages::VERTEX);
+                    let circle_color_buffer =
+                        state.create_buffer(circle_color_models.as_slice(), BufferUsages::VERTEX);
                     {
                         let attachments = [Some(RenderPassColorAttachment {
                             view: &view,
@@ -121,9 +157,12 @@ impl Renderer {
                         // let buffer = state.create_buffer(atlas_models.as_slice(), BufferUsages::VERTEX);
                         // render_pass.set_vertex_buffer(0, buffer.slice(..));
 
-                        render_pass.set_vertex_buffer(0, color_buffer.slice(..));
-                        render_pass.set_pipeline(&self.color_pipeline);
-                        render_pass.draw(0..(color_models.len() as u32), 0..1);
+                        render_pass.set_vertex_buffer(0, generic_color_buffer.slice(..));
+                        render_pass.set_pipeline(&self.color_generic_pipeline);
+                        render_pass.draw(0..(generic_color_models.len() as u32), 0..1);
+                        render_pass.set_vertex_buffer(0, circle_color_buffer.slice(..));
+                        render_pass.set_pipeline(&self.color_circle_pipeline);
+                        render_pass.draw(0..(circle_color_models.len() as u32), 0..1);
                     }
                     for glyph in self.glyphs.lock().unwrap().iter() {
                         let mut staging_belt = glyph.staging_belt.lock().unwrap();
@@ -141,11 +180,11 @@ impl Renderer {
         }
     }
 
-    fn color_pipeline(state: &State) -> RenderPipeline {
+    fn color_generic_pipeline(state: &State) -> RenderPipeline {
         PipelineBuilder::new()
             .vertex(VertexShaderState {
                 entry_point: "main_vert",
-                buffers: &[ColorVertex::desc()],
+                buffers: &[GenericColorVertex::desc()],
             })
             .fragment(FragmentShaderState {
                 entry_point: "main_frag",
@@ -156,17 +195,17 @@ impl Renderer {
                 })],
             })
             .shader_src(ShaderModuleSources::Single(ModuleSrc::Source(
-                ShaderSource::Wgsl(include_str!("ui_color.wgsl").into()),
+                ShaderSource::Wgsl(include_str!("ui_color_generic.wgsl").into()),
             )))
             .layout(&state.create_pipeline_layout(&[], &[]))
             .build(state)
     }
 
-    fn atlas_pipeline(state: &State) -> RenderPipeline {
+    fn atlas_generic_pipeline(state: &State) -> RenderPipeline {
         PipelineBuilder::new()
             .vertex(VertexShaderState {
                 entry_point: "main_vert",
-                buffers: &[AtlasVertex::desc()],
+                buffers: &[GenericAtlasVertex::desc()],
             })
             .fragment(FragmentShaderState {
                 entry_point: "main_frag",
@@ -177,7 +216,71 @@ impl Renderer {
                 })],
             })
             .shader_src(ShaderModuleSources::Single(ModuleSrc::Source(
-                ShaderSource::Wgsl(include_str!("ui_atlas.wgsl").into()),
+                ShaderSource::Wgsl(include_str!("ui_atlas_generic.wgsl").into()),
+            )))
+            .layout(&state.create_pipeline_layout(
+                &[&state.create_bind_group_layout(&[
+                    BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: ShaderStages::FRAGMENT,
+                        ty: BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: TextureViewDimension::D2,
+                            sample_type: TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: ShaderStages::FRAGMENT,
+                        // This should match the filterable field of the
+                        // corresponding Texture entry above.
+                        ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ])],
+                &[],
+            ))
+            .build(state)
+    }
+
+    fn color_circle_pipeline(state: &State) -> RenderPipeline {
+        PipelineBuilder::new()
+            .vertex(VertexShaderState {
+                entry_point: "main_vert",
+                buffers: &[CircleColorVertex::desc()],
+            })
+            .fragment(FragmentShaderState {
+                entry_point: "main_frag",
+                targets: &[Some(ColorTargetState {
+                    format: state.format(),
+                    blend: Some(BlendState::REPLACE),
+                    write_mask: ColorWrites::ALL,
+                })],
+            })
+            .shader_src(ShaderModuleSources::Single(ModuleSrc::Source(
+                ShaderSource::Wgsl(include_str!("ui_color_circle.wgsl").into()),
+            )))
+            .layout(&state.create_pipeline_layout(&[], &[]))
+            .build(state)
+    }
+
+    fn atlas_circle_pipeline(state: &State) -> RenderPipeline {
+        PipelineBuilder::new()
+            .vertex(VertexShaderState {
+                entry_point: "main_vert",
+                buffers: &[CircleAtlasVertex::desc()],
+            })
+            .fragment(FragmentShaderState {
+                entry_point: "main_frag",
+                targets: &[Some(ColorTargetState {
+                    format: state.format(),
+                    blend: Some(BlendState::REPLACE),
+                    write_mask: ColorWrites::ALL,
+                })],
+            })
+            .shader_src(ShaderModuleSources::Single(ModuleSrc::Source(
+                ShaderSource::Wgsl(include_str!("ui_atlas_circle.wgsl").into()),
             )))
             .layout(&state.create_pipeline_layout(
                 &[&state.create_bind_group_layout(&[
@@ -237,28 +340,41 @@ pub enum TexTy {
 
 #[derive(Copy, Clone)]
 pub enum Vertex {
-    Color {
+    GenericColor {
         pos: [f32; 2],
         color: [f32; 4],
     },
-    Atlas {
+    GenericAtlas {
         pos: [f32; 2],
         alpha: f32,
         uv: (u32, u32),
+    },
+    CircleColor {
+        pos: [f32; 2],
+        color: [f32; 4],
+        radius: f32,
+        border_thickness: f32,
+    },
+    CircleAtlas {
+        pos: [f32; 2],
+        alpha: f32,
+        uv: (u32, u32),
+        radius: f32,
+        border_thickness: f32,
     },
 }
 
 #[derive(Pod, Zeroable, Copy, Clone)]
 #[repr(C)]
-struct ColorVertex {
+struct GenericColorVertex {
     pos: [f32; 2],
     color: [f32; 4],
 }
 
-impl ColorVertex {
+impl GenericColorVertex {
     fn desc<'a>() -> VertexBufferLayout<'a> {
         VertexBufferLayout {
-            array_stride: size_of::<ColorVertex>() as BufferAddress,
+            array_stride: size_of::<GenericColorVertex>() as BufferAddress,
             step_mode: VertexStepMode::Vertex,
             attributes: &[
                 VertexAttribute {
@@ -276,16 +392,16 @@ impl ColorVertex {
     }
 }
 
-struct AtlasVertex {
+struct GenericAtlasVertex {
     pos: [f32; 2],
     alpha: f32,
     uv: (u32, u32),
 }
 
-impl AtlasVertex {
+impl GenericAtlasVertex {
     fn desc<'a>() -> VertexBufferLayout<'a> {
         VertexBufferLayout {
-            array_stride: size_of::<AtlasVertex>() as BufferAddress,
+            array_stride: size_of::<GenericAtlasVertex>() as BufferAddress,
             step_mode: VertexStepMode::Vertex,
             attributes: &[
                 VertexAttribute {
@@ -301,6 +417,90 @@ impl AtlasVertex {
                 VertexAttribute {
                     offset: size_of::<[f32; 4]>() as BufferAddress,
                     shader_location: 2,
+                    format: VertexFormat::Float32,
+                },
+            ],
+        }
+    }
+}
+
+#[derive(Pod, Zeroable, Copy, Clone)]
+#[repr(C)]
+struct CircleColorVertex {
+    pos: [f32; 2],
+    color: [f32; 4],
+    radius: f32,
+    border_thickness: f32,
+}
+
+impl CircleColorVertex {
+    fn desc<'a>() -> VertexBufferLayout<'a> {
+        VertexBufferLayout {
+            array_stride: size_of::<CircleColorVertex>() as BufferAddress,
+            step_mode: VertexStepMode::Vertex,
+            attributes: &[
+                VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: VertexFormat::Float32x2,
+                },
+                VertexAttribute {
+                    offset: size_of::<[f32; 2]>() as BufferAddress,
+                    shader_location: 1,
+                    format: VertexFormat::Float32x4,
+                },
+                VertexAttribute {
+                    offset: size_of::<[f32; 6]>() as BufferAddress,
+                    shader_location: 2,
+                    format: VertexFormat::Float32,
+                },
+                VertexAttribute {
+                    offset: size_of::<[f32; 7]>() as BufferAddress,
+                    shader_location: 3,
+                    format: VertexFormat::Float32,
+                },
+            ],
+        }
+    }
+}
+
+struct CircleAtlasVertex {
+    pos: [f32; 2],
+    alpha: f32,
+    uv: (u32, u32),
+    radius: f32,
+    border_thickness: f32,
+}
+
+impl CircleAtlasVertex {
+    fn desc<'a>() -> VertexBufferLayout<'a> {
+        VertexBufferLayout {
+            array_stride: size_of::<CircleAtlasVertex>() as BufferAddress,
+            step_mode: VertexStepMode::Vertex,
+            attributes: &[
+                VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: VertexFormat::Float32x2,
+                },
+                VertexAttribute {
+                    offset: size_of::<[f32; 2]>() as BufferAddress,
+                    shader_location: 1,
+                    format: VertexFormat::Float32x2,
+                },
+                VertexAttribute {
+                    offset: size_of::<[f32; 4]>() as BufferAddress,
+                    shader_location: 2,
+                    format: VertexFormat::Float32,
+                },
+                VertexAttribute {
+                    offset: size_of::<[f32; 5]>() as BufferAddress,
+                    shader_location: 3,
+                    format: VertexFormat::Float32,
+                },
+                VertexAttribute {
+                    offset: size_of::<[f32; 6]>() as BufferAddress,
+                    shader_location: 4,
                     format: VertexFormat::Float32,
                 },
             ],

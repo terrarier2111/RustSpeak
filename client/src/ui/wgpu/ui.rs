@@ -218,7 +218,7 @@ impl Component for ColorBox {
             Coloring::Color(colors) => {
                 let mut ret = Vec::with_capacity(6);
                 for (i, pos) in vertices.into_iter().enumerate() {
-                    ret.push(Vertex::Color {
+                    ret.push(Vertex::GenericColor {
                         pos,
                         color: colors[i].into_array(),
                     });
@@ -228,7 +228,7 @@ impl Component for ColorBox {
             Coloring::Tex(tex) => {
                 let mut ret = Vec::with_capacity(6);
                 for pos in vertices {
-                    ret.push(Vertex::Atlas {
+                    ret.push(Vertex::GenericAtlas {
                         pos,
                         alpha: 1.0, // FIXME: make this actually parameterized!
                         uv: match &tex.ty {
@@ -294,7 +294,7 @@ impl Component for TextBox<'_> {
             Coloring::Color(colors) => {
                 let mut ret = Vec::with_capacity(6);
                 for (i, pos) in vertices.into_iter().enumerate() {
-                    ret.push(Vertex::Color {
+                    ret.push(Vertex::GenericColor {
                         pos,
                         color: colors[i].into_array(),
                     });
@@ -304,7 +304,7 @@ impl Component for TextBox<'_> {
             Coloring::Tex(tex) => {
                 let mut ret = Vec::with_capacity(6);
                 for pos in vertices {
-                    ret.push(Vertex::Atlas {
+                    ret.push(Vertex::GenericAtlas {
                         pos,
                         alpha: 1.0, // FIXME: make this actually parameterized!
                         uv: match &tex.ty {
