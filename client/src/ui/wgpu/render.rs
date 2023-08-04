@@ -54,8 +54,7 @@ impl<'a> GlyphBuilder<'a> {
                 text,
                 attrs: Attrs::new(),
                 shaping: Shaping::Basic,
-                // color: Color::rgb(0, 0, 0), // black
-                color: Color::rgb(255, 255, 255),
+                color: Color::rgb(0, 0, 0), // black
                 scale: 1.0,
                 left_corner: width as f32 * pos.0, // FIXME: is this correct?
                 top_corner: height as f32 * (pos.1 + size.1), // FIXME: is this correct?
