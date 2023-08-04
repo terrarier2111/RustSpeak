@@ -4,7 +4,7 @@ use bytemuck_derive::Zeroable;
 use flume::Sender;
 use std::collections::HashMap;
 use std::mem::size_of;
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
 use std::process::abort;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -46,6 +46,7 @@ impl<'a> GlyphBuilder<'a> {
     
     pub fn new(text: &'a str, metrics: Metrics, pos: (f32, f32), size: (f32, f32)) -> Self {
         let (width, height) = ctx().window.window_size();
+        println!("left {} right {} top {} bottom {}", (width as f32 * pos.0) as i32, (width as f32 * (pos.0 + size.0)) as i32, (height as f32 * pos.1) as i32, (height as f32 * (pos.1 + size.1)) as i32);
         Self {
             glyph_info: GlyphInfo {
                 metrics,
@@ -53,15 +54,16 @@ impl<'a> GlyphBuilder<'a> {
                 text,
                 attrs: Attrs::new(),
                 shaping: Shaping::Basic,
-                color: Color::rgb(0, 0, 0), // black
+                // color: Color::rgb(0, 0, 0), // black
+                color: Color::rgb(255, 255, 255),
                 scale: 1.0,
-                left_corner: pos.0, // FIXME: is this correct?
-                top_corner: pos.1 + size.1, // FIXME: is this correct?
+                left_corner: width as f32 * pos.0, // FIXME: is this correct?
+                top_corner: height as f32 * (pos.1 + size.1), // FIXME: is this correct?
                 bounds: TextBounds {
                     left: (width as f32 * pos.0) as i32,
-                    top: (height as f32 * (pos.1 + size.1)) as i32,
+                    top: 0/*(height as f32 * pos.1) as i32*/,
                     right: (width as f32 * (pos.0 + size.0)) as i32,
-                    bottom: (height as f32 * pos.1) as i32,
+                    bottom: (height as f32 * (pos.1 + size.1)) as i32,
                 },
             },
         }
@@ -143,6 +145,37 @@ impl Renderer {
         models: Vec<Model>,
         atlas: Arc<Atlas>, /*atlases: Arc<Mutex<Vec<Arc<Atlas>>>>*/
     ) {
+        let mut glyph_ctx = self.glyph_ctx.lock().unwrap();
+        let mut text_atlas = glyph_ctx.atlas.borrow_mut();
+        let mut renderer = glyph_ctx.renderer.borrow_mut();
+        {
+            let mut font_system = self.font_system.lock().unwrap();
+            let config = self.state.raw_inner_surface_config();
+            let glyphs = self.glyphs.lock().unwrap();
+            let glyphs = glyphs.iter().map(|glyph| TextArea {
+                buffer: &glyph.buffer,
+                left: glyph.left,
+                top: glyph.top,
+                scale: glyph.scale,
+                bounds: glyph.bounds,
+                default_color: glyph.color,
+            }).collect::<Vec<_>>();
+            renderer.deref_mut()
+                .prepare(
+                    self.state.device(),
+                    self.state.queue(),
+                    &mut font_system,
+                    text_atlas.deref_mut(),
+                    Resolution {
+                        width: config.width,
+                        height: config.height,
+                    },
+                    glyphs,
+                    glyph_ctx.cache.borrow_mut().deref_mut(),
+                )
+                .unwrap();
+        }
+
         self.state
             .render(
                 |view, mut encoder, state| {
@@ -234,38 +267,15 @@ impl Renderer {
                         render_pass.set_pipeline(&self.color_circle_pipeline);
                         render_pass.draw(0..(circle_color_models.len() as u32), 0..1);
 
-                        let mut glyph_ctx = self.glyph_ctx.lock().unwrap();
-                        let mut font_system = self.font_system.lock().unwrap();
-                        let config = state.raw_inner_surface_config();
-                        let glyphs = self.glyphs.lock().unwrap();
-                        let glyphs = glyphs.iter().map(|glyph| TextArea {
-                            buffer: &glyph.buffer,
-                            left: glyph.left,
-                            top: glyph.top,
-                            scale: glyph.scale,
-                            bounds: glyph.bounds,
-                            default_color: glyph.color,
-                        }).collect::<Vec<_>>();
-                        glyph_ctx.renderer.borrow_mut().deref_mut()
-                            .prepare(
-                                state.device(),
-                                state.queue(),
-                                &mut font_system,
-                                glyph_ctx.atlas.borrow_mut().deref_mut(),
-                                Resolution {
-                                    width: config.width,
-                                    height: config.height,
-                                },
-                                glyphs,
-                                glyph_ctx.cache.borrow_mut().deref_mut(),
-                            )
-                            .unwrap();
+                        renderer.render(text_atlas.deref(), &mut render_pass).unwrap();
                     }
                     encoder
                 },
                 &TextureViewDescriptor::default(),
             )
             .unwrap();
+
+        text_atlas.trim();
     }
 
     fn color_generic_pipeline(state: &State) -> RenderPipeline {
@@ -402,13 +412,13 @@ impl Renderer {
         let mut font_system = self.font_system.lock().unwrap();
         let mut buffer = Buffer::new(&mut font_system, glyph_info.metrics);
 
-        // let ctx = ctx();
-        // let (width, height) = ctx.window.window_size();
-        // let scale_factor = ctx.window.scale_factor();
-        // let physical_width = (width as f64 * scale_factor) as f32; // FIXME: should we switch to the size field in glyph?
-        // let physical_height = (height as f64 * scale_factor) as f32;
+        let ctx = ctx();
+        let (width, height) = ctx.window.window_size();
+        let scale_factor = ctx.window.scale_factor();
+        let physical_width = (width as f64 * scale_factor) as f32; // FIXME: should we switch to the size field in glyph?
+        let physical_height = (height as f64 * scale_factor) as f32;
 
-        buffer.set_size(&mut font_system, glyph_info.size.0, glyph_info.size.1/*physical_width, physical_height*/);
+        buffer.set_size(&mut font_system, /*glyph_info.size.0 * width as f32, glyph_info.size.1 * height as f32*/physical_width, physical_height);
         buffer.set_text(&mut font_system, glyph_info.text, glyph_info.attrs, glyph_info.shaping);
 
         let len = glyphs.len();
@@ -416,8 +426,8 @@ impl Renderer {
             buffer,
             color: glyph_info.color,
             scale: glyph_info.scale,
-            left: glyph_info.left_corner,
-            top: glyph_info.top_corner,
+            left: 10.0/*glyph_info.left_corner*/,
+            top: 10.0/*glyph_info.top_corner*/,
             bounds: glyph_info.bounds,
         });
         GlyphId(len) // FIXME: make the id stable even on removes and support removes in general!
