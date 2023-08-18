@@ -56,11 +56,11 @@ impl<'a> GlyphBuilder<'a> {
                 shaping: Shaping::Basic,
                 color: Color::rgb(0, 0, 0), // black
                 scale: 1.0,
-                left_corner: width as f32 * pos.0, // FIXME: is this correct?
-                top_corner: height as f32 * (pos.1 + size.1), // FIXME: is this correct?
+                x_offset: width as f32 * pos.0, // FIXME: is this correct?
+                y_offset: height as f32 * pos.1, // FIXME: is this correct?
                 bounds: TextBounds {
                     left: (width as f32 * pos.0) as i32,
-                    top: 0/*(height as f32 * pos.1) as i32*/,
+                    top: (height as f32 * pos.1) as i32,
                     right: (width as f32 * (pos.0 + size.0)) as i32,
                     bottom: (height as f32 * (pos.1 + size.1)) as i32,
                 },
@@ -103,8 +103,8 @@ pub struct GlyphInfo<'a> {
     pub shaping: Shaping,
     pub color: Color,
     pub scale: f32,
-    pub left_corner: f32,
-    pub top_corner: f32,
+    pub x_offset: f32,
+    pub y_offset: f32,
     pub bounds: TextBounds,
 }
 
@@ -112,8 +112,8 @@ struct CompiledGlyph {
     buffer: Buffer,
     color: Color,
     scale: f32,
-    left: f32,
-    top: f32,
+    x_offset: f32,
+    y_offset: f32,
     bounds: TextBounds,
 }
 
@@ -153,8 +153,8 @@ impl Renderer {
             let glyphs = self.glyphs.lock().unwrap();
             let glyphs = glyphs.iter().map(|glyph| TextArea {
                 buffer: &glyph.buffer,
-                left: glyph.left,
-                top: glyph.top,
+                left: glyph.x_offset,
+                top: glyph.y_offset,
                 scale: glyph.scale,
                 bounds: glyph.bounds,
                 default_color: glyph.color,
@@ -425,8 +425,8 @@ impl Renderer {
             buffer,
             color: glyph_info.color,
             scale: glyph_info.scale,
-            left: 10.0/*glyph_info.left_corner*/,
-            top: 10.0/*glyph_info.top_corner*/,
+            x_offset: glyph_info.x_offset,
+            y_offset: glyph_info.y_offset,
             bounds: glyph_info.bounds,
         });
         GlyphId(len) // FIXME: make the id stable even on removes and support removes in general!

@@ -9,6 +9,7 @@ use crate::Client;
 use crate::data_structures::conc_once_cell::ConcurrentOnceCell;
 use crate::ui::wgpu::atlas::Atlas;
 use crate::ui::wgpu::render::Renderer;
+use crate::ui::wgpu::screen::menu_screen::Menu;
 use crate::ui::wgpu::screen::server_list::ServerList;
 use crate::ui::wgpu::screen_sys::ScreenSystem;
 
@@ -61,6 +62,7 @@ pub fn run(client: Arc<Client>) -> anyhow::Result<()> {
     ));
     let renderer = Arc::new(Renderer::new(state.clone(), &window)?);
     let screen_sys = Arc::new(ScreenSystem::new());
+    // screen_sys.push_screen(Box::new(Menu::new()));
     screen_sys.push_screen(Box::new(ServerList::new()));
 
     UI_CTX.try_init_silent(Arc::new(UiCtx {

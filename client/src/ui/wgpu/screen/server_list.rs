@@ -44,7 +44,7 @@ impl Screen for ServerList {
                         DARK_GRAY_UI,
                         DARK_GRAY_UI,
                     ]),
-                    text: GlyphBuilder::new(&entry.1.name, Metrics::new(1.0, 42.0 / 30.0).scale(30.0), pos, (0.2, 0.1)).build()/*TextSection {
+                    text: GlyphBuilder::new(&entry.1.name, Metrics::new(1.0, 42.0 / 30.0).scale(30.0), (pos.0, 1.0 - pos.1), (0.2, 0.1)).build()/*TextSection {
                         layout: Layout::default_single_line().v_align(VerticalAlign::Bottom/*Bottom*//*VerticalAlign::Center*/).h_align(HorizontalAlign::Left),
                         text: vec![Text::default().with_scale(30.0)],
                         texts: vec![entry.1.name.clone()],
