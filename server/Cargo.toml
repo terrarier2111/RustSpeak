@@ -10,42 +10,42 @@ channel = "nightly"
 
 [dependencies]
 # config de-/serialization
-serde = "1.0.144"
-serde_derive = "1.0.144"
-serde_json = "1.0.85"
+serde = "1.0.178"
+serde_derive = "1.0.178"
+serde_json = "1.0.104"
 # networking
-tokio = { version = "1.20.1", features = ["full"] }
+tokio = { version = "1.29.1", features = ["full"] }
 quinn = "0.10.1"
-rustls = { version = "0.21.1", features = [ "dangerous_configuration", "quic" ] }
-rcgen = "0.10.0"
-rustls-pemfile = "1.0.1"
+rustls = { version = "0.21.5", features = [ "dangerous_configuration", "quic" ] }
+rcgen = "0.11.1"
+rustls-pemfile = "1.0.3"
 # other utils
-uuid = { version = "1.1.2", features = [ "v4" ] }
-ripemd = "0.1.1"
-sha2 = "0.10.2"
-bytes = "1.2.1"
+uuid = { version = "1.4.1", features = [ "v4" ] }
+ripemd = "0.1.3"
+sha2 = "0.10.7"
+bytes = "1.4.0"
 # byteorder = "1.4.3"
-anyhow = "1.0.62"
+anyhow = "1.0.72"
 dirs = "5.0.1"
-dashmap = "5.3.4"
-futures = "0.3.24"
+dashmap = "5.5.0"
+futures = "0.3.28"
 swap-arc = { git = "https://github.com/terrarier2111/SwapArc" }
 # num_enum = "0.5.7"
 ordinalizer = { git = "https://github.com/terrarier2111/ordinalize" }
 # sqlx = "0.6.1"
 sled = "0.34.7"
-openssl = { version = "0.10.41", features = ["vendored"] }
+openssl = { version = "0.10.55", features = ["vendored"] }
 # rocksdb = "0.19.0"
 # clap = "3.2.20" # FIXME: could we use clap? sadly we probably can't as it can only read cmd args not CLI args
 # owo-colors = "3.5.0"
-colored = "2.0.0"
-bytemuck = "1.12.1"
-bytemuck_derive = "1.2.1"
-ruint = "1.3.0"
-futures-util = "0.3.24"
+colored = "2.0.4"
+bytemuck = "1.13.1"
+bytemuck_derive = "1.4.1"
+ruint = "1.9.0"
+futures-util = "0.3.28"
 parking_lot = "0.12.1"
 aligned = "0.4.1"
-crossbeam-utils = "0.8.15"
+crossbeam-utils = "0.8.16"
 console = "0.15.7"
 arc-swap = "1.6.0"
 opus = "0.3.0"

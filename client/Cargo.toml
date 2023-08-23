@@ -24,36 +24,36 @@ rustls = { version = "0.21.1", features = [ "dangerous_configuration", "quic" ] 
 # fontdue = "0.7.2"
 
 # other utils
-uuid = { version = "1.1.2", features = [ "v4" ] }
-ripemd = "0.1.1"
-sha2 = "0.10.2"
+uuid = { version = "1.4.1", features = [ "v4" ] }
+ripemd = "0.1.3"
+sha2 = "0.10.7"
 rand = "0.8.5"
 # byteorder = "1.4.3"
-bytemuck = "1.12.1"
-bytemuck_derive = "1.2.1"
+bytemuck = "1.13.1"
+bytemuck_derive = "1.4.1"
 arc-swap = "1.6.0"
-bytes = "1.2.1"
-anyhow = "1.0.62"
+bytes = "1.4.0"
+anyhow = "1.0.72"
 pollster = "0.3.0"
 dirs = "5.0.1"
-openssl = { version = "0.10.41", features = ["vendored"] }
+openssl = { version = "0.10.55", features = ["vendored"] }
 # druid = "0.7.0" # we can't use druid as it's not ready for any real ui work
 ordinalizer = { git = "https://github.com/terrarier2111/ordinalize" }
 num-bigint = "0.4.3"
-ruint = "1.3.0"
+ruint = "1.9.0"
 flume = { version = "0.10.14", features = ["async", "futures-core"] }
 # guillotiere = "0.6.2"
 swap-arc = { git = "https://github.com/terrarier2111/SwapArc" }
 sled = "0.34.7"
 colored = "2.0.0"
-dashmap = "5.4.0"
+dashmap = "5.5.0"
 atomic_float = "0.1.0"
 # cpal = { version = "0.14.0", features = ["jack"] }
 cpal = "0.15.2"
-futures-util = "0.3.24"
+futures-util = "0.3.28"
 image = "0.24.6"
 console = "0.15.7"
-crossbeam-utils = "0.8.15"
+crossbeam-utils = "0.8.16"
 opus = "0.3.0"
 
 # iced rendering/graphics
@@ -66,5 +66,5 @@ wgpu-biolerless = { git = "https://github.com/terrarier2111/wgpu-boilerless", re
 wgpu_glyph = { git = "https://github.com/terrarier2111/wgpu_glyph", rev = "e5f799a" } # FIXME: replace this with glyphon and cosmic-text
 glyphon = "0.3.0"
 # font-kit = "0.11"
-fontdue = "0.7.2"
+fontdue = "0.7.3"
 guillotiere = "0.6.2"
