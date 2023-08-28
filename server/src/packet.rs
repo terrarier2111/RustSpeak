@@ -74,9 +74,9 @@ pub enum ClientPacket {
 }
 
 impl ClientPacket {
-    pub fn decode(buf: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self> {
+    pub fn decode(buf: &mut Bytes) -> anyhow::Result<Self> {
         let _len = buf.get_u64_le(); // FIXME: use this and don't trust the client in any way shape or form!
-        Self::read(buf, client_key)
+        Self::read(buf)
     }
 }
 
@@ -95,24 +95,24 @@ impl ServerPacket<'_> {
 impl RWBytes for ServerPacket<'_> {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         let id = src.get_u8();
 
         match id {
-            0 => Ok(Self::AuthResponse(AuthResponse::read(src, client_key)?)),
-            1 => Ok(Self::ChannelUpdate(ChannelUpdate::read(src, client_key)?)),
-            2 => Ok(Self::ClientConnected(RemoteProfile::read(src, client_key)?)),
+            0 => Ok(Self::AuthResponse(AuthResponse::read(src)?)),
+            1 => Ok(Self::ChannelUpdate(ChannelUpdate::read(src)?)),
+            2 => Ok(Self::ClientConnected(RemoteProfile::read(src)?)),
             3 => Ok(Self::ClientDisconnected(RemoteProfile::read(
-                src, client_key,
+                src,
             )?)),
             4 => {
-                let client = UserUuid::read(src, client_key)?;
-                let update = ClientUpdateServerGroups::read(src, client_key)?;
+                let client = UserUuid::read(src)?;
+                let update = ClientUpdateServerGroups::read(src)?;
                 Ok(Self::ClientUpdateServerGroups { client, update })
             }
             5 => {
-                let id = u64::read(src, client_key)?;
-                let send_time = Duration::read(src, client_key)?;
+                let id = u64::read(src)?;
+                let send_time = Duration::read(src)?;
                 Ok(Self::KeepAlive { id, send_time })
             }
             6 => {
@@ -159,16 +159,16 @@ impl RWBytes for ServerPacket<'_> {
 impl RWBytes for ClientPacket {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         let id = src.get_u8();
         match id {
             0 => {
-                let protocol_version = u64::read(src, client_key)?;
-                let pub_key = Vec::<u8>::read(src, client_key)?;
-                let name = String::read(src, client_key)?;
+                let protocol_version = u64::read(src)?;
+                let pub_key = Vec::<u8>::read(src)?;
+                let name = String::read(src)?;
                 println!("got name: {}", name);
-                let security_proofs = Vec::<U256>::read(src, client_key)?;
-                let signed_data = Vec::<u8>::read(src, client_key)?;
+                let security_proofs = Vec::<U256>::read(src)?;
+                let signed_data = Vec::<u8>::read(src)?;
                 println!("got signed data: {:?}", signed_data);
                 Ok(Self::AuthRequest {
                     protocol_version,
@@ -181,19 +181,19 @@ impl RWBytes for ClientPacket {
             1 => Ok(Self::Disconnect),
             2 => {
                 let id = src.get_u64_le();
-                let send_time = Duration::read(src, client_key)?;
+                let send_time = Duration::read(src)?;
                 Ok(Self::KeepAlive { id, send_time })
             }
             3 => {
-                let client = UserUuid::read(src, client_key)?;
-                let update = ClientUpdateServerGroups::read(src, client_key)?;
+                let client = UserUuid::read(src)?;
+                let update = ClientUpdateServerGroups::read(src)?;
                 Ok(Self::UpdateClientServerGroups { client, update })
             }
             4 => {
                 todo!()
             }
             5 => {
-                let channel = Uuid::read(src, client_key)?;
+                let channel = Uuid::read(src)?;
                 Ok(Self::SwitchChannel { channel })
             }
             _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(
@@ -247,7 +247,7 @@ pub(crate) struct Encrypted<T: RWBytes + Pod> {
 impl<T: RWBytes + Pod> RWBytes for Encrypted<T> {
     type Ty = T;
 
-    fn read(_src: &mut Bytes, _client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(_src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         todo!()
     }
 
@@ -274,15 +274,30 @@ where
     pub pub_key: PKeyRef<Public>,
 }
 
-impl<T: RWBytes> RWBytes for Signed<T>
+impl<T: RWBytes> Signed<T>
+    where
+        T::Ty: Pod,
+{
+
+    pub fn read(src: &mut Bytes, key: &PKeyRef<Public>) -> anyhow::Result<T::Ty> {
+        let signature = Vec::<u8>::read(src)?;
+        let data = T::read(src)?;
+        let mut verifier = Verifier::new(MessageDigest::sha256(), key)?;
+        verifier.verify_oneshot(&signature, bytemuck::bytes_of(&data))?;
+        Ok(data)
+    }
+
+}
+
+/*impl<T: RWBytes> RWBytes for Signed<T>
 where
     T::Ty: Pod,
 {
     type Ty = T::Ty;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
-        let signature = Vec::<u8>::read(src, client_key)?;
-        let data = T::read(src, client_key)?;
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        let signature = Vec::<u8>::read(src)?;
+        let data = T::read(src)?;
         let mut verifier = Verifier::new(MessageDigest::sha256(), client_key.unwrap())?;
         verifier.verify_oneshot(&signature, bytemuck::bytes_of(&data))?;
         Ok(data)
@@ -292,7 +307,7 @@ where
         // we don't ever need to write Signed data, we only need to read signed data on the server side
         unimplemented!()
     }
-}
+}*/
 
 #[derive(Ordinal, Copy, Clone)]
 pub enum AuthKind {
@@ -313,21 +328,21 @@ pub enum ChannelUpdate<'a> {
 impl RWBytes for ChannelUpdate<'_> {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         let disc = src.get_u8();
 
         match disc {
             0 => {
-                let channel = Channel::read(src, client_key)?;
+                let channel = Channel::read(src)?;
                 Ok(Self::Create(channel))
             }
             1 => {
-                let channel = Uuid::read(src, client_key)?;
-                let update = ChannelSubUpdate::read(src, client_key)?;
+                let channel = Uuid::read(src)?;
+                let update = ChannelSubUpdate::read(src)?;
                 Ok(Self::SubUpdate { channel, update })
             }
             2 => {
-                let uuid = Uuid::read(src, client_key)?;
+                let uuid = Uuid::read(src)?;
                 Ok(Self::Delete(uuid))
             }
             _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(
@@ -367,24 +382,24 @@ pub enum ChannelSubUpdate<'a> {
 impl RWBytes for ChannelSubUpdate<'_> {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         let disc = src.get_u8();
 
         match disc {
             0 => {
-                let name = Cow::<String>::read(src, client_key)?;
+                let name = Cow::<String>::read(src)?;
                 Ok(Self::Name(name))
             }
             1 => {
-                let desc = Cow::<String>::read(src, client_key)?;
+                let desc = Cow::<String>::read(src)?;
                 Ok(Self::Desc(desc))
             }
             2 => {
-                let channel_perms = ChannelPerms::read(src, client_key)?;
+                let channel_perms = ChannelPerms::read(src)?;
                 Ok(Self::Perms(channel_perms))
             }
             3 => {
-                let update = ChannelSubClientUpdate::read(src, client_key)?;
+                let update = ChannelSubClientUpdate::read(src)?;
                 Ok(Self::Client(update))
             }
             _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(
@@ -425,16 +440,16 @@ pub enum ChannelSubClientUpdate {
 impl RWBytes for ChannelSubClientUpdate {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         let disc = src.get_u8();
 
         match disc {
             0 => {
-                let uuid = UserUuid::read(src, client_key)?;
+                let uuid = UserUuid::read(src)?;
                 Ok(Self::Add(uuid))
             }
             1 => {
-                let uuid = UserUuid::read(src, client_key)?;
+                let uuid = UserUuid::read(src)?;
                 Ok(Self::Remove(uuid))
             }
             _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(
@@ -468,15 +483,15 @@ pub enum ClientUpdateServerGroups {
 impl RWBytes for ClientUpdateServerGroups {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         let disc = src.get_u8();
         match disc {
             0 => {
-                let uuid = Uuid::read(src, client_key)?;
+                let uuid = Uuid::read(src)?;
                 Ok(ClientUpdateServerGroups::Add(uuid))
             }
             1 => {
-                let uuid = Uuid::read(src, client_key)?;
+                let uuid = Uuid::read(src)?;
                 Ok(ClientUpdateServerGroups::Remove(uuid))
             }
             _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(
@@ -510,10 +525,10 @@ pub struct RemoteProfile {
 impl RWBytes for RemoteProfile {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
-        let name = String::read(src, client_key)?;
-        let uuid = UserUuid::read(src, client_key)?;
-        let server_groups = Vec::<Uuid>::read(src, client_key)?;
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        let name = String::read(src)?;
+        let uuid = UserUuid::read(src)?;
+        let server_groups = Vec::<Uuid>::read(src)?;
 
         Ok(Self {
             name,
@@ -564,8 +579,8 @@ impl Clone for Channel {
 impl<T: RWBytes<Ty = T> + Send + Sync> RWBytes for SwapArc<T> {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
-        Ok(SwapArc::new(Arc::new(T::read(src, client_key)?)))
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        Ok(SwapArc::new(Arc::new(T::read(src)?)))
     }
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
@@ -576,15 +591,15 @@ impl<T: RWBytes<Ty = T> + Send + Sync> RWBytes for SwapArc<T> {
 impl RWBytes for Channel {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
-        let uuid = Uuid::read(src, client_key)?;
-        let password = AtomicBool::new(bool::read(src, client_key)?);
-        let name = Arc::new(SwapArc::new(Arc::new(String::read(src, client_key)?)));
-        let desc = Arc::new(SwapArc::new(Arc::new(String::read(src, client_key)?)));
-        let perms = Arc::new(SwapArc::new(Arc::new(ChannelPerms::read(src, client_key)?)));
-        let clients = Arc::new(RwLock::new(Vec::<RemoteProfile>::read(src, client_key)?));
-        let slots = AtomicI16::new(i16::read(src, client_key)?);
-        let sort_id = AtomicU16::new(u16::read(src, client_key)?);
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        let uuid = Uuid::read(src)?;
+        let password = AtomicBool::new(bool::read(src)?);
+        let name = Arc::new(SwapArc::new(Arc::new(String::read(src)?)));
+        let desc = Arc::new(SwapArc::new(Arc::new(String::read(src)?)));
+        let perms = Arc::new(SwapArc::new(Arc::new(ChannelPerms::read(src)?)));
+        let clients = Arc::new(RwLock::new(Vec::<RemoteProfile>::read(src)?));
+        let slots = AtomicI16::new(i16::read(src)?);
+        let sort_id = AtomicU16::new(u16::read(src)?);
 
         Ok(Self {
             uuid,
@@ -641,13 +656,13 @@ impl Default for ChannelPerms {
 impl RWBytes for ChannelPerms {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
-        let see = u64::read(src, client_key)?;
-        let join = u64::read(src, client_key)?;
-        let modify = u64::read(src, client_key)?;
-        let talk = u64::read(src, client_key)?;
-        let assign_talk = u64::read(src, client_key)?;
-        let delete = u64::read(src, client_key)?;
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        let see = u64::read(src)?;
+        let join = u64::read(src)?;
+        let modify = u64::read(src)?;
+        let talk = u64::read(src)?;
+        let assign_talk = u64::read(src)?;
+        let delete = u64::read(src)?;
 
         Ok(Self {
             see,
@@ -682,11 +697,11 @@ pub struct ServerGroup {
 impl RWBytes for ServerGroup {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
-        let uuid = Uuid::read(src, client_key)?;
-        let name = String::read(src, client_key)?;
-        let priority = u64::read(src, client_key)?;
-        let perms = PermsSnapshot::read(src, client_key)?;
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        let uuid = Uuid::read(src)?;
+        let name = String::read(src)?;
+        let priority = u64::read(src)?;
+        let perms = PermsSnapshot::read(src)?;
 
         Ok(Self {
             uuid,
@@ -723,17 +738,17 @@ pub struct PermsSnapshot { // FIXME: snapshot isn't a good name!
 impl RWBytes for PermsSnapshot {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
-        let server_group_assign = u64::read(src, client_key)?;
-        let server_group_unassign = u64::read(src, client_key)?;
-        let channel_see = u64::read(src, client_key)?;
-        let channel_join = u64::read(src, client_key)?;
-        let channel_modify = u64::read(src, client_key)?;
-        let channel_talk = u64::read(src, client_key)?;
-        let channel_assign_talk = u64::read(src, client_key)?;
-        let channel_delete = u64::read(src, client_key)?;
-        let can_send = bool::read(src, client_key)?;
-        let channel_create = ChannelCreatePerms::read(src, client_key)?;
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        let server_group_assign = u64::read(src)?;
+        let server_group_unassign = u64::read(src)?;
+        let channel_see = u64::read(src)?;
+        let channel_join = u64::read(src)?;
+        let channel_modify = u64::read(src)?;
+        let channel_talk = u64::read(src)?;
+        let channel_assign_talk = u64::read(src)?;
+        let channel_delete = u64::read(src)?;
+        let can_send = bool::read(src)?;
+        let channel_create = ChannelCreatePerms::read(src)?;
 
         Ok(Self {
             server_group_assign,
@@ -777,11 +792,11 @@ pub struct ChannelCreatePerms {
 impl RWBytes for ChannelCreatePerms {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
-        let power = u64::read(src, client_key)?;
-        let set_desc = bool::read(src, client_key)?;
-        let set_password = bool::read(src, client_key)?;
-        let resort_channel = bool::read(src, client_key)?;
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        let power = u64::read(src)?;
+        let set_desc = bool::read(src)?;
+        let set_password = bool::read(src)?;
+        let resort_channel = bool::read(src)?;
 
         Ok(Self {
             power,
@@ -815,7 +830,7 @@ pub enum AuthResponse<'a> {
 impl RWBytes for AuthResponse<'_> {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         /*
         /*let disc = src.get_u8();
 
@@ -842,10 +857,10 @@ impl RWBytes for AuthResponse<'_> {
 
         match disc {
             0 => {
-                let default_channel_id = Uuid::read(src, client_key)?;
-                let server_groups = Vec::<Arc<ServerGroup>>::read(src, client_key)?;
-                let own_groups = Vec::<Uuid>::read(src, client_key)?;
-                let channels = Vec::<Channel>::read(src, client_key)?;
+                let default_channel_id = Uuid::read(src)?;
+                let server_groups = Vec::<Arc<ServerGroup>>::read(src)?;
+                let own_groups = Vec::<Uuid>::read(src)?;
+                let channels = Vec::<Channel>::read(src)?;
                 Ok(Self::Success {
                     default_channel_id,
                     server_groups,
@@ -854,7 +869,7 @@ impl RWBytes for AuthResponse<'_> {
                 })
             }
             1 => {
-                let failure = AuthFailure::read(src, client_key)?;
+                let failure = AuthFailure::read(src)?;
                 Ok(Self::Failure(failure))
             }
             _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(
@@ -903,13 +918,13 @@ pub enum AuthFailure<'a> {
 impl RWBytes for AuthFailure<'_> {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         let disc = src.get_u8();
 
         match disc {
             0 => {
-                let reason = String::read(src, client_key)?;
-                let duration = BanDuration::read(src, client_key)?;
+                let reason = String::read(src)?;
+                let duration = BanDuration::read(src)?;
                 Ok(Self::Banned { reason, duration })
             }
             1 => {
@@ -924,7 +939,7 @@ impl RWBytes for AuthFailure<'_> {
                 Ok(Self::AlreadyOnline)
             }
             4 => {
-                let reason = String::read(src, client_key)?;
+                let reason = String::read(src)?;
                 Ok(Self::Invalid(Cow::from(reason)))
             }
             _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(
@@ -965,13 +980,13 @@ pub enum BanDuration {
 impl RWBytes for BanDuration {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         let disc = src.get_u8();
 
         match disc {
             0 => Ok(BanDuration::Permanent),
             1 => {
-                let dur = Duration::read(src, client_key)?;
+                let dur = Duration::read(src)?;
                 Ok(BanDuration::Temporary(dur))
             }
             _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(

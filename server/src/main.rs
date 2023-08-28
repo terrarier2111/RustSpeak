@@ -362,7 +362,7 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                     let size = new_conn.read_reliable(8).await?.get_u64_le();
                     // println!("got size {}", size);
                     let mut data = new_conn.read_reliable(size as usize).await?;
-                    let packet = ClientPacket::read(&mut data, None)?;
+                    let packet = ClientPacket::read(&mut data)?;
                     // println!("read packet!");
                     let server = server.clone();
                     if let ClientPacket::AuthRequest {

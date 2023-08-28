@@ -169,7 +169,7 @@ impl ClientConnection {
                                 break 'end;
                             }
                         };
-                        let packet = ClientPacket::read(&mut payload, None); // FIXME: provide client key!
+                        let packet = ClientPacket::read(&mut payload);
                         match packet {
                             Ok(packet) => {
                                 handle_packet(packet, &server, &this);
@@ -275,8 +275,8 @@ impl ClientConnection {
         let mut buf = Bytes::from(buf.to_vec());
 
         let ret = KeepAlive {
-            id: u64::read(&mut buf, None)?,
-            send_time: Duration::read(&mut buf, None)?,
+            id: u64::read(&mut buf)?,
+            send_time: Duration::read(&mut buf)?,
         };
 
         // FIXME: add abuse prevention (by checking frequency and time diff checking)

@@ -64,12 +64,12 @@ impl DbUser {
     fn from_bytes(bytes: IVec) -> anyhow::Result<Self> {
         let mut buf = Bytes::from(bytes.to_vec());
         Ok(Self {
-            uuid: UserUuid::read(&mut buf, None)?,
-            name: String::read(&mut buf, None)?,
-            last_security_proof: U256::read(&mut buf, None)?,
-            last_verified_security_level: u8::read(&mut buf, None)?,
-            groups: Vec::<Uuid>::read(&mut buf, None)?,
-            perms: PermsSnapshot::read(&mut buf, None)?,
+            uuid: UserUuid::read(&mut buf)?,
+            name: String::read(&mut buf)?,
+            last_security_proof: U256::read(&mut buf)?,
+            last_verified_security_level: u8::read(&mut buf)?,
+            groups: Vec::<Uuid>::read(&mut buf)?,
+            perms: PermsSnapshot::read(&mut buf)?,
         })
     }
 }

@@ -40,7 +40,7 @@ impl AsRef<[u8]> for UserUuid {
 pub(crate) trait RWBytes /*: Sized*/ {
     type Ty;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty>;
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty>;
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()>;
 }
@@ -48,7 +48,7 @@ pub(crate) trait RWBytes /*: Sized*/ {
 pub(crate) trait RWBytesMut /*: Sized*/ {
     type Ty;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty>;
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty>;
 
     fn write(&mut self, dst: &mut BytesMut) -> anyhow::Result<()>;
 }
@@ -67,7 +67,7 @@ impl dyn RWBytes {
 impl RWBytes for u128 {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, _client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         Ok(src.get_u128_le())
     }
 
@@ -80,7 +80,7 @@ impl RWBytes for u128 {
 impl RWBytes for i64 {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, _client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         Ok(src.get_i64_le())
     }
 
@@ -93,7 +93,7 @@ impl RWBytes for i64 {
 impl RWBytes for i32 {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, _client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         Ok(src.get_i32_le())
     }
 
@@ -106,7 +106,7 @@ impl RWBytes for i32 {
 impl RWBytes for i16 {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, _client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         Ok(src.get_i16_le())
     }
 
@@ -119,7 +119,7 @@ impl RWBytes for i16 {
 impl RWBytes for i8 {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, _client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         Ok(src.get_i8())
     }
 
@@ -132,7 +132,7 @@ impl RWBytes for i8 {
 impl RWBytes for u64 {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, _client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         Ok(src.get_u64_le())
     }
 
@@ -145,7 +145,7 @@ impl RWBytes for u64 {
 impl RWBytes for u32 {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, _client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         Ok(src.get_u32_le())
     }
 
@@ -158,7 +158,7 @@ impl RWBytes for u32 {
 impl RWBytes for u16 {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, _client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         Ok(src.get_u16_le())
     }
 
@@ -171,7 +171,7 @@ impl RWBytes for u16 {
 impl RWBytes for u8 {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, _client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         Ok(src.get_u8())
     }
 
@@ -184,7 +184,7 @@ impl RWBytes for u8 {
 impl RWBytes for bool {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, _client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         let val = src.get_u8();
         match val {
             0 => Ok(false),
@@ -202,7 +202,7 @@ impl RWBytes for bool {
 impl RWBytes for f32 {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, _client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         // SAFETY: this is safe because all possible bit patterns are valid for f32
         Ok(unsafe { transmute(src.get_u32_le()) })
     }
@@ -217,7 +217,7 @@ impl RWBytes for f32 {
 impl RWBytes for f64 {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, _client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         // SAFETY: this is safe because all possible bit patterns are valid for f64
         Ok(unsafe { transmute(src.get_u64_le()) })
     }
@@ -232,7 +232,7 @@ impl RWBytes for f64 {
 impl RWBytes for Duration {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, _client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         let secs = src.get_u64_le();
         let subsec_nanos = src.get_u32_le();
         Ok(Duration::new(secs, subsec_nanos))
@@ -248,7 +248,7 @@ impl RWBytes for Duration {
 impl RWBytes for String {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, _client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         let len = src.get_u64_le() as usize;
         let result = src.read_slice(len);
         Ok(String::from(String::from_utf8_lossy(result.deref())))
@@ -264,7 +264,7 @@ impl RWBytes for String {
 impl RWBytes for Uuid {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, _client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         Ok(Uuid::from_u128(src.get_u128_le()))
     }
 
@@ -277,7 +277,7 @@ impl RWBytes for Uuid {
 impl RWBytes for UserUuid {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, _client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         const LEN: usize = 32;
         let result = src.read_slice(LEN);
         Ok(UserUuid::from_u256(
@@ -296,11 +296,11 @@ impl RWBytes for UserUuid {
 impl<T: RWBytes<Ty = V>, V> RWBytes for Vec<T> {
     type Ty = Vec<V>;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         let len = src.get_u64_le() as usize;
         let mut result = Vec::with_capacity(len);
         for _ in 0..len {
-            result.push(T::read(src, client_key)?);
+            result.push(T::read(src)?);
         }
         Ok(result)
     }
@@ -317,8 +317,8 @@ impl<T: RWBytes<Ty = V>, V> RWBytes for Vec<T> {
 impl<'a, T: Clone + RWBytes<Ty = V>, V: Clone + 'a> RWBytes for Cow<'a, T> {
     type Ty = Cow<'a, V>;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
-        let val = T::read(src, client_key)?;
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        let val = T::read(src)?;
         Ok(Cow::Owned(val))
     }
 
@@ -330,7 +330,7 @@ impl<'a, T: Clone + RWBytes<Ty = V>, V: Clone + 'a> RWBytes for Cow<'a, T> {
 impl<'a> RWBytes for Cow<'a, str> {
     type Ty = Self;
 
-    fn read(src: &mut Bytes, _client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         let len = src.get_u64_le() as usize;
         let result = src.read_slice(len);
         Ok(Cow::Owned(String::from_utf8(result.to_vec())?))
@@ -346,8 +346,8 @@ impl<'a> RWBytes for Cow<'a, str> {
 impl<T: RWBytes<Ty = V>, V> RWBytes for Arc<T> {
     type Ty = Arc<V>;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
-        let val = T::read(src, client_key)?;
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        let val = T::read(src)?;
         Ok(Arc::new(val))
     }
 
@@ -360,11 +360,11 @@ impl<T: RWBytes<Ty = V>, V> RWBytes for Arc<T> {
 impl<T: RWBytes<Ty = V>, V> RWBytes for Option<T> {
     type Ty = Option<V>;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
-        if !bool::read(src, client_key)? {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        if !bool::read(src)? {
             return Ok(None);
         }
-        let val = T::read(src, client_key)?;
+        let val = T::read(src)?;
         Ok(Some(val))
     }
 
@@ -385,8 +385,8 @@ impl<T: RWBytes<Ty = V>, V> RWBytes for Option<T> {
 impl RWBytes for AtomicBool {
     type Ty = bool;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
-        bool::read(src, client_key)
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        bool::read(src)
     }
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
@@ -397,8 +397,8 @@ impl RWBytes for AtomicBool {
 impl RWBytes for AtomicU8 {
     type Ty = u8;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
-        u8::read(src, client_key)
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        u8::read(src)
     }
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
@@ -409,8 +409,8 @@ impl RWBytes for AtomicU8 {
 impl RWBytes for AtomicU16 {
     type Ty = u16;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
-        u16::read(src, client_key)
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        u16::read(src)
     }
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
@@ -421,8 +421,8 @@ impl RWBytes for AtomicU16 {
 impl RWBytes for AtomicU32 {
     type Ty = u32;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
-        u32::read(src, client_key)
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        u32::read(src)
     }
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
@@ -433,8 +433,8 @@ impl RWBytes for AtomicU32 {
 impl RWBytes for AtomicU64 {
     type Ty = u64;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
-        u64::read(src, client_key)
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        u64::read(src)
     }
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
@@ -445,8 +445,8 @@ impl RWBytes for AtomicU64 {
 impl RWBytes for AtomicI8 {
     type Ty = i8;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
-        i8::read(src, client_key)
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        i8::read(src)
     }
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
@@ -457,8 +457,8 @@ impl RWBytes for AtomicI8 {
 impl RWBytes for AtomicI16 {
     type Ty = i16;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
-        i16::read(src, client_key)
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        i16::read(src)
     }
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
@@ -469,8 +469,8 @@ impl RWBytes for AtomicI16 {
 impl RWBytes for AtomicI32 {
     type Ty = i32;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
-        i32::read(src, client_key)
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        i32::read(src)
     }
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
@@ -481,8 +481,8 @@ impl RWBytes for AtomicI32 {
 impl RWBytes for AtomicI64 {
     type Ty = i64;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
-        i64::read(src, client_key)
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        i64::read(src)
     }
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
@@ -493,8 +493,8 @@ impl RWBytes for AtomicI64 {
 impl<T: RWBytes<Ty = V>, V> RWBytes for RwLock<T> {
     type Ty = RwLock<V>;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
-        let val = T::read(src, client_key)?;
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        let val = T::read(src)?;
         Ok(RwLock::new(val))
     }
 
@@ -506,8 +506,8 @@ impl<T: RWBytes<Ty = V>, V> RWBytes for RwLock<T> {
 impl<T: ?Sized + RWBytes<Ty = V>, V> RWBytes for Box<T> {
     type Ty = Box<V>;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
-        let val = T::read(src, client_key)?;
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        let val = T::read(src)?;
         Ok(Box::new(val))
     }
 
@@ -519,8 +519,8 @@ impl<T: ?Sized + RWBytes<Ty = V>, V> RWBytes for Box<T> {
 impl<I: RWBytes<Ty = V>, V> RWBytesMut for Box<dyn ExactSizeIterator<Item = I>> {
     type Ty = Vec<V>;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
-        Vec::<I>::read(src, client_key)
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        Vec::<I>::read(src)
     }
 
     fn write(&mut self, dst: &mut BytesMut) -> anyhow::Result<()> {
@@ -536,8 +536,8 @@ impl<I: RWBytes<Ty = V>, V> RWBytesMut for Box<dyn ExactSizeIterator<Item = I>> 
 impl<T: RWBytes<Ty = V>, V> RWBytes for &T {
     type Ty = V;
 
-    fn read(src: &mut Bytes, client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
-        T::read(src, client_key)
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        T::read(src)
     }
 
     fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
@@ -548,7 +548,7 @@ impl<T: RWBytes<Ty = V>, V> RWBytes for &T {
 impl RWBytes for U256 {
     type Ty = U256;
 
-    fn read(src: &mut Bytes, _client_key: Option<&PKeyRef<Public>>) -> anyhow::Result<Self::Ty> {
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
         let val = (src.get_u128_le(), src.get_u128_le());
         // SAFETY: This is safe, because we are just reinterpreting 2 u128 values as a single u256 value
         Ok(unsafe { transmute(val) })
