@@ -11,10 +11,7 @@ use crate::channel_db::{ChannelDb, ChannelDbEntry};
 use crate::cli::{CLIBuilder, CommandLineInterface};
 use crate::config::Config;
 use crate::network::{ClientConnection, handle_packet, NetworkServer};
-use crate::packet::{
-    AuthFailure, AuthResponse, Channel, ChannelCreatePerms, ChannelPerms, ClientPacket,
-    RemoteProfile, ServerGroup, PermsSnapshot, ServerPacket,
-};
+use crate::packet::{AuthFailure, AuthResponse, Channel, ChannelCreatePerms, ChannelPerms, ClientPacket, RemoteProfile, ServerGroup, PermsSnapshot, ServerPacket, DisconnectReason};
 use crate::protocol::{RWBytes, UserUuid, PROTOCOL_VERSION};
 use crate::server_group_db::{ServerGroupDb, ServerGroupEntry};
 use crate::user_db::{DbUser, UserDb};
@@ -344,6 +341,8 @@ fn setup_network_server(config: &Config) -> anyhow::Result<NetworkServer> {
     )
 }
 
+const PACKET_SIZE_LIMIT: u64 = u16::MAX as u64 * 1 << 4;
+
 async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: F) {
     let tmp_srv = server.clone();
     server
@@ -360,7 +359,14 @@ async fn start_server<F: Fn(anyhow::Error)>(server: Arc<Server>, error_handler: 
                     // let id = header.get_u8(); // FIXME: try to somehow get this data here already
                     // let mut data = new_conn.read_reliable(size as usize).await?;
                     let size = new_conn.read_reliable(8).await?.get_u64_le();
-                    // println!("got size {}", size);
+                    // verify that size is something reasonable
+                    if size > PACKET_SIZE_LIMIT {
+                        let failure = ServerPacket::ForceDisconnect { reason: DisconnectReason::ReceivedInvalidPacketSize { allowed: PACKET_SIZE_LIMIT, received: size } };
+                        let encoded = failure.encode()?;
+                        new_conn.send_reliable(&encoded).await?;
+                        new_conn.close().await?;
+                        return Err(anyhow::Error::from(ErrorInvalidPacketSize(size)));
+                    }
                     let mut data = new_conn.read_reliable(size as usize).await?;
                     let packet = ClientPacket::read(&mut data)?;
                     // println!("read packet!");
@@ -818,6 +824,26 @@ impl Display for ErrorAlreadyOnline {
 }
 
 impl Error for ErrorAlreadyOnline {}
+
+struct ErrorInvalidPacketSize(u64);
+
+impl Debug for ErrorInvalidPacketSize {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("received a packet of ")?;
+        f.write_str(&*format!("{}", self.0))?;
+        f.write_str(" despite the max size being ")?;
+        f.write_str(&*format!("{}", PACKET_SIZE_LIMIT))?;
+        f.write_str(" bytes")
+    }
+}
+
+impl Display for ErrorInvalidPacketSize {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(self, f)
+    }
+}
+
+impl Error for ErrorInvalidPacketSize {}
 
 struct CommandHelp();
 
