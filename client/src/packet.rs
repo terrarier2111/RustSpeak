@@ -31,6 +31,9 @@ pub enum ServerPacket<'a> {
     ChallengeRequest {
         signed_data: Vec<u8>, // contains the public server key and a random challenge and all of that encrypted with the client's public key
     } = 6,
+    ForceDisconnect {
+        reason: DisconnectReason,
+    } = 7,
 }
 
 /// packets the client sends to the server
@@ -116,6 +119,10 @@ impl RWBytes for ServerPacket<'_> {
                 let signed_data = Vec::<u8>::read(src)?;
                 Ok(Self::ChallengeRequest { signed_data })
             }
+            7 => {
+                let reason = DisconnectReason::read(src)?;
+                Ok(Self::ForceDisconnect { reason })
+            }
             _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(
                 "ServerPacket",
                 id,
@@ -148,6 +155,9 @@ impl RWBytes for ServerPacket<'_> {
             }
             ServerPacket::ChallengeRequest { signed_data } => {
                 signed_data.write(dst)?;
+            }
+            ServerPacket::ForceDisconnect { reason } => {
+                reason.write(dst)?;
             }
         }
         Ok(())
@@ -865,5 +875,54 @@ impl RWBytes for BanDuration {
             }
         }
         Ok(())
+    }
+}
+
+#[derive(Debug, Ordinal)]
+#[repr(u8)]
+pub enum DisconnectReason {
+    Kicked {
+        message: String,
+    } = 0,
+    ReceivedInvalidPacketSize {
+        allowed: u64,
+        received: u64,
+    } = 1,
+    DecodeError(String) = 2,
+    Timeout = 3,
+}
+
+impl RWBytes for DisconnectReason {
+    type Ty = Self;
+
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        let ord = src.get_u8();
+
+        match ord {
+            0 => Ok(Self::Kicked { message: String::read(src)? }),
+            1 => Ok(Self::ReceivedInvalidPacketSize { allowed: u64::read(src)?, received: u64::read(src)? }),
+            2 => Ok(Self::DecodeError(String::read(src)?)),
+            3 => Ok(Self::Timeout),
+            _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(
+                "DisconnectReason",
+                ord,
+            ))),
+        }
+    }
+
+    fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
+        dst.put_u8(self.ordinal() as u8);
+
+        match self {
+            DisconnectReason::Kicked { message } => {
+                message.write(dst)
+            }
+            DisconnectReason::ReceivedInvalidPacketSize { allowed, received } => {
+                allowed.write(dst)?;
+                received.write(dst)
+            }
+            DisconnectReason::DecodeError(error) => error.write(dst),
+            DisconnectReason::Timeout => Ok(()),
+        }
     }
 }
