@@ -137,23 +137,18 @@ impl DbProfile {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct U256Container {
-    raw: [u8; size_of::<U256>()],
-    #[serde(skip)]
-    _align: [U256; 0],
-}
+pub struct U256Container([u8; size_of::<U256>()]);
 
 impl U256Container {
 
+    #[inline]
     pub fn new(val: U256) -> Self {
-        Self {
-            raw: val.to_le_bytes(),
-            _align: [],
-        }
+        Self(val.to_le_bytes())
     }
 
+    #[inline]
     pub fn unwrap(&self) -> U256 {
-        U256::from_le_bytes(self.raw.clone())
+        U256::from_le_bytes(self.0.clone())
     }
 
 }

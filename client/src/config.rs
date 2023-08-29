@@ -93,23 +93,16 @@ pub struct ServerEntry {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct UserUuidContainer {
-    raw: [u8; size_of::<UserUuid>()],
-    #[serde(skip)]
-    _align: [UserUuid; 0],
-}
+struct UserUuidContainer([u8; size_of::<UserUuid>()]);
 
 impl UserUuidContainer {
 
     fn new(uuid: UserUuid) -> Self {
-        Self {
-            raw: uuid.into_u256().to_le_bytes(),
-            _align: [],
-        }
+        Self(uuid.into_u256().to_le_bytes())
     }
 
     fn unwrap(&self) -> UserUuid {
-        UserUuid::from_u256(U256::from_le_bytes(self.raw.clone()))
+        UserUuid::from_u256(U256::from_le_bytes(self.0.clone()))
     }
 
 }

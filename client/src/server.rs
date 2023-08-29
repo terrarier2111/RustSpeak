@@ -403,6 +403,9 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
         ServerPacket::ClientUpdateServerGroups { .. } => {}
         ServerPacket::KeepAlive { .. } => {}
         ServerPacket::ChallengeRequest { .. } => {}
+        ServerPacket::ForceDisconnect { reason } => {
+            todo!()
+        }
     }
 }
 
