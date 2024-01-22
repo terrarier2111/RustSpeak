@@ -17,8 +17,8 @@ serde_json = "1.0.104"
 tokio = { version = "1.29.1", features = ["full"] }
 quinn = "0.10.1"
 rustls = { version = "0.21.5", features = [ "dangerous_configuration", "quic" ] }
-rcgen = "0.11.1"
-rustls-pemfile = "1.0.3"
+rcgen = "0.12"
+rustls-pemfile = "2.0"
 # other utils
 uuid = { version = "1.4.1", features = [ "v4" ] }
 ripemd = "0.1.3"
