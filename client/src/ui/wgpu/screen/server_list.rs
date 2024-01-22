@@ -3,12 +3,11 @@ use crate::{AddressMode, certificate, Client, Profile, Server};
 use std::sync::{Arc, RwLock};
 use glyphon::Metrics;
 use rand::Rng;
-use wgpu_glyph::{HorizontalAlign, Layout, Text, VerticalAlign};
 use crate::ui::wgpu::{ctx, DARK_GRAY_UI};
 use crate::ui::wgpu::render::GlyphBuilder;
 use crate::ui::wgpu::screen::connection_failure::ConnectionFailureScreen;
 use crate::ui::wgpu::screen_sys::Screen;
-use crate::ui::wgpu::ui::{Button, Coloring, Container, TextBox, TextSection};
+use crate::ui::wgpu::ui::{Button, Coloring, Container, TextBox};
 
 #[derive(Clone)]
 pub struct ServerList {

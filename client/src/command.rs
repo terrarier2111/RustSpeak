@@ -1,14 +1,17 @@
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter, Write};
 use std::sync::Arc;
+use clitty::core::CommandImpl;
 use openssl::pkey::PKey;
-use crate::{Client, CommandImpl, DbProfile, generate_token_num, uuid_from_pub_key};
+use crate::{Client, DbProfile, generate_token_num, uuid_from_pub_key};
 use crate::ui::InterUiMessage;
 
 pub struct CommandProfiles();
 
 impl CommandImpl for CommandProfiles {
-    fn execute(&self, client: &Arc<Client>, input: &[&str]) -> anyhow::Result<()> {
+    type CTX = Arc<Client>;
+
+    fn execute(&self, client: &Self::CTX, input: &[&str]) -> anyhow::Result<()> {
         match input[0] {
             "create" => {
                 if client.profile_db.cache_ref().get(&input[1].to_string()).is_some() {

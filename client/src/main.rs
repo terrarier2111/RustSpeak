@@ -4,6 +4,7 @@
 
 extern crate core;
 
+use crate::command::CommandProfiles;
 use crate::config::{Config, DATA_DIR_PATH, CONFIG_FILE, data_path};
 use crate::network::{AddressMode, NetworkClient};
 use crate::packet::{Channel, ClientPacket};
@@ -12,25 +13,22 @@ use crate::protocol::{PROTOCOL_VERSION, RWBytes};
 use crate::profile_db::{DbProfile, ProfileDb, uuid_from_pub_key};
 use crate::utils::current_time_millis;
 use bytes::{Bytes, BytesMut};
+use clitty::core::{CLICore, CmdParamStrConstraints, CommandBuilder, CommandParam, CommandParamTy, UsageBuilder};
+use clitty::ui::{CLIBuilder, CmdLineInterface, PrintFallback};
 use quinn::ClientConfig;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{fs, thread};
-use std::error::Error;
 use std::fmt::{Debug, Display};
-use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::sleep;
 use colored::{ColoredString, Colorize};
 use cpal::traits::{DeviceTrait, HostTrait};
 use flume::{Receiver, Sender};
 use crate::audio::{Audio, AudioConfig};
-use crate::command::cli::{CLIBuilder, CmdParamStrConstraints, CommandBuilder, CommandImpl, CommandLineInterface, CommandParam, CommandParamTy, UsageBuilder};
-use crate::command::r#impl::CommandProfiles;
 use crate::security_level::generate_token_num;
 use crate::server::Server;
-use pollster::FutureExt;
 use swap_arc::{SwapArc, SwapArcOption};
 use crate::ui::{InterUiMessage, UiImpl};
 
@@ -65,19 +63,21 @@ async fn main() -> anyhow::Result<()> {
         println!("{:?}", cfg);
     }
     let (cfg, profile_db) = load_data()?;
+    println!("loaded config!");
     let cfg = Arc::new(SwapArc::new(Arc::new(cfg)));
     let profile_db = Arc::new(profile_db);
     let cli = CLIBuilder::new()
-        .prompt(ColoredString::from("RustSpeak").green())
-        .help_msg(ColoredString::from("This command doesn't exist").red())
-        .command(CommandBuilder::new().name("profiles").desc("manage profiles via command line")
+        .prompt(format!("{}{}", "RustSpeak".green(), ": ".color(utils::LIGHT_GRAY_TERM)))
+        .fallback(Box::new(PrintFallback::new(ColoredString::from("This command doesn't exist").red().to_string())))
+        .command(CommandBuilder::new("profiles", CommandProfiles()).desc("manage profiles via command line")
         .params(UsageBuilder::new().required(CommandParam {
-            name: "action".to_string(),
-            ty: CommandParamTy::String(CmdParamStrConstraints::Variants(Box::new(["list".to_string(), "create".to_string(), "delete".to_string(), "rename".to_string(), "bump_sl".to_string()]))),
+            name: "action",
+            ty: CommandParamTy::String(CmdParamStrConstraints::Variants { variants: &["list", "create", "delete", "rename", "bump_sl"], ignore_case: true }),
         }).optional(CommandParam { // FIXME: add ability to make following arguments depend on the value of the previous argument (maybe by integrating the following arguments into the variants list)
-            name: "name".to_string(),
+            name: "name",
             ty: CommandParamTy::String(CmdParamStrConstraints::None),
-        })).cmd_impl(Box::new(CommandProfiles()))).build();
+        }))).build();
+    let cli = Arc::new(CmdLineInterface::new(cli));
     let client = Arc::new(Client {
         config: cfg.clone(),
         profile_db: profile_db.clone(),
@@ -216,7 +216,7 @@ pub struct Client {
     // pub renderer: Arc<Renderer>,
     // pub screen_sys: Arc<ScreenSystem>,
     // pub atlas: Arc<Atlas>,
-    pub cli: CommandLineInterface,
+    pub cli: Arc<CmdLineInterface<Arc<Client>>>,
     pub server: SwapArcOption<Server>, // FIXME: support multiple servers at once!
     pub audio: SwapArc<Audio>,
     pub inter_ui_msg_queue: Arc<(Sender<InterUiMessage>, Receiver<InterUiMessage>)>,

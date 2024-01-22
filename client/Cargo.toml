@@ -41,7 +41,7 @@ openssl = { version = "0.10.55", features = ["vendored"] }
 ordinalizer = { git = "https://github.com/terrarier2111/ordinalize" }
 num-bigint = "0.4.3"
 ruint = "1.9.0"
-flume = { version = "0.10.14", features = ["async", "futures-core"] }
+flume = { version = "0.11", features = ["async", "futures-core"] }
 # guillotiere = "0.6.2"
 swap-arc = { git = "https://github.com/terrarier2111/SwapArc" }
 sled = "0.34.7"
@@ -57,14 +57,15 @@ crossbeam-utils = "0.8.16"
 opus = "0.3.0"
 
 # iced rendering/graphics
-iced = "0.10.0"
+# iced = "0.10.0"
 
 # wgpu rendering/graphics
-wgpu = "0.16.0"
-winit = "0.28.6"
-wgpu-biolerless = { git = "https://github.com/terrarier2111/wgpu-boilerless", rev = "939db18", features = ["winit"] }
-wgpu_glyph = { git = "https://github.com/terrarier2111/wgpu_glyph", rev = "e5f799a" } # FIXME: replace this with glyphon and cosmic-text
-glyphon = "0.3.0"
+wgpu = "0.19"
+winit = "0.29"
+wgpu-biolerless = { git = "https://github.com/terrarier2111/wgpu-boilerless", features = ["winit"] }
+# wgpu_glyph = { git = "https://github.com/terrarier2111/wgpu_glyph", rev = "e5f799a" } # FIXME: replace this with glyphon and cosmic-text
+glyphon = "0.5.0"
 # font-kit = "0.11"
-fontdue = "0.7.3"
+fontdue = "0.8"
 guillotiere = "0.6.2"
+clitty = { git = "https://github.com/terrarier2111/CLItty" }

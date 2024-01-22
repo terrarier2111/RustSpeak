@@ -47,13 +47,13 @@ pub(crate) fn ctx() -> &'static Arc<UiCtx> {
 }
 
 pub fn run(client: Arc<Client>) -> anyhow::Result<()> {
-    let event_loop = EventLoopBuilder::new().build();
+    let event_loop = EventLoopBuilder::new().build()?;
     let window = Arc::new(WindowBuilder::new()
         .with_title("RustSpeak")
         .build(&event_loop)
         .unwrap());
     let state = Arc::new(pollster::block_on(
-        StateBuilder::new().window(window.deref()).build(),
+        StateBuilder::new().window(window.clone()).build(),
     )?);
     let atlas = Arc::new(Atlas::new(
         state.clone(),
@@ -73,8 +73,56 @@ pub fn run(client: Arc<Client>) -> anyhow::Result<()> {
     })).unwrap();
 
     let mut mouse_pos = (0.0, 0.0);
-    event_loop.run(move |event, _, control_flow| match event {
-        Event::NewEvents(_) => {}
+    event_loop.run(move |event, control_flow| match event {
+        Event::WindowEvent { window_id, event } if window_id == window.id() => match event {
+            WindowEvent::Resized(size) => {
+                if !state.resize(size) {
+                    panic!("Couldn't resize!");
+                } else {
+                    renderer.dimensions.set(size.width, size.height);
+                }
+            }
+            WindowEvent::Moved(_) => {}
+            WindowEvent::CloseRequested => {
+                control_flow.exit();
+            }
+            WindowEvent::Destroyed => {}
+            WindowEvent::DroppedFile(_) => {}
+            WindowEvent::HoveredFile(_) => {}
+            WindowEvent::HoveredFileCancelled => {}
+            WindowEvent::Focused(_) => {}
+            WindowEvent::KeyboardInput { event, .. } => {
+                screen_sys.press_key(event.physical_key, event.state == ElementState::Pressed);
+            }
+            WindowEvent::ModifiersChanged(_) => {}
+            WindowEvent::CursorMoved { position, .. } => {
+                let (width, height) = renderer.dimensions.get();
+                mouse_pos = (position.x / width as f64, 1.0 - position.y / height as f64);
+            }
+            WindowEvent::CursorEntered { .. } => {}
+            WindowEvent::CursorLeft { .. } => {}
+            WindowEvent::MouseWheel { .. } => {}
+            WindowEvent::MouseInput { button, state, .. } => {
+                if button == MouseButton::Left && state == ElementState::Released {
+                    screen_sys.on_mouse_click(&client, mouse_pos);
+                }
+            }
+            WindowEvent::TouchpadPressure { .. } => {}
+            WindowEvent::AxisMotion { .. } => {}
+            WindowEvent::Touch(_) => {}
+            WindowEvent::ScaleFactorChanged { scale_factor, inner_size_writer } => {
+                if !state.resize(((state.size().1 as f64 * scale_factor) as u32, state.size().1)) {
+                    panic!("Couldn't resize!");
+                }
+            }
+            WindowEvent::ThemeChanged(_) => {}
+            WindowEvent::Occluded(_) => {}
+            _ => {}
+        },
+        Event::DeviceEvent { .. } => {},
+        Event::UserEvent(_) => {},
+        _ => {},
+        /*Event::NewEvents(_) => {}
         Event::WindowEvent {
             ref event,
             window_id,
@@ -94,7 +142,6 @@ pub fn run(client: Arc<Client>) -> anyhow::Result<()> {
             WindowEvent::DroppedFile(_) => {}
             WindowEvent::HoveredFile(_) => {}
             WindowEvent::HoveredFileCancelled => {}
-            WindowEvent::ReceivedCharacter(_) => {}
             WindowEvent::Focused(_) => {}
             WindowEvent::KeyboardInput { .. } => {}
             WindowEvent::ModifiersChanged(_) => {}
@@ -141,6 +188,7 @@ pub fn run(client: Arc<Client>) -> anyhow::Result<()> {
         }
         Event::RedrawEventsCleared => {}
         Event::LoopDestroyed => {}
-        _ => {}
-    })
+        _ => {}*/
+    })?;
+    Ok(())
 }

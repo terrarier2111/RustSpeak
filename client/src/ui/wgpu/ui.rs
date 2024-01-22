@@ -1,7 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use atomic_float::AtomicF64;
-use wgpu_glyph::{BuiltInLineBreaker, Extra, Layout, Section, Text};
 use crate::Client;
 use crate::ui::wgpu::ctx;
 use crate::ui::wgpu::render::{ColorSource, GlyphBuilder, GlyphId, GlyphInfo, Model, TexTy, Vertex};
@@ -353,12 +352,4 @@ impl Component for TextBox {
     fn on_scroll(&mut self, _client: &Arc<Client>) {}
 
     fn on_hover(&mut self, _client: &Arc<Client>, _mode: HoverMode) {}
-}
-
-pub struct TextSection<'a, X = Extra> {
-    /// Built in layout, can be overridden with custom layout logic see queue_custom_layout
-    pub layout: Layout<BuiltInLineBreaker>,
-    /// Text to render, rendered next to one another according the layout.
-    pub text: Vec<Text<'a, X>>,
-    pub texts: Vec</*Arc<*/String/*>*/>,
 }

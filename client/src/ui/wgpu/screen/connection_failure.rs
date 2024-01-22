@@ -2,12 +2,11 @@ use std::sync::{Arc, RwLock};
 use glyphon::Metrics;
 use image::GenericImageView;
 use crate::Client;
-use wgpu_glyph::{HorizontalAlign, Layout, Text, VerticalAlign};
 use crate::ui::wgpu::atlas::AtlasAlloc;
 use crate::ui::wgpu::ctx;
 use crate::ui::wgpu::render::{GlyphBuilder, TexTy};
 use crate::ui::wgpu::screen_sys::Screen;
-use crate::ui::wgpu::ui::{Color, ColorBox, Coloring, Container, Tex, TextBox, TextSection};
+use crate::ui::wgpu::ui::{Color, ColorBox, Coloring, Container, Tex, TextBox};
 
 #[derive(Clone)]
 pub struct ConnectionFailureScreen {

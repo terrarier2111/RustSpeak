@@ -4,7 +4,7 @@ use crate::Client;
 use crate::packet::RemoteProfile;
 use crate::protocol::UserUuid;
 
-mod iced;
+// mod iced; // FIXME: once iced updated to the most recent wgpu, add this again!
 mod wgpu;
 
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -19,7 +19,8 @@ pub fn start_ui(client: Arc<Client>, ui: UiImpl) -> anyhow::Result<()> {
             wgpu::run(client)
         }
         UiImpl::Iced => {
-            iced::run(client)
+            // iced::run(client)
+            todo!()
         }
     }
 }

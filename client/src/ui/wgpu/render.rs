@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use bytemuck_derive::Pod;
 use bytemuck_derive::Zeroable;
 use flume::Sender;
+use wgpu::StoreOp;
 use std::collections::HashMap;
 use std::mem::size_of;
 use std::ops::{Deref, DerefMut};
@@ -15,7 +16,6 @@ use wgpu_biolerless::{
     FragmentShaderState, ModuleSrc, PipelineBuilder, ShaderModuleSources, State, VertexShaderState,
     WindowSize,
 };
-use wgpu_glyph::{ab_glyph, GlyphBrush, GlyphBrushBuilder, Section};
 use winit::window::Window;
 use crate::ui::wgpu::atlas::{Atlas, AtlasAlloc, AtlasId};
 use crate::ui::wgpu::{ctx, LIGHT_GRAY_GPU};
@@ -251,7 +251,7 @@ impl Renderer {
                             resolve_target: None,
                             ops: Operations {
                                 load: LoadOp::Clear(LIGHT_GRAY_GPU),
-                                store: true,
+                                store: StoreOp::Store,
                             },
                         })];
                         let mut render_pass =
