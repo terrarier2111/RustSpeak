@@ -68,14 +68,11 @@ impl Screen for ServerList {
                     let profile = profiles.remove(rand::thread_rng().gen_range(0..profiles.len()));
                     let profile = Profile::from_existing(profile.name, profile.alias, profile.priv_key, profile.security_proofs);
                     let server_name = "local_test_srv";
-                    if let Ok(server) = pollster::block_on(Server::new(client.clone(), profile, AddressMode::V4,
+                    let server = Server::new(client.clone(), profile, AddressMode::V4,
                                                                        certificate::insecure_local::config(),
                                                                        SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 20354)),
-                                                                       server_name.to_string())) {
-                        client.server.store(Some(server));
-                    } else {
-                        ctx.screen_sys.push_screen(Box::new(ConnectionFailureScreen::new(&client, server_name.to_string())));
-                    }
+                                                                       server_name.to_string());
+                    client.server.store(Some(server));
                 }))
             }))));
         }

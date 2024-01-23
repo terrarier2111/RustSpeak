@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
@@ -58,10 +57,10 @@ impl ServerAudio {
 }
 
 impl Server {
-    pub async fn new(client: Arc<Client>, profile: Profile, address_mode: AddressMode,
+    pub fn new(client: Arc<Client>, profile: Profile, address_mode: AddressMode,
                config: ClientConfig,
                server_addr: SocketAddr,
-               server_name: String) -> anyhow::Result<Arc<Self>> {
+               server_name: String) -> Arc<Self> {
         let channels = match client.audio.load().config().get().0.unwrap() {
             AudioMode::Mono => Channels::Mono,
             AudioMode::Stereo => Channels::Stereo,
@@ -83,7 +82,7 @@ impl Server {
         });
 
         let priv_key = profile.private_key();
-        let pub_key = priv_key.public_key_to_der()?;
+        let pub_key = priv_key.public_key_to_der().expect("The profile's cryptographic key is invalid");
 
         let result = server.clone();
         tokio::spawn(async move {
@@ -127,7 +126,7 @@ impl Server {
                                     let mut payload = match tmp_conn.as_ref().unwrap().read_reliable(size as usize).await {
                                         Ok(payload) => payload,
                                         Err(err) => {
-                                            server.error(err, &client);
+                                            server.error(err, &client).await;
                                             break 'end;
                                         }
                                     };
@@ -138,13 +137,13 @@ impl Server {
                                             handle_packet(packet, &client, &server).await;
                                         }
                                         Err(err) => {
-                                            server.error(err, &client);
+                                            server.error(err, &client).await;
                                             break 'end;
                                         }
                                     }
                                 }
                                 Err(err) => {
-                                    server.error(err, &client);
+                                    server.error(err, &client).await;
                                     break 'end;
                                 }
                             }
@@ -158,13 +157,13 @@ impl Server {
             }
 
         });
-        Ok(result)
+        result
     }
 
     pub async fn error(&self, err: anyhow::Error, client: &Arc<Client>) {
         if self.state.try_set_disconnected() {
             // FIXME: somehow give feedback to server
-            self.connection.get().unwrap().close().await;
+            self.connection.get().unwrap().close().await.unwrap();
             client.println(format!("An error occurred in the connection with {}: {}", self.name, err).as_str());
         }
     }
@@ -175,7 +174,7 @@ impl Server {
         let this = self.clone();
         let tmp_client = client.clone();
         self.connection.get().unwrap().start_do_keep_alive(Duration::from_millis(250), move |err| {
-            this.error(err, &tmp_client);
+            pollster::block_on(this.error(err, &tmp_client)); // FIXME: make this async!
         }).await.unwrap();
 
         let tmp_server = self.clone();

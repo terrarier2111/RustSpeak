@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use bytemuck_derive::Pod;
 use bytemuck_derive::Zeroable;
 use flume::Sender;
+use glyphon::AttrsOwned;
 use wgpu::StoreOp;
 use std::collections::HashMap;
 use std::mem::size_of;
@@ -11,7 +12,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use glyphon::{Attrs, Buffer, Color, FontSystem, Metrics, Resolution, Shaping, SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer};
 use wgpu::{BindGroupLayoutEntry, BindingType, BlendState, BufferAddress, BufferUsages, ColorTargetState, ColorWrites, LoadOp, MultisampleState, Operations, RenderPassColorAttachment, RenderPipeline, Sampler, SamplerBindingType, ShaderSource, ShaderStages, Texture, TextureFormat, TextureSampleType, TextureView, TextureViewDescriptor, TextureViewDimension, VertexAttribute, VertexBufferLayout, VertexFormat, VertexStepMode};
-use wgpu::util::StagingBelt;
 use wgpu_biolerless::{
     FragmentShaderState, ModuleSrc, PipelineBuilder, ShaderModuleSources, State, VertexShaderState,
     WindowSize,
@@ -38,37 +38,31 @@ struct GlyphCtx {
     renderer: RefCell<TextRenderer>,
 }
 
-pub struct GlyphBuilder<'a> {
-    glyph_info: GlyphInfo<'a>,
+pub struct GlyphBuilder {
+    glyph_info: GlyphInfo,
 }
 
-impl<'a> GlyphBuilder<'a> {
+impl GlyphBuilder {
     
-    pub fn new(text: &'a str, metrics: Metrics, pos: (f32, f32), size: (f32, f32)) -> Self {
+    pub fn new<S: Into<String>>(text: S, metrics: Metrics, pos: (f32, f32), size: (f32, f32)) -> Self {
         let (width, height) = ctx().window.window_size();
         println!("left {} right {} top {} bottom {}", (width as f32 * pos.0) as i32, (width as f32 * (pos.0 + size.0)) as i32, (height as f32 * pos.1) as i32, (height as f32 * (pos.1 + size.1)) as i32);
         Self {
             glyph_info: GlyphInfo {
                 metrics,
                 size,
-                text,
-                attrs: Attrs::new(),
+                text: text.into(),
+                attrs: AttrsOwned::new(Attrs::new()),
                 shaping: Shaping::Basic,
                 color: Color::rgb(0, 0, 0), // black
                 scale: 1.0,
-                x_offset: width as f32 * pos.0, // FIXME: is this correct?
-                y_offset: height as f32 * pos.1, // FIXME: is this correct?
-                bounds: TextBounds {
-                    left: (width as f32 * pos.0) as i32,
-                    top: (height as f32 * pos.1) as i32,
-                    right: (width as f32 * (pos.0 + size.0)) as i32,
-                    bottom: (height as f32 * (pos.1 + size.1)) as i32,
-                },
+                x_offset: pos.0,
+                y_offset: pos.1,
             },
         }
     }
 
-    pub fn attrs(mut self, attrs: Attrs<'a>) -> Self {
+    pub fn attrs(mut self, attrs: AttrsOwned) -> Self {
         self.glyph_info.attrs = attrs;
         self
     }
@@ -90,31 +84,27 @@ impl<'a> GlyphBuilder<'a> {
 
     #[inline(always)]
     pub fn build(self) -> GlyphId {
-        ctx().renderer.add_glyph(&self.glyph_info)
+        ctx().renderer.add_glyph(self.glyph_info.clone())
     }
     
 }
 
-pub struct GlyphInfo<'a> {
+#[derive(Clone)]
+pub struct GlyphInfo {
     pub metrics: Metrics,
     pub size: (f32, f32),
-    pub text: &'a str,
-    pub attrs: Attrs<'a>,
+    pub text: String,
+    pub attrs: AttrsOwned,
     pub shaping: Shaping,
     pub color: Color,
     pub scale: f32,
     pub x_offset: f32,
     pub y_offset: f32,
-    pub bounds: TextBounds,
 }
 
 struct CompiledGlyph {
     buffer: Buffer,
-    color: Color,
-    scale: f32,
-    x_offset: f32,
-    y_offset: f32,
-    bounds: TextBounds,
+    info: GlyphInfo,
 }
 
 impl Renderer {
@@ -148,16 +138,22 @@ impl Renderer {
         let mut text_atlas = glyph_ctx.atlas.borrow_mut();
         let mut renderer = glyph_ctx.renderer.borrow_mut();
         {
+            let (width, height) = self.dimensions.get();
             let mut font_system = self.font_system.lock().unwrap();
             let config = self.state.raw_inner_surface_config();
             let glyphs = self.glyphs.lock().unwrap();
             let glyphs = glyphs.iter().map(|glyph| TextArea {
                 buffer: &glyph.buffer,
-                left: glyph.x_offset,
-                top: glyph.y_offset,
-                scale: glyph.scale,
-                bounds: glyph.bounds,
-                default_color: glyph.color,
+                left: width as f32 * glyph.info.x_offset, // FIXME: is this correct?
+                top: height as f32 * glyph.info.y_offset, // FIXME: is this correct?
+                scale: glyph.info.scale * (width as f32 / 1920.0),
+                bounds: TextBounds {
+                    left: (width as f32 * glyph.info.x_offset) as i32,
+                    top: (height as f32 * glyph.info.y_offset) as i32,
+                    right: (width as f32 * (glyph.info.x_offset + glyph.info.size.0)) as i32,
+                    bottom: (height as f32 * (glyph.info.y_offset + glyph.info.size.1)) as i32,
+                },
+                default_color: glyph.info.color,
             }).collect::<Vec<_>>();
             renderer.deref_mut()
                 .prepare(
@@ -405,7 +401,7 @@ impl Renderer {
             .build(state)
     }
 
-    pub fn add_glyph(&self, glyph_info: &GlyphInfo) -> GlyphId {
+    pub fn add_glyph(&self, glyph_info: GlyphInfo) -> GlyphId {
         let mut glyphs = self.glyphs.lock().unwrap();
 
         let mut font_system = self.font_system.lock().unwrap();
@@ -418,22 +414,18 @@ impl Renderer {
         let physical_height = (height as f64 * scale_factor) as f32;
 
         buffer.set_size(&mut font_system, /*glyph_info.size.0 * width as f32, glyph_info.size.1 * height as f32*/physical_width, physical_height);
-        buffer.set_text(&mut font_system, glyph_info.text, glyph_info.attrs, glyph_info.shaping);
+        buffer.set_text(&mut font_system, glyph_info.text.as_str(), glyph_info.attrs.as_attrs(), glyph_info.shaping);
 
         let len = glyphs.len();
         glyphs.push(CompiledGlyph {
             buffer,
-            color: glyph_info.color,
-            scale: glyph_info.scale,
-            x_offset: glyph_info.x_offset,
-            y_offset: glyph_info.y_offset,
-            bounds: glyph_info.bounds,
+            info: glyph_info,
         });
         GlyphId(len) // FIXME: make the id stable even on removes and support removes in general!
     }
 
-    /*pub fn queue_glyph(&self, glyph_id: usize, section: Section) {
-        self.glyphs.lock().unwrap()[glyph_id].brush.lock().unwrap().queue(section);
+    /*pub fn remove_glyph(&self, glyph_id: GlyphId) -> bool {
+
     }*/
 }
 
