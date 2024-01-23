@@ -8,7 +8,6 @@
 #![feature(lazy_cell)]
 
 use crate::channel_db::{ChannelDb, ChannelDbEntry};
-use crate::cli::{CLIBuilder, CommandLineInterface};
 use crate::config::Config;
 use crate::network::{ClientConnection, handle_packet, NetworkServer};
 use crate::packet::{AuthFailure, AuthResponse, Channel, ChannelCreatePerms, ChannelPerms, ClientPacket, RemoteProfile, ServerGroup, PermsSnapshot, ServerPacket, DisconnectReason};
@@ -17,6 +16,8 @@ use crate::server_group_db::{ServerGroupDb, ServerGroupEntry};
 use crate::user_db::{DbUser, UserDb};
 use crate::utils::{LIGHT_GRAY, parse_bool};
 use bytes::Buf;
+use clitty::core::{CmdParamEnumConstraints, CmdParamNumConstraints, CmdParamStrConstraints, CommandBuilder, CommandImpl, CommandParam, CommandParamTy, EnumVal, UsageBuilder, UsageSubBuilder};
+use clitty::ui::{CLIBuilder, CmdLineInterface, PrintFallback};
 use colored::{Color, ColoredString, Colorize};
 use dashmap::DashMap;
 use openssl::sha::sha256;
@@ -45,12 +46,10 @@ use pollster::FutureExt;
 use swap_arc::{SwapArc, SwapArcOption};
 use tokio::{join, select};
 use uuid::Uuid;
-use crate::cli_core::{CmdParamNumConstraints, CmdParamStrConstraints, CommandBuilder, CommandImpl, CommandParam, CommandParamTy, EnumVal, UsageBuilder, UsageSubBuilder};
 use crate::conc_once_cell::ConcurrentOnceCell;
 
 mod certificate;
 mod channel_db;
-mod cli;
 mod config;
 mod network;
 mod packet;
@@ -62,7 +61,6 @@ mod utils;
 mod conc_once_cell;
 mod sized_box;
 mod conc_vec;
-mod cli_core;
 
 // FIXME: review all the endianness related shit!
 
@@ -227,8 +225,8 @@ fn main() -> anyhow::Result<()> {
     let config = Config::load_or_create(data_dir.join("config.json"))?;
 
     let cli = CLIBuilder::new()
-        .prompt(ColoredString::from("RustSpeak").red())
-        .help_msg(ColoredString::from("This command doesn't exist, try using help to get a full list of all available commands").red()) // FIXME: color "help" in yellow
+        .prompt(format!("{}{}", "RustSpeak".red().to_string(), ": ".color(LIGHT_GRAY).to_string()))
+        .fallback(Box::new(PrintFallback::new(ColoredString::from("This command doesn't exist, try using help to get a full list of all available commands").red().to_string()))) // FIXME: color "help" in yellow
         .command(
             CommandBuilder::new("help", CommandHelp())
                 .desc("returns a list of available commands")
@@ -242,11 +240,11 @@ fn main() -> anyhow::Result<()> {
         .command(
             CommandBuilder::new("user", CommandUser())
                 .params(UsageBuilder::new().required(CommandParam {
-                    name: "name".to_string(),
+                    name: "name",
                     ty: CommandParamTy::String(CmdParamStrConstraints::None),
                 }).optional(CommandParam {
-                    name: "action".to_string(),
-                    ty: CommandParamTy::Enum(vec![("delete", EnumVal::None), ("group", EnumVal::None), ("perms", EnumVal::None)]),
+                    name: "action",
+                    ty: CommandParamTy::Enum(CmdParamEnumConstraints::IgnoreCase(vec![("delete", EnumVal::None), ("group", EnumVal::None), ("perms", EnumVal::None)])),
                 })),
         )
         .command(
@@ -258,22 +256,24 @@ fn main() -> anyhow::Result<()> {
         .command(
             CommandBuilder::new("channel", CommandChannel())
                 .params(UsageBuilder::new().required(CommandParam {
-                    name: "name".to_string(),
+                    name: "name",
                     ty: CommandParamTy::String(CmdParamStrConstraints::None),
                 }).optional(CommandParam {
-                    name: "action".to_string(),
-                    ty: CommandParamTy::Enum(vec![("create", EnumVal::Complex(UsageSubBuilder::new().required(CommandParam {
-                        name: "slots".to_string(),
+                    name: "action",
+                    ty: CommandParamTy::Enum(CmdParamEnumConstraints::IgnoreCase(vec![("create", EnumVal::Complex(UsageSubBuilder::new().required(CommandParam {
+                        name: "slots",
                         ty: CommandParamTy::Int(CmdParamNumConstraints::None),
                     }))), // FIXME: expand this!
                                                   ("delete", EnumVal::None), ("edit", EnumVal::Complex(UsageSubBuilder::new().required(CommandParam {
-                        name: "property".to_string(),
-                        ty: CommandParamTy::Enum(vec![("name", EnumVal::Simple(CommandParamTy::String(CmdParamStrConstraints::None))), ("slots", EnumVal::Simple(CommandParamTy::Int(CmdParamNumConstraints::None)))]), // FIXME: expand this!
-                    })))]),
+                        name: "property",
+                        ty: CommandParamTy::Enum(CmdParamEnumConstraints::IgnoreCase(vec![("name", EnumVal::Simple(CommandParamTy::String(CmdParamStrConstraints::None))), ("slots", EnumVal::Simple(CommandParamTy::Int(CmdParamNumConstraints::None)))])), // FIXME: expand this!
+                    })))])),
                 })),
         );
 
     let main_server = Arc::new(ConcurrentOnceCell::new());
+
+    let cli = CmdLineInterface::new(cli.build());
 
     let main_server_ref = main_server.clone();
     thread::spawn(move || {
@@ -292,7 +292,7 @@ fn main() -> anyhow::Result<()> {
                     user_db,
                     channel_db,
                     server_group_db,
-                    cli: cli.build(),
+                    cli,
                     shutting_down: Default::default(),
                     shut_down: Default::default(),
                 });
@@ -550,7 +550,7 @@ pub struct Server {
     pub user_db: UserDb,
     pub channel_db: ChannelDb,
     pub server_group_db: ServerGroupDb,
-    pub cli: CommandLineInterface,
+    pub cli: CmdLineInterface<Arc<Server>>,
     pub shutting_down: AtomicBool,
     pub shut_down: AtomicBool,
 }
@@ -853,7 +853,7 @@ impl CommandImpl for CommandHelp {
     fn execute(&self, server: &Arc<Server>, _input: &[&str]) -> anyhow::Result<()> {
         let cmds = server.cli.cmds();
         server.println(format!("Commands ({}):", cmds.len()).as_str());
-        for cmd in cmds {
+        for cmd in cmds.iter() {
             let usage = if let Some(usage) = cmd.1.params() {
                 let mut ret_usage = String::new();
                 for param in usage.required() {

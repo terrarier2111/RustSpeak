@@ -117,78 +117,16 @@ pub fn run(client: Arc<Client>) -> anyhow::Result<()> {
             }
             WindowEvent::ThemeChanged(_) => {}
             WindowEvent::Occluded(_) => {}
+            WindowEvent::RedrawRequested => {
+                // FIXME: perform redraw
+                let models = screen_sys.tick(0.0, &client, &window);
+                renderer.render(models, atlas.clone());
+            }
             _ => {}
         },
         Event::DeviceEvent { .. } => {},
         Event::UserEvent(_) => {},
         _ => {},
-        /*Event::NewEvents(_) => {}
-        Event::WindowEvent {
-            ref event,
-            window_id,
-        } if window_id == window.id() => match event {
-            WindowEvent::Resized(size) => {
-                if !state.resize(*size) {
-                    panic!("Couldn't resize!");
-                } else {
-                    renderer.dimensions.set(size.width, size.height);
-                }
-            }
-            WindowEvent::Moved(_) => {}
-            WindowEvent::CloseRequested => {
-                *control_flow = ControlFlow::Exit;
-            }
-            WindowEvent::Destroyed => {}
-            WindowEvent::DroppedFile(_) => {}
-            WindowEvent::HoveredFile(_) => {}
-            WindowEvent::HoveredFileCancelled => {}
-            WindowEvent::Focused(_) => {}
-            WindowEvent::KeyboardInput { .. } => {}
-            WindowEvent::ModifiersChanged(_) => {}
-            WindowEvent::CursorMoved { position, .. } => {
-                let (width, height) = renderer.dimensions.get();
-                mouse_pos = (position.x / width as f64, 1.0 - position.y / height as f64);
-            }
-            WindowEvent::CursorEntered { .. } => {}
-            WindowEvent::CursorLeft { .. } => {}
-            WindowEvent::MouseWheel { .. } => {}
-            WindowEvent::MouseInput { button, state, .. } => {
-                if button == &MouseButton::Left && state == &ElementState::Released {
-                    screen_sys.on_mouse_click(&client, mouse_pos);
-                }
-            }
-            WindowEvent::TouchpadPressure { .. } => {}
-            WindowEvent::AxisMotion { .. } => {}
-            WindowEvent::Touch(_) => {}
-            WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                if !state.resize(**new_inner_size) {
-                    panic!("Couldn't resize!");
-                }
-            }
-            WindowEvent::ThemeChanged(_) => {}
-            WindowEvent::Ime(_) => {}
-            WindowEvent::Occluded(_) => {}
-            WindowEvent::TouchpadMagnify { .. } => {}
-            WindowEvent::SmartMagnify { .. } => {}
-            WindowEvent::TouchpadRotate { .. } => {}
-        },
-        Event::DeviceEvent { .. } => {}
-        Event::UserEvent(_) => {}
-        Event::Suspended => {}
-        Event::Resumed => {}
-        Event::MainEventsCleared => {
-            // RedrawRequested will only trigger once, unless we manually
-            // request it.
-            window.request_redraw();
-        }
-        Event::RedrawRequested(_) => {
-            // FIXME: perform redraw
-            let models = screen_sys.tick(0.0, &client, &window);
-            renderer.render(models, atlas.clone());
-        }
-        Event::RedrawEventsCleared => {}
-        Event::LoopDestroyed => {}
-        _ => {}*/
     })?;
     Ok(())
 }
