@@ -54,7 +54,7 @@ impl Screen for ConnectionFailureScreen {
                 a: 1.0,
             }; 6]),
             text: GlyphBuilder::new(&format!("Failed connecting with \"{}\"", &self.server_name),
-                                    Metrics::new(30.0, 42.0).scale(45.0 * (ctx().renderer.dimensions.get().0 as f32 / 1920.0)),
+            (0.0, 0.0),
             pos, (BOX_WIDTH, BOX_HEIGHT)).build()/*TextSection {
                 layout: Layout::default_single_line().v_align(VerticalAlign::Bottom/*Bottom*//*VerticalAlign::Center*/).h_align(HorizontalAlign::Left),
                 text: vec![Text::default().with_scale(45.0 * (ctx().renderer.dimensions.get().0 as f32 / 1920.0))],
@@ -89,7 +89,7 @@ impl Screen for ConnectionFailureScreen {
                 a: 1.0,
             }; 6]),
             text: GlyphBuilder::new(&format!("Failed connecting with \"{}\"", &self.server_name),
-                                    Metrics::new(30.0, 42.0).scale(45.0 * (ctx().renderer.dimensions.get().0 as f32 / 1920.0)),
+            (0.0, 0.0),
             pos, (BOX_WIDTH, BOX_HEIGHT)).build()/*TextSection {
                 layout: Layout::default_single_line().v_align(VerticalAlign::Bottom/*Bottom*//*VerticalAlign::Center*/).h_align(HorizontalAlign::Left),
                 text: vec![Text::default().with_scale(45.0 * (ctx().renderer.dimensions.get().0 as f32 / 1920.0))],

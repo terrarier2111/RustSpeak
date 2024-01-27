@@ -1,10 +1,12 @@
 use std::sync::{Arc, RwLock};
 use glyphon::Metrics;
 use crate::Client;
-use crate::ui::wgpu::DARK_GRAY_UI;
+use crate::ui::wgpu::{ctx, DARK_GRAY_UI};
 use crate::ui::wgpu::render::GlyphBuilder;
 use crate::ui::wgpu::screen_sys::Screen;
 use crate::ui::wgpu::ui::{Button, Color, Coloring, Container, TextBox};
+
+use super::server_list;
 
 #[derive(Clone)]
 pub struct Menu {
@@ -46,7 +48,7 @@ impl Screen for Menu {
                 width: BOX_WIDTH,
                 height: BOX_HEIGHT,
                 coloring: Coloring::Color([DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI]),
-                text: GlyphBuilder::new("Menu", Metrics::new(1.0, 42.0 / 3.0 / 30.0).scale(3.0), (BOX_SCREEN_OFFSET_X, BOX_SCREEN_OFFSET_Y), (BOX_WIDTH, BOX_HEIGHT)).build(),
+                text: GlyphBuilder::new("Menu", (0.0, 0.0), (BOX_SCREEN_OFFSET_X, BOX_SCREEN_OFFSET_Y), (BOX_WIDTH, BOX_HEIGHT)).build(),
             },
             data: None,
             on_click: Arc::new(Box::new(|button, client| {})),
@@ -58,7 +60,7 @@ impl Screen for Menu {
                 width: BOX_WIDTH,
                 height: BOX_HEIGHT,
                 coloring: Coloring::Color([DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI]),
-                text: GlyphBuilder::new("Profiles", Metrics::new(1.0, 42.0 / 3.0 / 30.0).scale(3.0), pos, (BOX_WIDTH, BOX_HEIGHT)).build(),
+                text: GlyphBuilder::new("Profiles", (0.0, 0.0), pos, (BOX_WIDTH, BOX_HEIGHT)).build(),
             },
             data: None,
             on_click: Arc::new(Box::new(|button, client| {})),
@@ -70,10 +72,13 @@ impl Screen for Menu {
                 width: BOX_WIDTH,
                 height: BOX_HEIGHT,
                 coloring: Coloring::Color([DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI]),
-                text: GlyphBuilder::new("Servers", Metrics::new(1.0, 42.0 / 3.0 / 30.0).scale(3.0), pos, (BOX_WIDTH, BOX_HEIGHT)).build(),
+                text: GlyphBuilder::new("Servers", (0.0, 0.0), pos, (BOX_WIDTH, BOX_HEIGHT)).build(),
             },
             data: None,
-            on_click: Arc::new(Box::new(|button, client| {})),
+            on_click: Arc::new(Box::new(|button, client| {
+                ctx().screen_sys.push_screen(Box::new(server_list::ServerList::new()));
+                // FIXME: refresh screen, disable glyphs for current screen
+            })),
         }))));
     }
 

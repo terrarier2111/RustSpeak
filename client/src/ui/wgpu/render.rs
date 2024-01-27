@@ -46,12 +46,12 @@ pub struct GlyphBuilder {
 
 impl GlyphBuilder {
     
-    pub fn new<S: Into<String>>(text: S, metrics: Metrics, pos: (f32, f32), size: (f32, f32)) -> Self {
+    pub fn new<S: Into<String>>(text: S, in_bounds_off: (f32, f32), pos: (f32, f32), size: (f32, f32)) -> Self {
         let (width, height) = ctx().window.window_size();
         println!("left {} right {} top {} bottom {}", (width as f32 * pos.0) as i32, (width as f32 * (pos.0 + size.0)) as i32, (height as f32 * pos.1) as i32, (height as f32 * (pos.1 + size.1)) as i32);
         Self {
             glyph_info: GlyphInfo {
-                metrics,
+                in_bounds_off,
                 size,
                 text: text.into(),
                 attrs: AttrsOwned::new(Attrs::new()),
@@ -59,7 +59,7 @@ impl GlyphBuilder {
                 color: Color::rgb(0, 0, 0), // black
                 scale: 1.0,
                 x_offset: pos.0,
-                y_offset: pos.1,
+                y_offset: 1.0 - pos.1 - size.1,
             },
         }
     }
@@ -93,7 +93,7 @@ impl GlyphBuilder {
 
 #[derive(Clone)]
 pub struct GlyphInfo {
-    pub metrics: Metrics,
+    pub in_bounds_off: (f32, f32),
     pub size: (f32, f32),
     pub text: String,
     pub attrs: AttrsOwned,
@@ -411,22 +411,13 @@ impl Renderer {
     }
 
     pub fn rescale_glyphs(&self) {
-        // FIXME: call this on resize
         let mut glyphs = self.glyphs.lock().unwrap();
 
         let mut font_system = self.font_system.lock().unwrap();
         for glyph in glyphs.iter_mut() {
             let ctx = ctx();
             let (width, height) = ctx.window.window_size();
-            glyph.1.info.metrics = Metrics { font_size: glyph.1.info.size.0 * width as f32, line_height: glyph.1.info.size.1 * height as f32 };
-            let mut buffer = Buffer::new(&mut font_system, glyph.1.info.metrics);
-
-            /*let scale_factor = ctx.window.scale_factor();
-            let physical_width = (width as f64 * scale_factor) as f32; // FIXME: should we switch to the size field in glyph?
-            let physical_height = (height as f64 * scale_factor) as f32;*/
-
-            buffer.set_size(&mut font_system, /*glyph_info.size.0 * width as f32, glyph_info.size.1 * height as f32*//*physical_width*/ glyph.1.info.size.0 * width as f32, /*physical_height*/ glyph.1.info.size.1 * height as f32);
-            buffer.set_text(&mut font_system, glyph.1.info.text.as_str(), glyph.1.info.attrs.as_attrs(), glyph.1.info.shaping);
+            let buffer = self.build_glyph_buffer(&glyph.1.info, &mut font_system, width, height, ctx.window.scale_factor());
 
             glyph.1.buffer = buffer;
         }
@@ -434,18 +425,11 @@ impl Renderer {
 
     pub fn add_glyph(&self, glyph_info: GlyphInfo) -> GlyphId {
         let mut glyphs = self.glyphs.lock().unwrap();
-
-        let mut font_system = self.font_system.lock().unwrap();
-        let mut buffer = Buffer::new(&mut font_system, glyph_info.metrics);
-
         let ctx = ctx();
         let (width, height) = ctx.window.window_size();
-        let scale_factor = ctx.window.scale_factor();
-        let physical_width = (width as f64 * scale_factor) as f32; // FIXME: should we switch to the size field in glyph?
-        let physical_height = (height as f64 * scale_factor) as f32;
 
-        buffer.set_size(&mut font_system, /*glyph_info.size.0 * width as f32, glyph_info.size.1 * height as f32*//*physical_width*/ physical_width, /*physical_height*/ physical_height);
-        buffer.set_text(&mut font_system, glyph_info.text.as_str(), glyph_info.attrs.as_attrs(), glyph_info.shaping);
+        let mut font_system = self.font_system.lock().unwrap();
+        let buffer = self.build_glyph_buffer(&glyph_info, &mut font_system, width, height, ctx.window.scale_factor());
 
         let id = self.gen_glyph_id();
         glyphs.insert(id, CompiledGlyph {
@@ -453,6 +437,18 @@ impl Renderer {
             info: glyph_info,
         });
         GlyphId(id)
+    }
+    
+    fn build_glyph_buffer(&self, info: &GlyphInfo, font_system: &mut FontSystem, width: u32, height: u32, scale_factor: f64) -> Buffer {
+        let metrics = Metrics { font_size: info.size.0 * width as f32, line_height: info.size.1 * height as f32 };
+        let mut buffer = Buffer::new(font_system, metrics);
+
+        let physical_width = (width as f64 * scale_factor) as f32; // FIXME: should we switch to the size field in glyph?
+        let physical_height = (height as f64 * scale_factor) as f32;
+
+        buffer.set_size(font_system, info.size.0 * width as f32, info.size.1 * height as f32);
+        buffer.set_text(font_system, info.text.as_str(), info.attrs.as_attrs(), info.shaping);
+        buffer
     }
 
     pub fn remove_glyph(&self, glyph_id: GlyphId) -> bool {

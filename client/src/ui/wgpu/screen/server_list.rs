@@ -22,7 +22,7 @@ impl ServerList {
     }
 }
 
-const ENTRIES_ON_PAGE: usize = 12;
+const ENTRIES_ON_PAGE: usize = 9;
 
 impl Screen for ServerList {
     fn on_active(&mut self, client: &Arc<Client>) {
@@ -30,8 +30,10 @@ impl Screen for ServerList {
         let entry_offset = 1.0 / ENTRIES_ON_PAGE as f32;
         let text_offset = 1.0 / (ENTRIES_ON_PAGE * 4) as f32;
         for entry in client.config.load().fav_servers.iter().enumerate() {
+            let addr = entry.1.addr.clone();
             let pos = (0.0, 1.0 - ((entry.0 + 1) as f32 * entry_offset));
-            let text_pos = (0.0, ((entry.0 * 4 + 1) as f32 * text_offset));
+            // let text_pos = (0.0, ((entry.0 * 4 + 1) as f32 * text_offset));
+            let text_pos = (0.0, pos.1 - text_offset);
             self.container.add(Arc::new(RwLock::new(Box::new(Button {
                 inner_box: TextBox {
                     pos,
@@ -45,14 +47,14 @@ impl Screen for ServerList {
                         DARK_GRAY_UI,
                         DARK_GRAY_UI,
                     ]),
-                    text: GlyphBuilder::new(&entry.1.name, Metrics::new(1.0, 42.0 / 30.0).scale(30.0), (text_pos.0, text_pos.1)/*(pos.0, 1.0 - pos.1)*/, (0.2, 0.1)).build()/*TextSection {
+                    text: GlyphBuilder::new(&entry.1.name, (0.0, 0.0), (text_pos.0, text_pos.1)/*(pos.0, 1.0 - pos.1)*/, (0.2, 0.1)).build()/*TextSection {
                         layout: Layout::default_single_line().v_align(VerticalAlign::Bottom/*Bottom*//*VerticalAlign::Center*/).h_align(HorizontalAlign::Left),
                         text: vec![Text::default().with_scale(30.0)],
                         texts: vec![entry.1.name.clone()],
                     }*/,
                 },
                 data: None,
-                on_click: Arc::new(Box::new(|button, client| {
+                on_click: Arc::new(Box::new(move |button, client| {
                     println!("test!!");
                     /*match button.inner_box.coloring {
                         Coloring::Color(mut color) => {
@@ -72,7 +74,7 @@ impl Screen for ServerList {
                     let server_name = "local_test_srv";
                     let server = Server::new(client.clone(), profile, AddressMode::V4,
                                                                        certificate::insecure_local::config(),
-                                                                       SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 20354)),
+                                                                       addr,
                                                                        server_name.to_string());
                     client.server.store(Some(server));
                 }))

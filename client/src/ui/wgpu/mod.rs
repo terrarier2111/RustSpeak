@@ -62,8 +62,8 @@ pub fn run(client: Arc<Client>) -> anyhow::Result<()> {
     ));
     let renderer = Arc::new(Renderer::new(state.clone(), &window)?);
     let screen_sys = Arc::new(ScreenSystem::new());
-    // screen_sys.push_screen(Box::new(Menu::new()));
-    screen_sys.push_screen(Box::new(ServerList::new()));
+    screen_sys.push_screen(Box::new(Menu::new()));
+    // screen_sys.push_screen(Box::new(ServerList::new()));
 
     UI_CTX.try_init_silent(Arc::new(UiCtx {
         screen_sys: screen_sys.clone(),
