@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::sync::atomic::AtomicUsize;
 use bytemuck_derive::Pod;
 use bytemuck_derive::Zeroable;
 use flume::Sender;
@@ -27,8 +28,9 @@ pub struct Renderer {
     tex_circle_pipeline: RenderPipeline,
     color_circle_pipeline: RenderPipeline,
     pub dimensions: Dimensions,
-    glyphs: Mutex<Vec<CompiledGlyph>>,
+    glyphs: Mutex<HashMap<usize, CompiledGlyph>>,
     glyph_ctx: Mutex<GlyphCtx>,
+    glyph_id_cnt: AtomicUsize,
     font_system: Mutex<FontSystem>,
 }
 
@@ -119,13 +121,14 @@ impl Renderer {
             color_circle_pipeline: Self::color_circle_pipeline(&state),
             state,
             dimensions: Dimensions::new(width, height),
-            glyphs: Mutex::new(vec![]),
+            glyphs: Mutex::new(HashMap::new()),
             glyph_ctx: Mutex::new(GlyphCtx {
                 cache: RefCell::new(SwashCache::new()),
                 atlas: RefCell::new(atlas),
                 renderer: RefCell::new(renderer),
             }),
             font_system: Mutex::new(FontSystem::new()),
+            glyph_id_cnt: AtomicUsize::new(0),
         })
     }
 
@@ -142,11 +145,16 @@ impl Renderer {
             let mut font_system = self.font_system.lock().unwrap();
             let config = self.state.raw_inner_surface_config();
             let glyphs = self.glyphs.lock().unwrap();
-            let glyphs = glyphs.iter().map(|glyph| TextArea {
+            let scale = (width as f32 / height as f32).min(height as f32 / width as f32);
+            // let scale = (width as f32 / 1920.0).min(height as f32 / 1080.0);
+            let glyphs = glyphs.iter().map(|val| val.1).map(|glyph| {
+                // let scale = glyph.info.size.0.min(glyph.info.size.1);
+                // let scale = (width as f32 / height as f32 * glyph.info.size.0).min(height as f32 / width as f32 * glyph.info.size.1);
+                TextArea {
                 buffer: &glyph.buffer,
                 left: width as f32 * glyph.info.x_offset, // FIXME: is this correct?
                 top: height as f32 * glyph.info.y_offset, // FIXME: is this correct?
-                scale: glyph.info.scale * (width as f32 / 1920.0),
+                scale: glyph.info.size.0.max(glyph.info.size.1)/*glyph.info.scale*//* * (width as f32 / 1920.0)*/,
                 bounds: TextBounds {
                     left: (width as f32 * glyph.info.x_offset) as i32,
                     top: (height as f32 * glyph.info.y_offset) as i32,
@@ -154,7 +162,8 @@ impl Renderer {
                     bottom: (height as f32 * (glyph.info.y_offset + glyph.info.size.1)) as i32,
                 },
                 default_color: glyph.info.color,
-            }).collect::<Vec<_>>();
+            }
+        }).collect::<Vec<_>>();
             renderer.deref_mut()
                 .prepare(
                     self.state.device(),
@@ -401,6 +410,28 @@ impl Renderer {
             .build(state)
     }
 
+    pub fn rescale_glyphs(&self) {
+        // FIXME: call this on resize
+        let mut glyphs = self.glyphs.lock().unwrap();
+
+        let mut font_system = self.font_system.lock().unwrap();
+        for glyph in glyphs.iter_mut() {
+            let ctx = ctx();
+            let (width, height) = ctx.window.window_size();
+            glyph.1.info.metrics = Metrics { font_size: glyph.1.info.size.0 * width as f32, line_height: glyph.1.info.size.1 * height as f32 };
+            let mut buffer = Buffer::new(&mut font_system, glyph.1.info.metrics);
+
+            /*let scale_factor = ctx.window.scale_factor();
+            let physical_width = (width as f64 * scale_factor) as f32; // FIXME: should we switch to the size field in glyph?
+            let physical_height = (height as f64 * scale_factor) as f32;*/
+
+            buffer.set_size(&mut font_system, /*glyph_info.size.0 * width as f32, glyph_info.size.1 * height as f32*//*physical_width*/ glyph.1.info.size.0 * width as f32, /*physical_height*/ glyph.1.info.size.1 * height as f32);
+            buffer.set_text(&mut font_system, glyph.1.info.text.as_str(), glyph.1.info.attrs.as_attrs(), glyph.1.info.shaping);
+
+            glyph.1.buffer = buffer;
+        }
+    }
+
     pub fn add_glyph(&self, glyph_info: GlyphInfo) -> GlyphId {
         let mut glyphs = self.glyphs.lock().unwrap();
 
@@ -413,20 +444,29 @@ impl Renderer {
         let physical_width = (width as f64 * scale_factor) as f32; // FIXME: should we switch to the size field in glyph?
         let physical_height = (height as f64 * scale_factor) as f32;
 
-        buffer.set_size(&mut font_system, /*glyph_info.size.0 * width as f32, glyph_info.size.1 * height as f32*/physical_width, physical_height);
+        buffer.set_size(&mut font_system, /*glyph_info.size.0 * width as f32, glyph_info.size.1 * height as f32*//*physical_width*/ physical_width, /*physical_height*/ physical_height);
         buffer.set_text(&mut font_system, glyph_info.text.as_str(), glyph_info.attrs.as_attrs(), glyph_info.shaping);
 
-        let len = glyphs.len();
-        glyphs.push(CompiledGlyph {
+        let id = self.gen_glyph_id();
+        glyphs.insert(id, CompiledGlyph {
             buffer,
             info: glyph_info,
         });
-        GlyphId(len) // FIXME: make the id stable even on removes and support removes in general!
+        GlyphId(id)
     }
 
-    /*pub fn remove_glyph(&self, glyph_id: GlyphId) -> bool {
+    pub fn remove_glyph(&self, glyph_id: GlyphId) -> bool {
+        self.glyphs.lock().unwrap().remove(&glyph_id.0).is_some()
+    }
 
-    }*/
+    fn gen_glyph_id(&self) -> usize {
+        let gen = self.glyph_id_cnt.fetch_add(1, Ordering::Relaxed);
+        if gen > usize::MAX / 2 {
+            panic!("Exceeded max glyph gen id");
+        }
+        gen
+    }
+
 }
 
 #[derive(Debug)]

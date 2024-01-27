@@ -28,8 +28,10 @@ impl Screen for ServerList {
     fn on_active(&mut self, client: &Arc<Client>) {
         let ctx = ctx();
         let entry_offset = 1.0 / ENTRIES_ON_PAGE as f32;
+        let text_offset = 1.0 / (ENTRIES_ON_PAGE * 4) as f32;
         for entry in client.config.load().fav_servers.iter().enumerate() {
             let pos = (0.0, 1.0 - ((entry.0 + 1) as f32 * entry_offset));
+            let text_pos = (0.0, ((entry.0 * 4 + 1) as f32 * text_offset));
             self.container.add(Arc::new(RwLock::new(Box::new(Button {
                 inner_box: TextBox {
                     pos,
@@ -43,7 +45,7 @@ impl Screen for ServerList {
                         DARK_GRAY_UI,
                         DARK_GRAY_UI,
                     ]),
-                    text: GlyphBuilder::new(&entry.1.name, Metrics::new(1.0, 42.0 / 30.0).scale(30.0), (pos.0, 1.0 - pos.1), (0.2, 0.1)).build()/*TextSection {
+                    text: GlyphBuilder::new(&entry.1.name, Metrics::new(1.0, 42.0 / 30.0).scale(30.0), (text_pos.0, text_pos.1)/*(pos.0, 1.0 - pos.1)*/, (0.2, 0.1)).build()/*TextSection {
                         layout: Layout::default_single_line().v_align(VerticalAlign::Bottom/*Bottom*//*VerticalAlign::Center*/).h_align(HorizontalAlign::Left),
                         text: vec![Text::default().with_scale(30.0)],
                         texts: vec![entry.1.name.clone()],

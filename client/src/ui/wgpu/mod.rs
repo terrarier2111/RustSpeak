@@ -81,6 +81,7 @@ pub fn run(client: Arc<Client>) -> anyhow::Result<()> {
                 } else {
                     renderer.dimensions.set(size.width, size.height);
                 }
+                renderer.rescale_glyphs();
             }
             WindowEvent::Moved(_) => {}
             WindowEvent::CloseRequested => {
@@ -114,6 +115,7 @@ pub fn run(client: Arc<Client>) -> anyhow::Result<()> {
                 if !state.resize(((state.size().1 as f64 * scale_factor) as u32, state.size().1)) {
                     panic!("Couldn't resize!");
                 }
+                renderer.rescale_glyphs();
             }
             WindowEvent::ThemeChanged(_) => {}
             WindowEvent::Occluded(_) => {}
