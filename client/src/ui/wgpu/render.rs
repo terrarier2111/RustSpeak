@@ -137,7 +137,7 @@ impl Renderer {
         models: Vec<Model>,
         atlas: Arc<Atlas>, /*atlases: Arc<Mutex<Vec<Arc<Atlas>>>>*/
     ) {
-        let mut glyph_ctx = self.glyph_ctx.lock().unwrap();
+        let glyph_ctx = self.glyph_ctx.lock().unwrap();
         let mut text_atlas = glyph_ctx.atlas.borrow_mut();
         let mut renderer = glyph_ctx.renderer.borrow_mut();
         {
@@ -146,21 +146,19 @@ impl Renderer {
             let config = self.state.raw_inner_surface_config();
             let glyphs = self.glyphs.lock().unwrap();
             let glyphs = glyphs.iter().map(|val| val.1).map(|glyph| {
-                // let scale = glyph.info.size.0.min(glyph.info.size.1);
-                // let scale = (width as f32 / height as f32 * glyph.info.size.0).min(height as f32 / width as f32 * glyph.info.size.1);
                 TextArea {
-                buffer: &glyph.buffer,
-                left: width as f32 * (glyph.info.x_offset + glyph.info.in_bounds_off.0 * glyph.info.x_offset), // FIXME: is this correct?
-                top: height as f32 * (glyph.info.y_offset + glyph.info.in_bounds_off.1 * glyph.info.y_offset), // FIXME: is this correct?
-                scale: glyph.info.size.0.max(glyph.info.size.1),
-                bounds: TextBounds {
-                    left: (width as f32 * glyph.info.x_offset) as i32,
-                    top: (height as f32 * glyph.info.y_offset) as i32,
-                    right: (width as f32 * (glyph.info.x_offset + glyph.info.size.0)) as i32,
-                    bottom: (height as f32 * (glyph.info.y_offset + glyph.info.size.1)) as i32,
-                },
-                default_color: glyph.info.color,
-            }
+                    buffer: &glyph.buffer,
+                    left: width as f32 * (glyph.info.x_offset + glyph.info.in_bounds_off.0),
+                    top: height as f32 * (glyph.info.y_offset + glyph.info.in_bounds_off.1 * glyph.info.y_offset),
+                    scale: glyph.info.size.0.max(glyph.info.size.1),
+                    bounds: TextBounds {
+                        left: (width as f32 * glyph.info.x_offset) as i32,
+                        top: (height as f32 * glyph.info.y_offset) as i32,
+                        right: (width as f32 * (glyph.info.x_offset + glyph.info.size.0)) as i32,
+                        bottom: (height as f32 * (glyph.info.y_offset + glyph.info.size.1)) as i32,
+                    },
+                    default_color: glyph.info.color,
+                }
         }).collect::<Vec<_>>();
             renderer.deref_mut()
                 .prepare(
