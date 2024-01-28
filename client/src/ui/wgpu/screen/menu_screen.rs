@@ -1,5 +1,4 @@
 use std::sync::{Arc, RwLock};
-use glyphon::Metrics;
 use crate::Client;
 use crate::ui::wgpu::{ctx, DARK_GRAY_UI};
 use crate::ui::wgpu::render::GlyphBuilder;
@@ -48,7 +47,7 @@ impl Screen for Menu {
                 width: BOX_WIDTH,
                 height: BOX_HEIGHT,
                 coloring: Coloring::Color([DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI]),
-                text: GlyphBuilder::new("Menu", (0.0, 0.0), (BOX_SCREEN_OFFSET_X, BOX_SCREEN_OFFSET_Y), (BOX_WIDTH, BOX_HEIGHT)).build(),
+                text: GlyphBuilder::new("Menu", (0.1, 0.03), (BOX_SCREEN_OFFSET_X, BOX_SCREEN_OFFSET_Y), (BOX_WIDTH, BOX_HEIGHT)).build(),
             },
             data: None,
             on_click: Arc::new(Box::new(|button, client| {})),
@@ -60,7 +59,7 @@ impl Screen for Menu {
                 width: BOX_WIDTH,
                 height: BOX_HEIGHT,
                 coloring: Coloring::Color([DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI]),
-                text: GlyphBuilder::new("Profiles", (0.0, 0.0), pos, (BOX_WIDTH, BOX_HEIGHT)).build(),
+                text: GlyphBuilder::new("Profiles", (0.075, 0.03), pos, (BOX_WIDTH, BOX_HEIGHT)).build(),
             },
             data: None,
             on_click: Arc::new(Box::new(|button, client| {})),
@@ -72,7 +71,7 @@ impl Screen for Menu {
                 width: BOX_WIDTH,
                 height: BOX_HEIGHT,
                 coloring: Coloring::Color([DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI]),
-                text: GlyphBuilder::new("Servers", (0.0, 0.0), pos, (BOX_WIDTH, BOX_HEIGHT)).build(),
+                text: GlyphBuilder::new("Servers", (0.05, 0.03), pos, (BOX_WIDTH, BOX_HEIGHT)).build(),
             },
             data: None,
             on_click: Arc::new(Box::new(|button, client| {

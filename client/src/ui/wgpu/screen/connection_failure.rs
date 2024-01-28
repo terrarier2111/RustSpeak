@@ -1,6 +1,4 @@
 use std::sync::{Arc, RwLock};
-use glyphon::Metrics;
-use image::GenericImageView;
 use crate::Client;
 use crate::ui::wgpu::atlas::AtlasAlloc;
 use crate::ui::wgpu::ctx;

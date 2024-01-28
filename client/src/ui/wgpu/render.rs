@@ -145,16 +145,14 @@ impl Renderer {
             let mut font_system = self.font_system.lock().unwrap();
             let config = self.state.raw_inner_surface_config();
             let glyphs = self.glyphs.lock().unwrap();
-            let scale = (width as f32 / height as f32).min(height as f32 / width as f32);
-            // let scale = (width as f32 / 1920.0).min(height as f32 / 1080.0);
             let glyphs = glyphs.iter().map(|val| val.1).map(|glyph| {
                 // let scale = glyph.info.size.0.min(glyph.info.size.1);
                 // let scale = (width as f32 / height as f32 * glyph.info.size.0).min(height as f32 / width as f32 * glyph.info.size.1);
                 TextArea {
                 buffer: &glyph.buffer,
-                left: width as f32 * glyph.info.x_offset, // FIXME: is this correct?
-                top: height as f32 * glyph.info.y_offset, // FIXME: is this correct?
-                scale: glyph.info.size.0.max(glyph.info.size.1)/*glyph.info.scale*//* * (width as f32 / 1920.0)*/,
+                left: width as f32 * (glyph.info.x_offset + glyph.info.in_bounds_off.0 * glyph.info.x_offset), // FIXME: is this correct?
+                top: height as f32 * (glyph.info.y_offset + glyph.info.in_bounds_off.1 * glyph.info.y_offset), // FIXME: is this correct?
+                scale: glyph.info.size.0.max(glyph.info.size.1),
                 bounds: TextBounds {
                     left: (width as f32 * glyph.info.x_offset) as i32,
                     top: (height as f32 * glyph.info.y_offset) as i32,
@@ -229,14 +227,14 @@ impl Renderer {
                                     }),
                                 });
                                 if !generic_vertices.is_empty() {
-                                    if let Some(mut models) = generic_atlas_models.get_mut(&atlas.id()) {
+                                    if let Some(models) = generic_atlas_models.get_mut(&atlas.id()) {
                                         models.extend(generic_vertices);
                                     } else {
                                         generic_atlas_models
                                             .insert(atlas.id(), generic_vertices);
                                     }
                                 } else {
-                                    if let Some(mut models) = circle_atlas_models.get_mut(&atlas.id()) {
+                                    if let Some(models) = circle_atlas_models.get_mut(&atlas.id()) {
                                         models.extend(circle_vertices);
                                     } else {
                                         circle_atlas_models
@@ -417,7 +415,7 @@ impl Renderer {
         for glyph in glyphs.iter_mut() {
             let ctx = ctx();
             let (width, height) = ctx.window.window_size();
-            let buffer = self.build_glyph_buffer(&glyph.1.info, &mut font_system, width, height, ctx.window.scale_factor());
+            let buffer = self.build_glyph_buffer(&glyph.1.info, &mut font_system, width, height);
 
             glyph.1.buffer = buffer;
         }
@@ -429,7 +427,7 @@ impl Renderer {
         let (width, height) = ctx.window.window_size();
 
         let mut font_system = self.font_system.lock().unwrap();
-        let buffer = self.build_glyph_buffer(&glyph_info, &mut font_system, width, height, ctx.window.scale_factor());
+        let buffer = self.build_glyph_buffer(&glyph_info, &mut font_system, width, height);
 
         let id = self.gen_glyph_id();
         glyphs.insert(id, CompiledGlyph {
@@ -439,12 +437,9 @@ impl Renderer {
         GlyphId(id)
     }
     
-    fn build_glyph_buffer(&self, info: &GlyphInfo, font_system: &mut FontSystem, width: u32, height: u32, scale_factor: f64) -> Buffer {
+    fn build_glyph_buffer(&self, info: &GlyphInfo, font_system: &mut FontSystem, width: u32, height: u32) -> Buffer {
         let metrics = Metrics { font_size: info.size.0 * width as f32, line_height: info.size.1 * height as f32 };
         let mut buffer = Buffer::new(font_system, metrics);
-
-        let physical_width = (width as f64 * scale_factor) as f32; // FIXME: should we switch to the size field in glyph?
-        let physical_height = (height as f64 * scale_factor) as f32;
 
         buffer.set_size(font_system, info.size.0 * width as f32, info.size.1 * height as f32);
         buffer.set_text(font_system, info.text.as_str(), info.attrs.as_attrs(), info.shaping);
