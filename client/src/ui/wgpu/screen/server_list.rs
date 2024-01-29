@@ -41,7 +41,7 @@ impl Screen for ServerList {
                         DARK_GRAY_UI,
                         DARK_GRAY_UI,
                     ]),
-                    text: GlyphBuilder::new(&entry.1.name, (0.05, 4.0), pos, (0.2, 0.1)).build(),
+                    texts: vec![GlyphBuilder::new(&entry.1.name, pos, (0.2, 0.1)).in_bounds_off((0.05, 4.0)).build()],
                 },
                 data: None,
                 on_click: Arc::new(Box::new(move |button, client| {
@@ -75,10 +75,12 @@ impl Screen for ServerList {
 
     fn tick(&mut self, _client: &Arc<Client>) {}
 
+    #[inline(always)]
     fn is_closable(&self) -> bool {
-        false
+        true
     }
 
+    #[inline(always)]
     fn is_tick_always(&self) -> bool {
         true
     }

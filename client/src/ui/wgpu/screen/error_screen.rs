@@ -51,13 +51,8 @@ impl Screen for ErrorScreen {
                 b: 0.0,
                 a: 1.0,
             }; 6]),
-            text: GlyphBuilder::new(self.text.as_str(),
-            (0.0, 0.0),
-            pos, (BOX_WIDTH, BOX_HEIGHT)).build()/*TextSection {
-                layout: Layout::default_single_line().v_align(VerticalAlign::Bottom/*Bottom*//*VerticalAlign::Center*/).h_align(HorizontalAlign::Left),
-                text: vec![Text::default().with_scale(45.0 * (ctx().renderer.dimensions.get().0 as f32 / 1920.0))],
-                texts: vec![format!("Failed connecting with \"{}\"", &self.server_name)],
-            }*/,
+            texts: vec![GlyphBuilder::new(self.text.as_str(),
+            pos, (BOX_WIDTH / 2.0, BOX_HEIGHT / 2.0)).build()],
         }))));
         /*self.container.add(Arc::new(RwLock::new(Box::new(ColorBox {
             pos: (0.5 - CLOSE_WIDTH, 0.5 - CLOSE_HEIGHT),
@@ -86,9 +81,8 @@ impl Screen for ErrorScreen {
                 b: 0.0,
                 a: 1.0,
             }; 6]),
-            text: GlyphBuilder::new(self.text.as_str(),
-            (0.0, 0.0),
-            pos, (BOX_WIDTH, BOX_HEIGHT)).build(),
+            texts: vec![GlyphBuilder::new(self.text.as_str(),
+            pos, (BOX_WIDTH / 4.0, BOX_HEIGHT / 4.0)).build()],
         }))));
         /*self.container.add(Arc::new(RwLock::new(Box::new(ColorBox {
             pos: (0.5 - CLOSE_WIDTH, 0.5 - CLOSE_HEIGHT),
@@ -103,6 +97,16 @@ impl Screen for ErrorScreen {
     #[inline]
     fn container(&self) -> &Arc<Container> {
         &self.container
+    }
+
+    #[inline(always)]
+    fn is_closable(&self) -> bool {
+        true
+    }
+
+    #[inline(always)]
+    fn is_tick_always(&self) -> bool {
+        false
     }
 
     fn clone_screen(&self) -> Box<dyn Screen> {

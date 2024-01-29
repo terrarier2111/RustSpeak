@@ -29,7 +29,6 @@ pub struct Renderer {
     color_circle_pipeline: RenderPipeline,
     pub dimensions: Dimensions,
     glyphs: Mutex<HashMap<usize, CompiledGlyph>>,
-    inactive_glyphs: Mutex<Vec<HashMap<usize, CompiledGlyph>>>,
     glyph_ctx: Mutex<GlyphCtx>,
     glyph_id_cnt: AtomicUsize,
     font_system: Mutex<FontSystem>,
@@ -47,12 +46,11 @@ pub struct GlyphBuilder {
 
 impl GlyphBuilder {
     
-    pub fn new<S: Into<String>>(text: S, in_bounds_off: (f32, f32), pos: (f32, f32), size: (f32, f32)) -> Self {
+    pub fn new<S: Into<String>>(text: S, pos: (f32, f32), size: (f32, f32)) -> Self {
         let (width, height) = ctx().window.window_size();
         println!("left {} right {} top {} bottom {}", (width as f32 * pos.0) as i32, (width as f32 * (pos.0 + size.0)) as i32, (height as f32 * pos.1) as i32, (height as f32 * (pos.1 + size.1)) as i32);
         Self {
             glyph_info: GlyphInfo {
-                in_bounds_off,
                 size,
                 text: text.into(),
                 attrs: AttrsOwned::new(Attrs::new()),
@@ -61,8 +59,14 @@ impl GlyphBuilder {
                 scale: 1.0,
                 x_offset: pos.0,
                 y_offset: 1.0 - pos.1 - size.1,
+                in_bounds_off: (0.0, 0.0), // FIXME: center text once we have a generic way to do this!
             },
         }
+    }
+
+    pub fn in_bounds_off(mut self, in_bounds_off: (f32, f32)) -> Self {
+        self.glyph_info.in_bounds_off = in_bounds_off;
+        self
     }
 
     pub fn attrs(mut self, attrs: AttrsOwned) -> Self {
@@ -130,7 +134,6 @@ impl Renderer {
             }),
             font_system: Mutex::new(FontSystem::new()),
             glyph_id_cnt: AtomicUsize::new(0),
-            inactive_glyphs: Mutex::new(vec![]),
         })
     }
 
@@ -448,16 +451,6 @@ impl Renderer {
 
     pub fn remove_glyph(&self, glyph_id: GlyphId) -> bool {
         self.glyphs.lock().unwrap().remove(&glyph_id.0).is_some()
-    }
-
-    pub fn reactivate_glyphs(&self) {
-        let old_glyphs = self.inactive_glyphs.lock().unwrap().pop().unwrap();
-        *self.glyphs.lock().unwrap() = old_glyphs;
-    }
-
-    pub fn deactivate_glyphs(&self) {
-        let curr_glyphs = core::mem::take(self.glyphs.lock().unwrap().deref_mut());
-        self.inactive_glyphs.lock().unwrap().push(curr_glyphs);
     }
 
     pub fn clear_glyphs(&self) {

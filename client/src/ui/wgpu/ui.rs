@@ -63,7 +63,7 @@ pub struct InnerUIComponent {
 
 impl InnerUIComponent {
     fn build_model(&self) -> Model {
-        if self.dirty.fetch_and(false, Ordering::Acquire) {
+        if self.dirty.compare_exchange(true, false, Ordering::AcqRel, Ordering::Relaxed).is_ok() {
             let model = self.inner.write().unwrap().build_model();
             *self.precomputed_model.lock().unwrap() = model.clone();
             model
@@ -269,11 +269,12 @@ pub struct TextBox {
     pub width: f32,
     pub height: f32,
     pub coloring: Coloring<6>,
-    pub text: GlyphId,
+    pub texts: Vec<GlyphId>,
 }
 
 impl Component for TextBox {
     fn build_model(&self) -> Model {
+        // FIXME: do we have to rebuild the texts? - and if so, how?
         let (x_off, y_off) = ((2.0 * self.pos.0), (2.0 * self.pos.1));
         let vertices = [
             [-1.0 + x_off, -1.0 + y_off],
@@ -352,4 +353,13 @@ impl Component for TextBox {
     fn on_scroll(&mut self, _client: &Arc<Client>) {}
 
     fn on_hover(&mut self, _client: &Arc<Client>, _mode: HoverMode) {}
+}
+
+impl Drop for TextBox {
+    fn drop(&mut self) {
+        let ctx = ctx();
+        for glyph in self.texts.drain(..) {
+            ctx.renderer.remove_glyph(glyph);
+        }
+    }
 }

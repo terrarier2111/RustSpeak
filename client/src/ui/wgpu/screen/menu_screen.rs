@@ -47,7 +47,7 @@ impl Screen for Menu {
                 width: BOX_WIDTH,
                 height: BOX_HEIGHT,
                 coloring: Coloring::Color([DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI]),
-                text: GlyphBuilder::new("Menu", (0.03, 0.03), (BOX_SCREEN_OFFSET_X, BOX_SCREEN_OFFSET_Y), (BOX_WIDTH, BOX_HEIGHT)).build(),
+                texts: vec![GlyphBuilder::new("Menu", (BOX_SCREEN_OFFSET_X, BOX_SCREEN_OFFSET_Y), (BOX_WIDTH, BOX_HEIGHT)).in_bounds_off((0.03, 0.03)).build()],
             },
             data: None,
             on_click: Arc::new(Box::new(|button, client| {})),
@@ -59,7 +59,7 @@ impl Screen for Menu {
                 width: BOX_WIDTH,
                 height: BOX_HEIGHT,
                 coloring: Coloring::Color([DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI]),
-                text: GlyphBuilder::new("Profiles", (0.03, 0.03), pos, (BOX_WIDTH, BOX_HEIGHT)).build(),
+                texts: vec![GlyphBuilder::new("Profiles", pos, (BOX_WIDTH, BOX_HEIGHT)).in_bounds_off((0.03, 0.03)).build()],
             },
             data: None,
             on_click: Arc::new(Box::new(|button, client| {})),
@@ -71,7 +71,7 @@ impl Screen for Menu {
                 width: BOX_WIDTH,
                 height: BOX_HEIGHT,
                 coloring: Coloring::Color([DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI]),
-                text: GlyphBuilder::new("Servers", (0.03, 0.03), pos, (BOX_WIDTH, BOX_HEIGHT)).build(),
+                texts: vec![GlyphBuilder::new("Servers", pos, (BOX_WIDTH, BOX_HEIGHT)).in_bounds_off((0.03, 0.03)).build()],
             },
             data: None,
             on_click: Arc::new(Box::new(|button, client| {
@@ -81,7 +81,9 @@ impl Screen for Menu {
         }))));
     }
 
-    fn on_deactive(&mut self, _client: &Arc<Client>) {}
+    fn on_deactive(&mut self, _client: &Arc<Client>) {
+        self.container.clear();
+    }
 
     fn tick(&mut self, _client: &Arc<Client>) {}
 

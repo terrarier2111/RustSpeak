@@ -85,9 +85,8 @@ impl ScreenSystem {
     }
 
     pub fn push_screen(&self, screen: Box<dyn Screen>) {
-        let new_offset = self.pre_computed_screens.clone().read().unwrap().len() as isize;
+        let new_offset = self.pre_computed_screens.read().unwrap().len() as isize;
         self.pre_computed_screens
-            .clone()
             .write()
             .unwrap()
             .push(screen);
@@ -106,14 +105,13 @@ impl ScreenSystem {
     }
 
     pub fn pop_screen(&self) {
-        let pre_computed_screens = self.pre_computed_screens.clone();
-        let mut pre_computed_screens = pre_computed_screens.write().unwrap();
+        let mut pre_computed_screens = self.pre_computed_screens.write().unwrap();
         if pre_computed_screens.last().is_some() {
             pre_computed_screens.pop();
             let new_offset = pre_computed_screens.len() as isize;
             let _ = self.lowest_offset.fetch_update(
-                Ordering::SeqCst,
-                Ordering::SeqCst,
+                Ordering::AcqRel,
+                Ordering::Acquire,
                 |curr_offset| {
                     if curr_offset == -1 || new_offset < curr_offset {
                         Some(new_offset)
@@ -131,14 +129,14 @@ impl ScreenSystem {
     }
 
     pub fn is_current_closable(&self) -> bool {
-        if let Some(last) = self.pre_computed_screens.clone().read().unwrap().last() {
+        if let Some(last) = self.pre_computed_screens.read().unwrap().last() {
             return last.is_closable();
         }
         false
     }
 
     pub fn is_current_ingame(&self) -> bool {
-        if let Some(last) = self.pre_computed_screens.clone().read().unwrap().last() {
+        if let Some(last) = self.pre_computed_screens.read().unwrap().last() {
             return last.ty() == ScreenType::InGame;
         }
         false
@@ -147,7 +145,6 @@ impl ScreenSystem {
     pub fn is_any_ingame(&self) -> bool {
         for screen in self
             .pre_computed_screens
-            .clone()
             .read()
             .unwrap()
             .iter()
@@ -161,17 +158,16 @@ impl ScreenSystem {
     }
 
     pub fn current_screen_ty(&self) -> ScreenType {
-        if let Some(last) = self.pre_computed_screens.clone().read().unwrap().last() {
+        if let Some(last) = self.pre_computed_screens.read().unwrap().last() {
             return last.ty();
         }
         Other(String::new())
     }
 
     pub fn receive_char(&self, received: char) {
-        if let Some(screen) = self.screens.clone().read().unwrap().last() {
+        if let Some(screen) = self.screens.read().unwrap().last() {
             screen
                 .screen
-                .clone()
                 .lock()
                 .unwrap()
                 .on_char_receive(received);
@@ -179,21 +175,24 @@ impl ScreenSystem {
     }
 
     pub fn press_key(self: &Arc<Self>, key: PhysicalKey, down: bool) {
-        if let Some(screen) = self.screens.clone().read().unwrap().last() {
-            screen
-                .screen
-                .clone()
-                .lock()
-                .unwrap()
-                .on_key_press(self, key, down);
+        if let Some(screen) = self.screens.read().unwrap().last() {
+            let mut screen = screen
+            .screen
+            .lock()
+            .unwrap();
+            if key == PhysicalKey::Code(KeyCode::Escape) && !down && screen.is_closable() {
+                drop(screen);
+                self.pop_screen();
+                return;
+            }
+            screen.on_key_press(self, key, down);
         }
     }
 
     pub fn on_mouse_click(&self, client: &Arc<Client>, pos: (f64, f64)) {
-        if let Some(screen) = self.screens.clone().read().unwrap().last() {
+        if let Some(screen) = self.screens.read().unwrap().last() {
             screen
                 .screen
-                .clone()
                 .lock()
                 .unwrap()
                 .container().on_mouse_click(client, pos);
@@ -229,17 +228,13 @@ impl ScreenSystem {
                 for _ in 0..(screens_len as isize - lowest) {
                     let screen = self.screens.clone().write().unwrap().pop().unwrap();
                     let active = screen.active;
-                    let screen = screen
-                    .screen
-                    .clone();
-                    let mut screen = screen.lock()
+                    let mut screen = screen.screen.lock()
                     .unwrap();
 
                     if active {
                         screen.on_deactive(client);
                     }
                     screen.deinit(client);
-                    ctx.renderer.reactivate_glyphs();
                 }
             }
             for screen in self
@@ -261,12 +256,13 @@ impl ScreenSystem {
                 if let Some(last) = last {
                     if last.active {
                         last.active = false;
-                        last.screen
-                            .clone()
-                            .lock()
-                            .unwrap()
-                            .on_deactive(client);
-                        ctx.renderer.deactivate_glyphs();
+                        let mut screen = last.screen
+                        .lock()
+                        .unwrap();
+                        screen.on_deactive(client);
+                        if !screen.is_tick_always() {
+                            ctx.renderer.clear_glyphs(); // FIXME: this can also do unwanted things as not all glyphs may belong to the current (non-ticking screen)
+                        }
                     }
                 }
                 let current = screens.last_mut().unwrap();
