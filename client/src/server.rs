@@ -152,7 +152,7 @@ impl Server {
                 }
                 Err(_) => {
                     // client.screen_sys.push_screen(Box::new(ConnectionFailureScreen::new(&client, server_name.to_string())));
-                    client.inter_ui_msg_queue.0.send(InterUiMessage::Error(server_name.to_string())).unwrap();
+                    client.inter_ui_msg_queue.send(InterUiMessage::Error(server_name.to_string()));
                 }
             }
 
@@ -342,7 +342,7 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
                     server.channels_by_name.store(Arc::new(channels_by_name));
                     server.default_channel.try_init_silent(default_channel_id).unwrap();
                     server.finish_auth(client.clone()).await;
-                    client.inter_ui_msg_queue.0.send(InterUiMessage::ServerConnected).unwrap();
+                    client.inter_ui_msg_queue.send(InterUiMessage::ServerConnected);
                 }
                 AuthResponse::Failure(_) => {
                     // FIXME: do error screen!
@@ -370,11 +370,11 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
                                         server_groups: profile.server_groups,
                                     };
                                     client.server.load().as_ref().unwrap().channels.load().as_ref().get(&channel).unwrap().clients.insert(user, profile.clone());
-                                    client.inter_ui_msg_queue.0.send(InterUiMessage::ChannelAddUser(channel, profile)).unwrap();
+                                    client.inter_ui_msg_queue.send(InterUiMessage::ChannelAddUser(channel, profile));
                                 }
                                 ChannelSubClientUpdate::Remove(user) => {
                                     client.server.load().as_ref().unwrap().channels.load().as_ref().get(&channel).unwrap().clients.remove(&user).unwrap().1;
-                                    client.inter_ui_msg_queue.0.send(InterUiMessage::ChannelRemoveUser(channel, user)).unwrap();
+                                    client.inter_ui_msg_queue.send(InterUiMessage::ChannelRemoveUser(channel, user));
                                 }
                             }
                         }
@@ -392,12 +392,12 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
                 server_groups: profile.server_groups.clone(),
                 channel: default_channel.clone(),
             });
-            client.inter_ui_msg_queue.0.send(InterUiMessage::ChannelAddUser(default_channel, profile)).unwrap();
+            client.inter_ui_msg_queue.send(InterUiMessage::ChannelAddUser(default_channel, profile));
         }
         ServerPacket::ClientDisconnected(profile) => {
             let client_profile = server.clients.remove(&profile.uuid).unwrap().1;
             server.channels.load().get(&client_profile.channel).unwrap().clients.insert(profile.uuid.clone(), profile);
-            client.inter_ui_msg_queue.0.send(InterUiMessage::ChannelRemoveUser(client_profile.channel, client_profile.uuid)).unwrap();
+            client.inter_ui_msg_queue.send(InterUiMessage::ChannelRemoveUser(client_profile.channel, client_profile.uuid));
         }
         ServerPacket::ClientUpdateServerGroups { .. } => {}
         ServerPacket::KeepAlive { .. } => {}

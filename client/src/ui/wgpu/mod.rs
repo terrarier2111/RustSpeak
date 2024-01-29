@@ -3,7 +3,7 @@ use std::sync::Arc;
 use wgpu::TextureFormat;
 use wgpu_biolerless::StateBuilder;
 use winit::event::{ElementState, Event, MouseButton, WindowEvent};
-use winit::event_loop::{ControlFlow, EventLoopBuilder};
+use winit::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
 use winit::window::{Window, WindowBuilder};
 use crate::Client;
 use crate::data_structures::conc_once_cell::ConcurrentOnceCell;
@@ -12,6 +12,8 @@ use crate::ui::wgpu::render::Renderer;
 use crate::ui::wgpu::screen::menu_screen::Menu;
 use crate::ui::wgpu::screen::server_list::ServerList;
 use crate::ui::wgpu::screen_sys::ScreenSystem;
+
+use super::{InterUiMessage, UiQueue, UiQueueSender};
 
 mod ui;
 mod atlas;
@@ -38,6 +40,7 @@ pub(crate) struct UiCtx {
     pub(crate) renderer: Arc<Renderer>,
     pub(crate) atlas: Arc<Atlas>,
     pub(crate) window: Arc<Window>,
+    pub(crate) queue: EventLoopProxy<InterUiMessage>,
 }
 
 static UI_CTX: ConcurrentOnceCell<Arc<UiCtx>> = ConcurrentOnceCell::new();
@@ -46,8 +49,15 @@ pub(crate) fn ctx() -> &'static Arc<UiCtx> {
     UI_CTX.get().unwrap()
 }
 
+pub fn queue() -> Box<dyn UiQueue> {
+    Box::new(|msg| {
+        ctx().queue.send_event(msg).unwrap();
+    })
+}
+
 pub fn run(client: Arc<Client>) -> anyhow::Result<()> {
-    let event_loop = EventLoopBuilder::new().build()?;
+    let event_loop = EventLoopBuilder::with_user_event().build()?;
+    let proxy = event_loop.create_proxy();
     let window = Arc::new(WindowBuilder::new()
         .with_title("RustSpeak")
         .build(&event_loop)
@@ -70,6 +80,7 @@ pub fn run(client: Arc<Client>) -> anyhow::Result<()> {
         renderer: renderer.clone(),
         atlas: atlas.clone(),
         window: window.clone(),
+        queue: proxy,
     })).unwrap();
 
     let mut mouse_pos = (0.0, 0.0);
@@ -137,7 +148,7 @@ pub fn run(client: Arc<Client>) -> anyhow::Result<()> {
             _ => {}
         },
         Event::DeviceEvent { .. } => {},
-        Event::UserEvent(_) => {},
+        Event::UserEvent(event) => {},
         _ => {},
     })?;
     Ok(())

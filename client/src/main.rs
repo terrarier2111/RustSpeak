@@ -16,6 +16,7 @@ use bytes::{Bytes, BytesMut};
 use clitty::core::{CLICore, CmdParamStrConstraints, CommandBuilder, CommandParam, CommandParamTy, UsageBuilder};
 use clitty::ui::{CLIBuilder, CmdLineInterface, PrintFallback};
 use quinn::ClientConfig;
+use ui::UiQueue;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -54,6 +55,8 @@ const VOICE_THRESHOLD: i16 = 50/*100*/; // 0-6 even occurs in idle (if nobody is
 
 const MIN_BUF_SIZE: usize = 480;
 
+const UI: UiImpl = UiImpl::Wgpu;
+
 // FIXME: can we even let tokio do this right here? do we have to run our event_loop on the main thread?
 #[tokio::main] // FIXME: is it okay to use tokio in the main thread already, don't we need it to do rendering stuff?
 async fn main() -> anyhow::Result<()> {
@@ -84,7 +87,7 @@ async fn main() -> anyhow::Result<()> {
         cli,
         server: SwapArcOption::empty(),
         audio: SwapArc::new(Arc::new(Audio::from_cfg(&AudioConfig::new()?.unwrap())?.unwrap())),
-        inter_ui_msg_queue: Arc::new(flume::unbounded()),
+        inter_ui_msg_queue: ui::ui_queue(UI),
     });
 
     let tmp = client.clone();
@@ -160,7 +163,7 @@ async fn main() -> anyhow::Result<()> {
         "Client started up successfully, waiting for commands..."
     );
 
-    Ok(ui::start_ui(client, UiImpl::Wgpu)?)
+    Ok(ui::start_ui(client, UI)?)
 }
 
 fn load_data() -> anyhow::Result<(Config, ProfileDb)> {
@@ -219,7 +222,7 @@ pub struct Client {
     pub cli: Arc<CmdLineInterface<Arc<Client>>>,
     pub server: SwapArcOption<Server>, // FIXME: support multiple servers at once!
     pub audio: SwapArc<Audio>,
-    pub inter_ui_msg_queue: Arc<(Sender<InterUiMessage>, Receiver<InterUiMessage>)>,
+    pub inter_ui_msg_queue: Box<dyn UiQueue>,
 }
 
 impl Client {

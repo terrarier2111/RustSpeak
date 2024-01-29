@@ -13,6 +13,13 @@ pub enum UiImpl {
     Iced,
 }
 
+pub fn ui_queue(ui: UiImpl) -> Box<dyn UiQueue> {
+    match ui {
+        UiImpl::Wgpu => wgpu::queue(),
+        UiImpl::Iced => todo!(),
+    }
+}
+
 pub fn start_ui(client: Arc<Client>, ui: UiImpl) -> anyhow::Result<()> {
     match ui {
         UiImpl::Wgpu => {
@@ -32,4 +39,24 @@ pub enum InterUiMessage {
     UpdateProfiles,
     Error(String),
     ServerConnected,
+}
+
+pub(crate) type UiQueueSender = Box<dyn Fn(InterUiMessage) + Send + Sync + 'static>;
+
+pub trait UiQueue: Send + Sync + 'static {
+
+    fn send(&self, msg: InterUiMessage);
+
+}
+
+impl<U: Fn(InterUiMessage) + Send + Sync + 'static> UiQueue for U {
+    fn send(&self, msg: InterUiMessage) {
+        self(msg)
+    }
+}
+
+impl UiQueue for dyn Fn(InterUiMessage) + Send + Sync + 'static {
+    fn send(&self, msg: InterUiMessage) {
+        self(msg)
+    }
 }

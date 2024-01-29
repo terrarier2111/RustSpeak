@@ -24,6 +24,12 @@ use crate::protocol::UserUuid;
 use crate::server::Server;
 use crate::ui::InterUiMessage;
 
+static CTX: ConcurrentOnceCell<UiCtx> = ConcurrentOnceCell::new();
+
+struct UiCtx {
+    pub message_queue: Arc<(Sender<InterUiMessage>, Receiver<InterUiMessage>)>,
+}
+
 pub(crate) fn run(client: Arc<Client>) -> anyhow::Result<()> {
     init_client(client);
     Ok(Ui::run(Settings::default())?)

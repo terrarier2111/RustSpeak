@@ -18,7 +18,7 @@ impl CommandImpl for CommandProfiles {
                     return Err(anyhow::Error::from(ProfileAlreadyExistsError(input[1].to_string())));
                 }
                 client.profile_db.insert(DbProfile::new(input[1].to_string(), input[1].to_string())?)?; // FIXME: support custom alias!
-                client.inter_ui_msg_queue.0.send(InterUiMessage::UpdateProfiles).unwrap();
+                client.inter_ui_msg_queue.send(InterUiMessage::UpdateProfiles);
                 client.println(format!("A profile with the name {} was created.", input[1]).as_str());
             },
             "list" => {
