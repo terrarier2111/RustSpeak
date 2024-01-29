@@ -73,6 +73,7 @@ pub fn run(client: Arc<Client>) -> anyhow::Result<()> {
     })).unwrap();
 
     let mut mouse_pos = (0.0, 0.0);
+    // FIXME: redraw once we got a notification from the (flume) channel
     event_loop.run(move |event, control_flow| match event {
         Event::WindowEvent { window_id, event } if window_id == window.id() => match event {
             WindowEvent::Resized(size) => {
@@ -94,6 +95,9 @@ pub fn run(client: Arc<Client>) -> anyhow::Result<()> {
             WindowEvent::Focused(_) => {}
             WindowEvent::KeyboardInput { event, .. } => {
                 screen_sys.press_key(event.physical_key, event.state == ElementState::Pressed);
+                // perform redraw
+                let models = screen_sys.tick(0.0, &client, &window);
+                renderer.render(models, atlas.clone());
             }
             WindowEvent::ModifiersChanged(_) => {}
             WindowEvent::CursorMoved { position, .. } => {
@@ -106,6 +110,9 @@ pub fn run(client: Arc<Client>) -> anyhow::Result<()> {
             WindowEvent::MouseInput { button, state, .. } => {
                 if button == MouseButton::Left && state == ElementState::Released {
                     screen_sys.on_mouse_click(&client, mouse_pos);
+                    // perform redraw
+                    let models = screen_sys.tick(0.0, &client, &window);
+                    renderer.render(models, atlas.clone());
                 }
             }
             WindowEvent::TouchpadPressure { .. } => {}
@@ -116,11 +123,14 @@ pub fn run(client: Arc<Client>) -> anyhow::Result<()> {
                     panic!("Couldn't resize!");
                 }
                 renderer.rescale_glyphs();
+                // perform redraw
+                let models = screen_sys.tick(0.0, &client, &window);
+                renderer.render(models, atlas.clone());
             }
             WindowEvent::ThemeChanged(_) => {}
             WindowEvent::Occluded(_) => {}
             WindowEvent::RedrawRequested => {
-                // FIXME: perform redraw
+                // perform redraw
                 let models = screen_sys.tick(0.0, &client, &window);
                 renderer.render(models, atlas.clone());
             }

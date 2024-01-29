@@ -207,6 +207,7 @@ impl ScreenSystem {
         client: &Arc<Client>,
         window: &Window,
     ) -> Vec<Model> {
+        println!("tick!");
         let ctx = ctx();
         let lowest = self.lowest_offset.load(Ordering::Acquire);
         if lowest != -1 {
@@ -228,20 +229,18 @@ impl ScreenSystem {
             if lowest <= screens_len as isize {
                 for _ in 0..(screens_len as isize - lowest) {
                     let screen = self.screens.clone().write().unwrap().pop().unwrap();
-                    if screen.active {
-                        screen
-                            .screen
-                            .clone()
-                            .lock()
-                            .unwrap()
-                            .on_deactive(client);
+                    let active = screen.active;
+                    let screen = screen
+                    .screen
+                    .clone();
+                    let mut screen = screen.lock()
+                    .unwrap();
+
+                    if active {
+                        screen.on_deactive(client);
                     }
-                    screen
-                        .screen
-                        .clone()
-                        .lock()
-                        .unwrap()
-                        .deinit(client);
+                    screen.deinit(client);
+                    ctx.renderer.reactivate_glyphs();
                 }
             }
             for screen in self
@@ -268,9 +267,10 @@ impl ScreenSystem {
                             .lock()
                             .unwrap()
                             .on_deactive(client);
+                        ctx.renderer.deactivate_glyphs();
                     }
                 }
-                let mut current = screens.last_mut().unwrap();
+                let current = screens.last_mut().unwrap();
                 let curr_screen = current.screen.clone();
                 let mut curr_screen = curr_screen.lock().unwrap();
                 curr_screen.init(client);

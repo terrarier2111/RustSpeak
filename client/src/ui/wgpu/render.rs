@@ -29,6 +29,7 @@ pub struct Renderer {
     color_circle_pipeline: RenderPipeline,
     pub dimensions: Dimensions,
     glyphs: Mutex<HashMap<usize, CompiledGlyph>>,
+    inactive_glyphs: Mutex<Vec<HashMap<usize, CompiledGlyph>>>,
     glyph_ctx: Mutex<GlyphCtx>,
     glyph_id_cnt: AtomicUsize,
     font_system: Mutex<FontSystem>,
@@ -129,6 +130,7 @@ impl Renderer {
             }),
             font_system: Mutex::new(FontSystem::new()),
             glyph_id_cnt: AtomicUsize::new(0),
+            inactive_glyphs: Mutex::new(vec![]),
         })
     }
 
@@ -446,6 +448,20 @@ impl Renderer {
 
     pub fn remove_glyph(&self, glyph_id: GlyphId) -> bool {
         self.glyphs.lock().unwrap().remove(&glyph_id.0).is_some()
+    }
+
+    pub fn reactivate_glyphs(&self) {
+        let old_glyphs = self.inactive_glyphs.lock().unwrap().pop().unwrap();
+        *self.glyphs.lock().unwrap() = old_glyphs;
+    }
+
+    pub fn deactivate_glyphs(&self) {
+        let curr_glyphs = core::mem::take(self.glyphs.lock().unwrap().deref_mut());
+        self.inactive_glyphs.lock().unwrap().push(curr_glyphs);
+    }
+
+    pub fn clear_glyphs(&self) {
+        self.glyphs.lock().unwrap().clear();
     }
 
     fn gen_glyph_id(&self) -> usize {
