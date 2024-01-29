@@ -19,7 +19,7 @@ pub trait Screen: Send + Sync {
     fn on_deactive(&mut self, _client: &Arc<Client>);
 
     // Called every frame the screen is active
-    fn tick(&mut self, _client: &Arc<Client>, _delta: f64);
+    fn tick(&mut self, _client: &Arc<Client>);
 
     // Events
     fn on_scroll(&mut self, _x: f64, _y: f64) {}
@@ -203,7 +203,6 @@ impl ScreenSystem {
     #[allow(unused_must_use)]
     pub fn tick(
         self: &Arc<Self>,
-        delta: f64,
         client: &Arc<Client>,
         window: &Window,
     ) -> Vec<Model> {
@@ -329,7 +328,7 @@ impl ScreenSystem {
             let inner_screen = screen.1.screen.clone();
             let mut inner_screen = inner_screen.lock().unwrap();
             if inner_screen.is_tick_always() || screen.0 == len - 1 {
-                inner_screen.tick(client, delta);
+                inner_screen.tick(client);
                 let mut screen_models = inner_screen.container().build_models(client);
                 models.append(&mut screen_models);
             }

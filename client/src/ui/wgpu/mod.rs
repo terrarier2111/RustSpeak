@@ -13,6 +13,8 @@ use crate::ui::wgpu::screen::menu_screen::Menu;
 use crate::ui::wgpu::screen::server_list::ServerList;
 use crate::ui::wgpu::screen_sys::ScreenSystem;
 
+use self::screen::error_screen::ErrorScreen;
+
 use super::{InterUiMessage, UiQueue, UiQueueSender};
 
 mod ui;
@@ -85,7 +87,12 @@ pub fn run(client: Arc<Client>) -> anyhow::Result<()> {
 
     let mut mouse_pos = (0.0, 0.0);
     // FIXME: redraw once we got a notification from the (flume) channel
-    event_loop.run(move |event, control_flow| match event {
+    event_loop.run(move |event, control_flow| {
+        let redraw = || {
+            let models = screen_sys.tick(&client, &window);
+            renderer.render(models, atlas.clone());
+        };
+        match event {
         Event::WindowEvent { window_id, event } if window_id == window.id() => match event {
             WindowEvent::Resized(size) => {
                 if !state.resize(size) {
@@ -94,6 +101,7 @@ pub fn run(client: Arc<Client>) -> anyhow::Result<()> {
                     renderer.dimensions.set(size.width, size.height);
                 }
                 renderer.rescale_glyphs();
+                redraw();
             }
             WindowEvent::Moved(_) => {}
             WindowEvent::CloseRequested => {
@@ -106,9 +114,7 @@ pub fn run(client: Arc<Client>) -> anyhow::Result<()> {
             WindowEvent::Focused(_) => {}
             WindowEvent::KeyboardInput { event, .. } => {
                 screen_sys.press_key(event.physical_key, event.state == ElementState::Pressed);
-                // perform redraw
-                let models = screen_sys.tick(0.0, &client, &window);
-                renderer.render(models, atlas.clone());
+                redraw();
             }
             WindowEvent::ModifiersChanged(_) => {}
             WindowEvent::CursorMoved { position, .. } => {
@@ -121,9 +127,7 @@ pub fn run(client: Arc<Client>) -> anyhow::Result<()> {
             WindowEvent::MouseInput { button, state, .. } => {
                 if button == MouseButton::Left && state == ElementState::Released {
                     screen_sys.on_mouse_click(&client, mouse_pos);
-                    // perform redraw
-                    let models = screen_sys.tick(0.0, &client, &window);
-                    renderer.render(models, atlas.clone());
+                    redraw();
                 }
             }
             WindowEvent::TouchpadPressure { .. } => {}
@@ -134,22 +138,31 @@ pub fn run(client: Arc<Client>) -> anyhow::Result<()> {
                     panic!("Couldn't resize!");
                 }
                 renderer.rescale_glyphs();
-                // perform redraw
-                let models = screen_sys.tick(0.0, &client, &window);
-                renderer.render(models, atlas.clone());
+                redraw();
             }
             WindowEvent::ThemeChanged(_) => {}
             WindowEvent::Occluded(_) => {}
             WindowEvent::RedrawRequested => {
                 // perform redraw
-                let models = screen_sys.tick(0.0, &client, &window);
-                renderer.render(models, atlas.clone());
+                redraw();
             }
             _ => {}
         },
         Event::DeviceEvent { .. } => {},
-        Event::UserEvent(event) => {},
+        Event::UserEvent(event) => {
+            match event {
+                InterUiMessage::ChannelRemoveUser(_, _) => todo!(),
+                InterUiMessage::ChannelAddUser(_, _) => todo!(),
+                InterUiMessage::UpdateProfiles => todo!(),
+                InterUiMessage::Error(error) => {
+                    screen_sys.push_screen(Box::new(ErrorScreen::new(&client, error)));
+                    redraw();
+                },
+                InterUiMessage::ServerConnected => todo!(),
+            }
+        },
         _ => {},
-    })?;
+    }
+})?;
     Ok(())
 }

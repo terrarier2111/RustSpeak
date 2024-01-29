@@ -73,7 +73,7 @@ impl Screen for ServerList {
 
     fn on_deactive(&mut self, _client: &Arc<Client>) {}
 
-    fn tick(&mut self, _client: &Arc<Client>, _delta: f64) {}
+    fn tick(&mut self, _client: &Arc<Client>) {}
 
     fn is_closable(&self) -> bool {
         false

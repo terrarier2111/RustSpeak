@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use atomic_float::AtomicF64;
 use crate::Client;
 use crate::ui::wgpu::ctx;
-use crate::ui::wgpu::render::{ColorSource, GlyphBuilder, GlyphId, GlyphInfo, Model, TexTy, Vertex};
+use crate::ui::wgpu::render::{ColorSource, GlyphId, Model, TexTy, Vertex};
 
 pub trait Component: Send + Sync {
     fn build_model(&self) -> Model;

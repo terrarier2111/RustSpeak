@@ -152,7 +152,7 @@ impl Server {
                 }
                 Err(_) => {
                     // client.screen_sys.push_screen(Box::new(ConnectionFailureScreen::new(&client, server_name.to_string())));
-                    client.inter_ui_msg_queue.send(InterUiMessage::Error(server_name.to_string()));
+                    client.inter_ui_msg_queue.send(InterUiMessage::Error(format!("Failed connecting with \"{}\"", &server_name)));
                 }
             }
 
