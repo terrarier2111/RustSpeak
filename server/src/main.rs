@@ -1,6 +1,5 @@
 #![feature(new_uninit)]
 #![feature(int_roundings)]
-#![feature(once_cell)]
 #![feature(strict_provenance)]
 #![feature(adt_const_params)]
 #![feature(arbitrary_self_types)]
@@ -964,6 +963,18 @@ impl CommandImpl for CommandChannel {
     fn execute(&self, server: &Arc<Server>, input: &[&str]) -> anyhow::Result<()> {
         if input.len() == 1 {
             // FIXME: print channel info!
+            let mut channels = server.channels.read().block_on();
+            if let Some(channel) = {
+                channels.iter().find(|(_, channel)| channel.name.load().deref().as_str().eq_ignore_ascii_case(input[0]))
+            } {
+                server.println(format!("Channel \"{}\"", channel.1.name.load().deref()).as_str());
+                server.println(format!("  UUID: \"{}\"", channel.1.uuid).as_str());
+                server.println(format!("  Slots: \"{}\"", channel.1.slots.load(Ordering::Acquire)).as_str());
+                server.println(format!("  SortId: \"{}\"", channel.1.sort_id.load(Ordering::Acquire)).as_str());
+                server.println(format!("  Description: \"{}\"", channel.1.desc.load().as_str()).as_str());
+                server.println(format!("  HasPassword: \"{}\"", channel.1.password.load(Ordering::Acquire)).as_str()); // FIXME: print pw (only if requested)
+                server.println(format!("  Clients: \"{}\"", channel.1.clients.blocking_read().len()).as_str()); // FIXME: print names!
+            }
             return Ok(());
         }
         match input[1] {
