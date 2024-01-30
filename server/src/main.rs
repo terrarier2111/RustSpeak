@@ -262,7 +262,7 @@ fn main() -> anyhow::Result<()> {
                     ty: CommandParamTy::Enum(CmdParamEnumConstraints::IgnoreCase(vec![("create", EnumVal::Complex(UsageSubBuilder::new().required(CommandParam {
                         name: "slots",
                         ty: CommandParamTy::Int(CmdParamNumConstraints::None),
-                    }))), // FIXME: expand this!
+                    }))), // FIXME: expand this with (sort_id, password, description)
                                                   ("delete", EnumVal::None), ("edit", EnumVal::Complex(UsageSubBuilder::new().required(CommandParam {
                         name: "property",
                         ty: CommandParamTy::Enum(CmdParamEnumConstraints::IgnoreCase(vec![("name", EnumVal::Simple(CommandParamTy::String(CmdParamStrConstraints::None))), ("slots", EnumVal::Simple(CommandParamTy::Int(CmdParamNumConstraints::None)))])), // FIXME: expand this!
@@ -963,17 +963,24 @@ impl CommandImpl for CommandChannel {
     fn execute(&self, server: &Arc<Server>, input: &[&str]) -> anyhow::Result<()> {
         if input.len() == 1 {
             // FIXME: print channel info!
-            let mut channels = server.channels.read().block_on();
+            let channels = server.channels.read().block_on();
             if let Some(channel) = {
                 channels.iter().find(|(_, channel)| channel.name.load().deref().as_str().eq_ignore_ascii_case(input[0]))
             } {
-                server.println(format!("Channel \"{}\"", channel.1.name.load().deref()).as_str());
-                server.println(format!("  UUID: \"{}\"", channel.1.uuid).as_str());
-                server.println(format!("  Slots: \"{}\"", channel.1.slots.load(Ordering::Acquire)).as_str());
-                server.println(format!("  SortId: \"{}\"", channel.1.sort_id.load(Ordering::Acquire)).as_str());
+                server.println(format!("Channel \"{}\":", channel.1.name.load().deref()).as_str());
+                server.println(format!("  UUID: {}", channel.1.uuid).as_str());
+                server.println(format!("  Slots: {}", {
+                    let val = channel.1.slots.load(Ordering::Acquire);
+                    if val < 1 {
+                        Cow::Borrowed("unlimited")
+                    } else {
+                        Cow::Owned(val.to_string())
+                    }
+                }).as_str());
+                server.println(format!("  SortId: {}", channel.1.sort_id.load(Ordering::Acquire)).as_str());
                 server.println(format!("  Description: \"{}\"", channel.1.desc.load().as_str()).as_str());
-                server.println(format!("  HasPassword: \"{}\"", channel.1.password.load(Ordering::Acquire)).as_str()); // FIXME: print pw (only if requested)
-                server.println(format!("  Clients: \"{}\"", channel.1.clients.blocking_read().len()).as_str()); // FIXME: print names!
+                server.println(format!("  HasPassword: {}", channel.1.password.load(Ordering::Acquire)).as_str()); // FIXME: print pw (only if requested)
+                server.println(format!("  Clients: {}", channel.1.clients.blocking_read().len()).as_str()); // FIXME: print names!
             }
             return Ok(());
         }
