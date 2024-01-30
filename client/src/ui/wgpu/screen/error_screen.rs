@@ -109,6 +109,11 @@ impl Screen for ErrorScreen {
         false
     }
 
+    #[inline(always)]
+    fn is_transparent(&self) -> bool {
+        true
+    }
+
     fn clone_screen(&self) -> Box<dyn Screen> {
         Box::new(self.clone())
     }

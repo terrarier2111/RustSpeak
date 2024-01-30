@@ -14,6 +14,7 @@ use crate::ui::wgpu::screen::server_list::ServerList;
 use crate::ui::wgpu::screen_sys::ScreenSystem;
 
 use self::screen::error_screen::ErrorScreen;
+use self::screen::server_channels::ServerChannelsScreen;
 
 use super::{InterUiMessage, UiQueue, UiQueueSender};
 
@@ -158,7 +159,10 @@ pub fn run(client: Arc<Client>) -> anyhow::Result<()> {
                     screen_sys.push_screen(Box::new(ErrorScreen::new(&client, error)));
                     redraw();
                 },
-                InterUiMessage::ServerConnected => todo!(),
+                InterUiMessage::ServerConnected => {
+                    screen_sys.push_screen(Box::new(ServerChannelsScreen::new()));
+                    redraw();
+                },
             }
         },
         _ => {},

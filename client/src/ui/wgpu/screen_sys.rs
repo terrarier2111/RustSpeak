@@ -42,6 +42,10 @@ pub trait Screen: Send + Sync {
         false
     }
 
+    fn is_transparent(&self) -> bool {
+        false
+    }
+
     fn ty(&self) -> ScreenType {
         Other(String::new())
     }
@@ -226,10 +230,9 @@ impl ScreenSystem {
             };
             if lowest <= screens_len as isize {
                 for _ in 0..(screens_len as isize - lowest) {
-                    let screen = self.screens.clone().write().unwrap().pop().unwrap();
+                    let screen = self.screens.write().unwrap().pop().unwrap();
                     let active = screen.active;
-                    let mut screen = screen.screen.lock()
-                    .unwrap();
+                    let mut screen = screen.screen.lock().unwrap();
 
                     if active {
                         screen.on_deactive(client);
@@ -294,18 +297,18 @@ impl ScreenSystem {
             current.active = true;
             current
                 .screen
-                .clone()
                 .lock()
                 .unwrap()
                 .on_active(client);
         }
         let (width, height) = ctx.renderer.dimensions.get();
+        let last_transparent = current.screen.lock().unwrap().is_transparent();
         if current.last_width != width as i32 || current.last_height != height as i32 {
             if current.last_width != -1 && current.last_height != -1 {
                 for screen in tmp.iter_mut().enumerate() {
                     let inner_screen = screen.1.screen.clone();
                     let mut inner_screen = inner_screen.lock().unwrap();
-                    if inner_screen.is_tick_always() || screen.0 == len - 1 {
+                    if inner_screen.is_tick_always() || screen.0 == len - 1 || (last_transparent && screen.0 == len - 2) {
                         inner_screen.on_resize(client);
                         drop(inner_screen);
                         let (width, height) = ctx.renderer.dimensions.get();

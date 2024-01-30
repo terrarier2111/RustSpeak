@@ -326,19 +326,7 @@ impl Component for TextBox {
         }
     }
 
-    fn do_render(&self, client: &Arc<Client>) {
-        let ctx = ctx();
-        // let (width, height) = ctx.renderer.dimensions.get();
-        // ctx.renderer.add_glyph(&self.text);
-        /*ctx.renderer.queue_glyph(0, Section {
-            screen_position: (self.pos.0 * width as f32/*(self.pos.0 - 1.0) / 2.0*/, /*0.0*/(1.0 - self.pos.1/* - self.height*/) * height as f32/*(self.pos.1 - 1.0) / 2.0*/),
-            bounds: (self.width * width as f32, self.height * height as f32),
-            layout: self.text.layout,
-            text: self.text.text.iter().enumerate().map(|txt| {
-                txt.1.with_text(&*self.text.texts[txt.0])
-            }).collect::<Vec<_>>(),
-        });*/
-    }
+    fn do_render(&self, _client: &Arc<Client>) {}
 
     fn pos(&self) -> (f32, f32) {
         self.pos

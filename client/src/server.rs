@@ -163,7 +163,9 @@ impl Server {
     pub async fn error(&self, err: anyhow::Error, client: &Arc<Client>) {
         if self.state.try_set_disconnected() {
             // FIXME: somehow give feedback to server
-            self.connection.get().unwrap().close().await.unwrap();
+            
+            // ignore errors happening on close
+            let _ = self.connection.get().unwrap().close().await;
             client.println(format!("An error occurred in the connection with {}: {}", self.name, err).as_str());
         }
     }

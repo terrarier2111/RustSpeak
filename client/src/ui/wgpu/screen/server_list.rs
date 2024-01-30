@@ -82,7 +82,12 @@ impl Screen for ServerList {
 
     #[inline(always)]
     fn is_tick_always(&self) -> bool {
-        true
+        false
+    }
+
+    #[inline(always)]
+    fn is_transparent(&self) -> bool {
+        false
     }
 
     fn container(&self) -> &Arc<Container> {

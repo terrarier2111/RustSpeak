@@ -478,14 +478,14 @@ impl RWBytes for RemoteProfile {
 
 #[derive(Debug, Clone)]
 pub struct Channel {
-    pub(crate) id: Uuid,
-    pub(crate) password: bool, // FIXME: add capability to hide users if a password is set
-    pub(crate) name: String,
-    pub(crate) desc: String,
-    pub(crate) perms: ChannelPerms,
-    pub(crate) clients: DashMap<UserUuid, RemoteProfile>,
-    pub(crate) slots: i16,
-    pub(crate) sort_id: u16,
+    pub id: Uuid,
+    pub password: bool, // FIXME: add capability to hide users if a password is set
+    pub name: String,
+    pub desc: String,
+    pub perms: ChannelPerms,
+    pub clients: DashMap<UserUuid, RemoteProfile>,
+    pub slots: i16,
+    pub sort_id: u16,
 }
 
 impl RWBytes for Channel {
