@@ -15,7 +15,7 @@ use crate::server_group_db::{ServerGroupDb, ServerGroupEntry};
 use crate::user_db::{DbUser, UserDb};
 use crate::utils::{LIGHT_GRAY, parse_bool};
 use bytes::Buf;
-use clitty::core::{CmdParamEnumConstraints, CmdParamNumConstraints, CmdParamStrConstraints, CommandBuilder, CommandImpl, CommandParam, CommandParamTy, EnumVal, UsageBuilder, UsageSubBuilder};
+use clitty::core::{CmdParamEnumConstraints, CmdParamNumConstraints, CmdParamStrConstraints, CommandBuilder, CommandImpl, CommandParam, CommandParamTy, EnumVal, UsageBuilder};
 use clitty::ui::{CLIBuilder, CmdLineInterface, PrintFallback};
 use colored::{Color, ColoredString, Colorize};
 use dashmap::DashMap;
@@ -29,6 +29,7 @@ use std::error::Error;
 use std::fmt::{Debug, Display, Formatter, Write};
 use std::fs::File;
 use std::net::IpAddr;
+use std::num::NonZeroUsize;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicI16, AtomicU16, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -259,11 +260,12 @@ fn main() -> anyhow::Result<()> {
                     ty: CommandParamTy::String(CmdParamStrConstraints::None),
                 }).optional(CommandParam {
                     name: "action",
-                    ty: CommandParamTy::Enum(CmdParamEnumConstraints::IgnoreCase(vec![("create", EnumVal::Complex(UsageSubBuilder::new().required(CommandParam {
+                    ty: CommandParamTy::Enum(CmdParamEnumConstraints::IgnoreCase(vec![("create", EnumVal::Complex(UsageBuilder::new().required(CommandParam {
                         name: "slots",
-                        ty: CommandParamTy::Int(CmdParamNumConstraints::None),
-                    }))), // FIXME: expand this with (sort_id, password, description)
-                                                  ("delete", EnumVal::None), ("edit", EnumVal::Complex(UsageSubBuilder::new().required(CommandParam {
+                        ty: CommandParamTy::UInt(CmdParamNumConstraints::None),
+                    }).optional(CommandParam { name: "sort_id", ty: CommandParamTy::UInt(CmdParamNumConstraints::None) })
+                .optional(CommandParam { name: "password", ty: CommandParamTy::String(CmdParamStrConstraints::None) }).optional(CommandParam { name: "description", ty: CommandParamTy::Unbound { minimum: NonZeroUsize::new(1).unwrap(), param: Box::new(CommandParamTy::String(CmdParamStrConstraints::None)) } }))),
+                                                  ("delete", EnumVal::None), ("edit", EnumVal::Complex(UsageBuilder::new().required(CommandParam {
                         name: "property",
                         ty: CommandParamTy::Enum(CmdParamEnumConstraints::IgnoreCase(vec![("name", EnumVal::Simple(CommandParamTy::String(CmdParamStrConstraints::None))), ("slots", EnumVal::Simple(CommandParamTy::Int(CmdParamNumConstraints::None)))])), // FIXME: expand this!
                     })))])),
@@ -851,9 +853,9 @@ impl CommandImpl for CommandHelp {
 
     fn execute(&self, server: &Arc<Server>, _input: &[&str]) -> anyhow::Result<()> {
         let cmds = server.cli.cmds();
-        server.println(format!("Commands ({}):", cmds.len()).as_str());
-        for cmd in cmds.iter() {
-            let usage = if let Some(usage) = cmd.1.params() {
+        server.println(format!("Commands ({}):", server.cli.cmd_count()).as_str());
+        for cmd in cmds {
+            let usage = if let Some(usage) = cmd.params() {
                 let mut ret_usage = String::new();
                 for param in usage.required() {
                     ret_usage.push(' ');
@@ -896,10 +898,10 @@ impl CommandImpl for CommandHelp {
             } else {
                 String::new()
             };
-            if let Some(desc) = cmd.1.desc() {
-                server.println(format!("{}{}: {}", cmd.1.name(), usage, desc).as_str());
+            if let Some(desc) = cmd.desc() {
+                server.println(format!("{}{}: {}", cmd.name(), usage, desc).as_str());
             } else {
-                server.println(format!("{}{}", cmd.1.name(), usage).as_str());
+                server.println(format!("{}{}", cmd.name(), usage).as_str());
             }
         }
 
