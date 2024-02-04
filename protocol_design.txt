@@ -1,0 +1,6 @@
+Every user has a "home server" which receives messages for that users while the user is offline
+A home server only receives encrypted messages
+More security by having a conversation key for every conversation for every user
+Backwards secrecy by hashing the conversation key and using that hashed key as the new key (either every n messages, every t time period or by sending a hash request to each other (probably not that viable))
+Forward secrecy by logging in through a mid-term key thats derived from a provided key and an additional secret that's established at the very first login and the secret is used in combination with the key and a irreversible function to generate the new key also the time of rehashing can be used in this function to make it even more forward secret safe (this time has to be communicated by the party recreating the key)
+For friends wanting to send a user a message, the temporary conversation key technique from above can also be used to hide the senders identity from the server, for this let the user on the server provide new signed conversation keys to the other user (make sure that there are 2 temporary keys, one key that server may see to ensure that the sender is allowed to communicate with the user and a private key that is used to encrypt/decrypt messages in the conversation)
