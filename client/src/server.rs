@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Arc, RwLock};
+use std::sync::atomic::{AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::time::Duration;
 use bytes::Buf;
 use dashmap::DashMap;
@@ -14,7 +14,7 @@ use crate::audio::{AudioMode, SAMPLE_RATE};
 use crate::data_structures::byte_buf_ring::BBRing;
 use crate::data_structures::conc_once_cell::ConcurrentOnceCell;
 use crate::ui::InterUiMessage;
-use crate::packet::{AuthResponse, ChannelSubClientUpdate, ChannelSubUpdate, ChannelUpdate, RemoteProfile, ServerPacket};
+use crate::packet::{AuthResponse, ChannelSubClientUpdate, ChannelSubUpdate, ChannelUpdate, GroupPerms, RemoteProfile, ServerPacket};
 use crate::protocol::UserUuid;
 
 pub struct Server {
@@ -23,6 +23,7 @@ pub struct Server {
     pub default_channel: ConcurrentOnceCell<Uuid>,
     pub channels: SwapArc<HashMap<Uuid, Channel>>,
     pub channels_by_name: SwapArc<HashMap<String, Uuid>>, // FIXME: maintain this!
+    pub groups: DashMap<Uuid, Arc<ServerGroup>>,
     pub clients: DashMap<UserUuid, ConnectedRemoteProfile>,
     pub state: ServerState,
     pub name: String,
@@ -71,6 +72,7 @@ impl Server {
             default_channel: ConcurrentOnceCell::new(),
             channels: Default::default(),
             channels_by_name: Default::default(),
+            groups: DashMap::new(),
             clients: Default::default(),
             state: ServerState::new(),
             name: server_name.clone(),
@@ -345,6 +347,14 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
                     server.channels.store(Arc::new(channels_by_uuid));
                     server.channels_by_name.store(Arc::new(channels_by_name));
                     server.default_channel.try_init_silent(default_channel_id).unwrap();
+                    for group in server_groups {
+                        server.groups.insert(group.uuid, Arc::new(ServerGroup {
+                            uuid: group.uuid,
+                            name: SwapArc::new(Arc::new(group.name.into_owned())),
+                            priority: AtomicU64::new(group.priority),
+                            perms: RwLock::new(group.perms.clone()),
+                        }));
+                    }
                     server.finish_auth(client.clone()).await;
                     client.inter_ui_msg_queue.send(InterUiMessage::ServerConnected);
                 }
@@ -450,4 +460,11 @@ pub struct ConnectedRemoteProfile {
     pub uuid: UserUuid,
     pub server_groups: Vec<Uuid>,
     pub channel: Uuid,
+}
+
+pub struct ServerGroup {
+    pub uuid: Uuid,
+    pub name: SwapArc<String>,
+    pub priority: AtomicU64,
+    pub perms: RwLock<GroupPerms>,
 }

@@ -713,7 +713,7 @@ impl RWBytes for ChannelCreatePerms {
 pub enum AuthResponse<'a> {
     Success {
         default_channel_id: Uuid,
-        server_groups: Vec<Arc<ServerGroup<'a>>>,
+        server_groups: Vec<ServerGroup<'a>>,
         own_groups: Vec<Uuid>,
         channels: Vec<Channel>,
     },
@@ -729,7 +729,7 @@ impl RWBytes for AuthResponse<'_> {
         match disc {
             0 => {
                 let default_channel_id = Uuid::read(src)?;
-                let server_groups = Vec::<Arc<ServerGroup>>::read(src)?;
+                let server_groups = Vec::<ServerGroup>::read(src)?;
                 let own_groups = Vec::<Uuid>::read(src)?;
                 let channels = Vec::<Channel>::read(src)?;
                 Ok(Self::Success {
