@@ -37,7 +37,9 @@ impl Screen for ServerChannelsScreen {
         }
     }
 
-    fn on_deactive(&mut self, _client: &Arc<Client>) {}
+    fn on_deactive(&mut self, _client: &Arc<Client>) {
+        self.container.clear();
+    }
 
     fn tick(&mut self, _client: &Arc<Client>) {}
 

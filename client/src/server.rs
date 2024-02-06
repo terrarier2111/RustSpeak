@@ -358,19 +358,69 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
                     server.finish_auth(client.clone()).await;
                     client.inter_ui_msg_queue.send(InterUiMessage::ServerConnected);
                 }
-                AuthResponse::Failure(_) => {
-                    // FIXME: do error screen!
+                AuthResponse::Failure(failure) => {
+                    client.inter_ui_msg_queue.send(InterUiMessage::Error(match failure {
+                        crate::packet::AuthFailure::Banned { reason, duration } => format!("You are banned reason: {} for {}", reason, match duration {
+                            crate::packet::BanDuration::Permanent => String::from("permanent"),
+                            crate::packet::BanDuration::Temporary(time) => {
+                                const MINUTE: u64 = 60;
+                                const HOUR: u64 = MINUTE * 60;
+                                const DAY: u64 = HOUR * 24;
+                                const YEAR: u64 = DAY * 365;
+
+                                let raw_secs = time.as_secs();
+                                let secs = raw_secs % MINUTE;
+                                let minutes = raw_secs % HOUR / MINUTE;
+                                let hours = raw_secs % DAY / HOUR;
+                                let days = raw_secs % YEAR / DAY;
+                                let years = raw_secs / YEAR;
+                                format!("{}{}{}{}{}",
+                                if secs > 0 { format!("{} seconds", secs) } else { String::new() },
+                                if minutes > 0 { format!("{} minutes", minutes) } else { String::new() },
+                                if hours > 0 { format!("{} hours", hours) } else { String::new() },
+                                if days > 0 { format!("{} days", days) } else { String::new() },
+                                if years > 0 { format!("{} years", years) } else { String::new() })
+                            },
+}),
+                        crate::packet::AuthFailure::ReqSec(level) => format!("This server requires a security level of {}", level),
+                        crate::packet::AuthFailure::OutOfDate(_) => todo!(),
+                        crate::packet::AuthFailure::AlreadyOnline => String::from("You are already online"),
+                        crate::packet::AuthFailure::Invalid(reason) => reason.to_string(),
+                    }));
                 }
             }
         }
         ServerPacket::ChannelUpdate(update) => {
             match update {
-                ChannelUpdate::Create(_) => {}
+                ChannelUpdate::Create(channel) => {
+                    let mut channels = client.server.load().as_ref().unwrap().channels.load().as_ref().clone();
+                    channels.insert(channel.id, channel);
+                    client.server.load().as_ref().unwrap().channels.store(Arc::new(channels));
+                    // FIXME: update screen
+                }
                 ChannelUpdate::SubUpdate { channel, update } => {
                     match update {
-                        ChannelSubUpdate::Name(_) => {}
-                        ChannelSubUpdate::Desc(_) => {}
-                        ChannelSubUpdate::Perms(_) => {}
+                        ChannelSubUpdate::Name(name) => {
+                            let mut channels = client.server.load().as_ref().unwrap().channels.load().as_ref().clone();
+                            let mut prev_channel = channels.get(&channel).unwrap().clone();
+                            prev_channel.name = name.to_string();
+                            channels.insert(channel, prev_channel);
+                            client.server.load().as_ref().unwrap().channels.store(Arc::new(channels));
+                        }
+                        ChannelSubUpdate::Desc(desc) => {
+                            let mut channels = client.server.load().as_ref().unwrap().channels.load().as_ref().clone();
+                            let mut prev_channel = channels.get(&channel).unwrap().clone();
+                            prev_channel.desc = desc.to_string();
+                            channels.insert(channel, prev_channel);
+                            client.server.load().as_ref().unwrap().channels.store(Arc::new(channels));
+                        }
+                        ChannelSubUpdate::Perms(perms) => {
+                            let mut channels = client.server.load().as_ref().unwrap().channels.load().as_ref().clone();
+                            let mut prev_channel = channels.get(&channel).unwrap().clone();
+                            prev_channel.perms = perms;
+                            channels.insert(channel, prev_channel);
+                            client.server.load().as_ref().unwrap().channels.store(Arc::new(channels));
+                        }
                         ChannelSubUpdate::Client(update) => {
                             match update {
                                 ChannelSubClientUpdate::Add(user) => {
@@ -394,7 +444,12 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
                         }
                     }
                 }
-                ChannelUpdate::Delete(_) => {}
+                ChannelUpdate::Delete(channel) => {
+                    let mut channels = client.server.load().as_ref().unwrap().channels.load().as_ref().clone();
+                    channels.remove(&channel);
+                    client.server.load().as_ref().unwrap().channels.store(Arc::new(channels));
+                    // FIXME: update screen
+                }
             }
         }
         ServerPacket::ClientConnected(profile) => {
@@ -413,7 +468,9 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
             server.channels.load().get(&client_profile.channel).unwrap().clients.insert(profile.uuid.clone(), profile);
             client.inter_ui_msg_queue.send(InterUiMessage::ChannelRemoveUser(client_profile.channel, client_profile.uuid));
         }
-        ServerPacket::ClientUpdateServerGroups { .. } => {}
+        ServerPacket::ClientUpdateServerGroups { client, update } => {
+            // server.clients.get(&client).unwrap().server_groups
+        }
         ServerPacket::KeepAlive { .. } => {}
         ServerPacket::ChallengeRequest { .. } => {}
         ServerPacket::ForceDisconnect { reason } => {
