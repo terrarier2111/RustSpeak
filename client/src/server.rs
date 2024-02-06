@@ -26,7 +26,7 @@ pub struct Server {
     pub clients: DashMap<UserUuid, ConnectedRemoteProfile>,
     pub state: ServerState,
     pub name: String,
-    pub audio: Arc<ServerAudio>,
+    pub audio: Option<Arc<ServerAudio>>,
 }
 
 pub struct ServerAudio {
@@ -61,10 +61,10 @@ impl Server {
                config: ClientConfig,
                server_addr: SocketAddr,
                server_name: String) -> Arc<Self> {
-        let channels = match client.audio.load().config().get().0.unwrap() {
+        let channels = client.audio.load().as_ref().map(|audio| match audio.config().get().0.unwrap() {
             AudioMode::Mono => Channels::Mono,
             AudioMode::Stereo => Channels::Stereo,
-        };
+        });
         let server = Arc::new(Self {
             profile: profile.clone(),
             connection: ConcurrentOnceCell::new(),
@@ -74,11 +74,11 @@ impl Server {
             clients: Default::default(),
             state: ServerState::new(),
             name: server_name.clone(),
-            audio: Arc::new(ServerAudio {
+            audio: channels.map(|channels| Arc::new(ServerAudio {
                 buffer: BBRing::new(8096),
                 encoder: std::sync::Mutex::new(Encoder::new(SAMPLE_RATE, channels, Application::Voip).unwrap()),
                 decoder: Mutex::new(Decoder::new(SAMPLE_RATE, channels).unwrap()),
-            }),
+            })),
         });
 
         let priv_key = profile.private_key();
@@ -282,19 +282,21 @@ impl Server {
                             }
                         };*/
 
-                        if let Ok(len) = server.audio.decoder.lock().await.decode(data.as_ref(), &mut buffer, false) {
-                            // println!("decoded voice traffic {}", len);
-                            client.audio.load().as_ref().play_back(move |buf, info| {
-                                if buf.len() != len {
-                                    // panic!("data length {} doesn't match buf length {}", len, buf.len());
-                                    // FIXME: we should probably skip the waiting period below!
-                                    return;
-                                }
-                                for i in 0..(buf.len()) {
-                                    buf[i] = buffer[i];
-                                }
-                            }).unwrap();
-                            buf_len = 0;
+                        if let Some(audio) = server.audio.as_ref() {
+                            if let Ok(len) = audio.decoder.lock().await.decode(data.as_ref(), &mut buffer, false) {
+                                // println!("decoded voice traffic {}", len);
+                                client.audio.load().as_ref().unwrap().play_back(move |buf, info| {
+                                    if buf.len() != len {
+                                        // panic!("data length {} doesn't match buf length {}", len, buf.len());
+                                        // FIXME: we should probably skip the waiting period below!
+                                        return;
+                                    }
+                                    for i in 0..(buf.len()) {
+                                        buf[i] = buffer[i];
+                                    }
+                                }).unwrap();
+                                buf_len = 0;
+                            }
                         }
                         // thread::sleep(Duration::from_millis(60));
                         tokio::time::sleep(Duration::from_millis(10)).await;

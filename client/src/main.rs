@@ -62,8 +62,10 @@ const UI: UiImpl = UiImpl::Wgpu;
 async fn main() -> anyhow::Result<()> {
     /*let cfg = cpal::default_host().default_input_device().unwrap().default_input_config().unwrap().config();
     println!("{:?}", cfg);*/
-    for cfg in cpal::default_host().default_input_device().unwrap().supported_input_configs().unwrap().into_iter() {
-        println!("{:?}", cfg);
+    if let Some(cfgs) = cpal::default_host().default_input_device().map(|inner| inner.supported_input_configs().ok()).flatten() {
+        for cfg in cfgs.into_iter() {
+            println!("{:?}", cfg);
+        }   
     }
     let (cfg, profile_db) = load_data()?;
     println!("loaded config!");
@@ -86,7 +88,7 @@ async fn main() -> anyhow::Result<()> {
         profile_db: profile_db.clone(),
         cli,
         server: SwapArcOption::empty(),
-        audio: SwapArc::new(Arc::new(Audio::from_cfg(&AudioConfig::new()?.unwrap())?.unwrap())),
+        audio: SwapArcOption::new(AudioConfig::new()?.map(|cfg| Audio::from_cfg(&cfg).unwrap()).flatten().map(|audio| Arc::new(audio))),
         inter_ui_msg_queue: ui::ui_queue(UI),
     });
 
@@ -115,40 +117,42 @@ async fn main() -> anyhow::Result<()> {
                     let server = server.clone();
                     let has_err_rec = has_err.clone();
                     let glob_buf = Arc::new(Mutex::new(vec![]));
-                    let stream = client.audio.load().start_record(move |data, input| {
-                        // println!("recorded!");
-                        let has_err = &has_err_rec;
-                        // FIXME: handle endianness of `data`
-                        // println!("sending audio {}", data.len());
-                        let client = &tmp_client;
-                        let empty = data.iter().all(|x| *x == 0);
-                        if !empty {
-                            let max = *data.iter().max().unwrap();
-                            let min = *data.iter().min().unwrap();
-                            let max_diff = max - min;
-                            if max_diff > VOICE_THRESHOLD {
-                                let glob_buf = glob_buf.clone();
-                                let mut glob_buf = glob_buf.lock().unwrap();
-                                glob_buf.extend_from_slice(data);
-                                // server.audio.buffer.push(unsafe { &*slice_from_raw_parts(data as *const [i16] as *const i16 as *const u8, data.len() * 2) });
-                                if glob_buf.len() >= MIN_BUF_SIZE {
-                                    let mut buffer = vec![0; 2048];
-                                    // println!("max diff: {}", max_diff);
-                                    let tmp = client.server.load();
-                                    let tmp_conn = tmp.as_ref().unwrap().connection.get();
-                                    let data = server.audio.encode(&glob_buf.as_slice()[0..MIN_BUF_SIZE], &mut buffer);
-                                    glob_buf.drain(0..MIN_BUF_SIZE);
-                                    if let Err(err) = pollster::block_on(tmp_conn.unwrap().send_unreliable::<2>(Bytes::copy_from_slice(buffer.as_slice()).slice(0..data))) {
-                                        pollster::block_on(server.error(err, &client));
-                                        has_err.store(true, Ordering::Release);
-                                        // stop recording!
-                                        return;
+                    if let Some(audio) = client.audio.load().as_ref() {
+                        let stream = audio.start_record(move |data, input| {
+                            // println!("recorded!");
+                            let has_err = &has_err_rec;
+                            // FIXME: handle endianness of `data`
+                            // println!("sending audio {}", data.len());
+                            let client = &tmp_client;
+                            let empty = data.iter().all(|x| *x == 0);
+                            if !empty {
+                                let max = *data.iter().max().unwrap();
+                                let min = *data.iter().min().unwrap();
+                                let max_diff = max - min;
+                                if max_diff > VOICE_THRESHOLD {
+                                    let glob_buf = glob_buf.clone();
+                                    let mut glob_buf = glob_buf.lock().unwrap();
+                                    glob_buf.extend_from_slice(data);
+                                    // server.audio.buffer.push(unsafe { &*slice_from_raw_parts(data as *const [i16] as *const i16 as *const u8, data.len() * 2) });
+                                    if glob_buf.len() >= MIN_BUF_SIZE {
+                                        let mut buffer = vec![0; 2048];
+                                        // println!("max diff: {}", max_diff);
+                                        let tmp = client.server.load();
+                                        let tmp_conn = tmp.as_ref().unwrap().connection.get();
+                                        let data = server.audio.as_ref().unwrap().encode(&glob_buf.as_slice()[0..MIN_BUF_SIZE], &mut buffer);
+                                        glob_buf.drain(0..MIN_BUF_SIZE);
+                                        if let Err(err) = pollster::block_on(tmp_conn.unwrap().send_unreliable::<2>(Bytes::copy_from_slice(buffer.as_slice()).slice(0..data))) {
+                                            pollster::block_on(server.error(err, &client));
+                                            has_err.store(true, Ordering::Release);
+                                            // stop recording!
+                                            return;
+                                        }
                                     }
                                 }
                             }
-                        }
-                        // println!("send audio!");
-                    }).unwrap();
+                            // println!("send audio!");
+                        }).unwrap();
+                    }
 
                     while !has_err.load(Ordering::Acquire) {
                         sleep(Duration::from_millis(1));
@@ -221,7 +225,7 @@ pub struct Client {
     // pub atlas: Arc<Atlas>,
     pub cli: Arc<CmdLineInterface<Arc<Client>>>,
     pub server: SwapArcOption<Server>, // FIXME: support multiple servers at once!
-    pub audio: SwapArc<Audio>,
+    pub audio: SwapArcOption<Audio>,
     pub inter_ui_msg_queue: Box<dyn UiQueue>,
 }
 
