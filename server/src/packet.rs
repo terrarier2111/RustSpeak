@@ -42,6 +42,7 @@ pub enum ServerPacket<'a> {
     ForceDisconnect {
         reason: DisconnectReason,
     } = 7,
+    SwitchChannelResponse(SwitchChannelResponse) = 8,
 }
 
 /// packets the client sends to the server
@@ -125,6 +126,7 @@ impl RWBytes for ServerPacket<'_> {
                 let reason = DisconnectReason::read(src)?;
                 Ok(Self::ForceDisconnect { reason })
             }
+            8 => Ok(Self::SwitchChannelResponse(SwitchChannelResponse::read(src)?)),
             _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(
                 "ServerPacket",
                 id,
@@ -161,6 +163,9 @@ impl RWBytes for ServerPacket<'_> {
             ServerPacket::ForceDisconnect { reason } => {
                 reason.write(dst)?;
             }
+            ServerPacket::SwitchChannelResponse(response) => {
+                response.write(dst)?;
+            },
         }
         Ok(())
     }
@@ -914,15 +919,49 @@ impl RWBytes for AuthResponse<'_> {
 }
 
 #[derive(Ordinal)]
+#[repr(u8)]
+pub enum SwitchChannelResponse {
+    Success = 0,
+    InvalidChannel = 1, // the client tried to join a channel that doesn't exist
+    NoPermissions = 2, // the client has no permissions to join the desired channel
+    SameChannel = 3, // the client tried to join the channel its already in
+}
+
+impl RWBytes for SwitchChannelResponse {
+    type Ty = Self;
+
+    fn read(src: &mut Bytes) -> anyhow::Result<Self::Ty> {
+        let disc = src.get_u8();
+
+        match disc {
+            0 => Ok(Self::Success),
+            1 => Ok(Self::InvalidChannel),
+            2 => Ok(Self::NoPermissions),
+            3 => Ok(Self::SameChannel),
+            _ => Err(anyhow::Error::from(ErrorEnumVariantNotFound(
+                "SwitchChannelResponse",
+                disc,
+            ))),
+        }
+    }
+
+    fn write(&self, dst: &mut BytesMut) -> anyhow::Result<()> {
+        dst.put_u8(self.ordinal() as u8);
+        Ok(())
+    }
+}
+
+#[derive(Ordinal)]
+#[repr(u8)]
 pub enum AuthFailure<'a> {
     Banned {
         reason: String,
         duration: BanDuration,
-    },
-    ReqSec(u8),
-    OutOfDate(u64), // protocol version
-    AlreadyOnline,
-    Invalid(Cow<'a, str>),
+    } = 0,
+    ReqSec(u8) = 1,
+    OutOfDate(u64) = 2, // protocol version
+    AlreadyOnline = 3,
+    Invalid(Cow<'a, str>) = 4,
 }
 
 impl RWBytes for AuthFailure<'_> {

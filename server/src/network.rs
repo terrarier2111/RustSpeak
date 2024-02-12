@@ -14,7 +14,7 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 use crate::{ClientPacket, DEFAULT_CHANNEL_UUID, RWBytes, Server, User, UserUuid};
 use crate::conc_once_cell::ConcurrentOnceCell;
-use crate::packet::{Channel, ChannelSubClientUpdate, ChannelSubUpdate, ChannelUpdate, RemoteProfile, ServerPacket};
+use crate::packet::{Channel, ChannelSubClientUpdate, ChannelSubUpdate, ChannelUpdate, RemoteProfile, ServerPacket, SwitchChannelResponse};
 use crate::utils::current_time_millis;
 
 // FIXME: look at: https://gitlab.com/veloren/veloren/-/issues/749 and https://gitlab.com/veloren/veloren/-/issues/1728
@@ -172,7 +172,7 @@ impl ClientConnection {
                         let packet = ClientPacket::read(&mut payload);
                         match packet {
                             Ok(packet) => {
-                                handle_packet(packet, &server, &this);
+                                handle_packet(packet, &server, &this).await;
                             }
                             Err(err) => {
                                 if this.closed.compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed).is_ok() {
@@ -347,7 +347,7 @@ pub struct KeepAlive {
     pub send_time: Duration,
 }
 
-pub fn handle_packet(packet: ClientPacket, server: &Arc<Server>, client: &Arc<ClientConnection>) {
+pub async fn handle_packet(packet: ClientPacket, server: &Arc<Server>, client: &Arc<ClientConnection>) {
     match packet {
         ClientPacket::AuthRequest { .. } => unreachable!(),
         ClientPacket::Disconnect => {
@@ -362,34 +362,38 @@ pub fn handle_packet(packet: ClientPacket, server: &Arc<Server>, client: &Arc<Cl
         }
         ClientPacket::SwitchChannel { channel } => {
             let new_channel_id = channel;
-            if let Some(new_channel) = server.channels.read().block_on().get(&channel) {
+            if let Some(new_channel) = server.channels.read().await.get(&channel) {
                 let user = client.user.get().unwrap();
                 let client_id = user.uuid.clone();
                 let channel = user.channel.load().clone();
+                // check if it's the same channel
                 if channel.uuid == new_channel_id {
-                    // FIXME: kick the user and close the connection once we already cancel such attempts at the client level!
+                    let response = ServerPacket::SwitchChannelResponse(SwitchChannelResponse::SameChannel).encode().unwrap();
+                    client.send_reliable(&response).await.unwrap();
                     return;
                 }
                 // check join perms
                 if channel.perms.load().join > client.user.get().unwrap().perms.load().channel_join {
-                    // FIXME: give feedback
+                    let response = ServerPacket::SwitchChannelResponse(SwitchChannelResponse::NoPermissions).encode().unwrap();
+                    client.send_reliable(&response).await.unwrap();
                     return;
                 }
-                let idx = channel.clients.read().block_on().iter().enumerate().find(|user| user.1 == &client_id).unwrap().0;
-                channel.clients.write().block_on().remove(idx);
+                let idx = channel.clients.read().await.iter().enumerate().find(|user| user.1 == &client_id).unwrap().0;
+                channel.clients.write().await.remove(idx);
                 let idx = channel.proto_clients.read().unwrap().iter().enumerate().find(|user| &user.1.uuid == &client_id).unwrap().0;
                 let profile = RwLock::write(&channel.proto_clients).unwrap().remove(idx);
-                new_channel.clients.write().block_on().push(client_id);
+                new_channel.clients.write().await.push(client_id);
                 RwLock::write(&new_channel.proto_clients).unwrap().push(profile);
                 user.channel.store(new_channel.clone());
                 let remove_packet = ServerPacket::ChannelUpdate(ChannelUpdate::SubUpdate { channel: channel.uuid, update: ChannelSubUpdate::Client(ChannelSubClientUpdate::Remove(client_id)) }).encode().unwrap();
                 let add_packet = ServerPacket::ChannelUpdate(ChannelUpdate::SubUpdate { channel: new_channel_id, update: ChannelSubUpdate::Client(ChannelSubClientUpdate::Add(client_id)) }).encode().unwrap();
                 for client in server.online_users.iter() {
-                    client.value().connection.send_reliable(&remove_packet).block_on().unwrap(); // FIXME: handle errors properly!
-                    client.value().connection.send_reliable(&add_packet).block_on().unwrap(); // FIXME: handle errors properly!
+                    client.value().connection.send_reliable(&remove_packet).await.unwrap(); // FIXME: handle errors properly!
+                    client.value().connection.send_reliable(&add_packet).await.unwrap(); // FIXME: handle errors properly!
                 }
             } else {
-                // FIXME: give negative feedback to client!
+                let response = ServerPacket::SwitchChannelResponse(SwitchChannelResponse::InvalidChannel).encode().unwrap();
+                client.send_reliable(&response).await.unwrap();
             }
         }
     }
