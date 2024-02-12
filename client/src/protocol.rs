@@ -454,7 +454,7 @@ impl Debug for ErrorEnumVariantNotFound {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str("enum type ")?;
         f.write_str(self.0)?;
-        f.write_str(" has no variant with ordinal")?;
+        f.write_str(" has no variant with ordinal ")?;
         let num = self.1.to_string();
         f.write_str(num.as_str())
     }
@@ -462,11 +462,7 @@ impl Debug for ErrorEnumVariantNotFound {
 
 impl Display for ErrorEnumVariantNotFound {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str("enum type ")?;
-        f.write_str(self.0)?;
-        f.write_str(" has no variant with ordinal")?;
-        let num = self.1.to_string();
-        f.write_str(num.as_str())
+        Debug::fmt(&self, f)
     }
 }
 
@@ -484,9 +480,7 @@ impl Debug for ErrorBoolConversion {
 
 impl Display for ErrorBoolConversion {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let num = self.0.to_string();
-        f.write_str(num.as_str())?;
-        f.write_str(" can not be converted into bool")
+        Debug::fmt(&self, f)
     }
 }
 

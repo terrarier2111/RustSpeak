@@ -385,6 +385,10 @@ pub async fn handle_packet(packet: ClientPacket, server: &Arc<Server>, client: &
                 new_channel.clients.write().await.push(client_id);
                 RwLock::write(&new_channel.proto_clients).unwrap().push(profile);
                 user.channel.store(new_channel.clone());
+                // inform the sender about its success
+                let response = ServerPacket::SwitchChannelResponse(SwitchChannelResponse::Success).encode().unwrap();
+                client.send_reliable(&response).await.unwrap();
+                // inform all other clients about the update
                 let remove_packet = ServerPacket::ChannelUpdate(ChannelUpdate::SubUpdate { channel: channel.uuid, update: ChannelSubUpdate::Client(ChannelSubClientUpdate::Remove(client_id)) }).encode().unwrap();
                 let add_packet = ServerPacket::ChannelUpdate(ChannelUpdate::SubUpdate { channel: new_channel_id, update: ChannelSubUpdate::Client(ChannelSubClientUpdate::Add(client_id)) }).encode().unwrap();
                 for client in server.online_users.iter() {

@@ -156,13 +156,13 @@ impl Container {
     }
 }
 
-pub struct Button<T = ()> {
+pub struct Button<T: Send + Sync = ()> {
     pub inner_box: TextBox,
-    pub data: Option<Box<T>>,
-    pub on_click: Arc<Box<dyn Fn(&mut Button, &Arc<Client>) + Send + Sync>>,
+    pub data: T,
+    pub on_click: Arc<Box<dyn Fn(&mut Button<T>, &Arc<Client>) + Send + Sync>>,
 }
 
-impl Component for Button {
+impl<T: Send + Sync> Component for Button<T> {
     fn build_model(&self) -> Model {
         self.inner_box.build_model()
     }

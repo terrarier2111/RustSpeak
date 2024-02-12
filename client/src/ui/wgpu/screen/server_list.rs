@@ -43,7 +43,7 @@ impl Screen for ServerList {
                     ]),
                     texts: vec![GlyphBuilder::new(&entry.1.name, pos, (0.2, 0.1)).in_bounds_off((0.05, 4.0)).build()],
                 },
-                data: None,
+                data: (),
                 on_click: Arc::new(Box::new(move |button, client| {
                     println!("test!!");
                     /*match button.inner_box.coloring {

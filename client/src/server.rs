@@ -476,6 +476,7 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
         ServerPacket::ForceDisconnect { reason } => {
             todo!()
         }
+        ServerPacket::SwitchChannelResponse(_) => {}, // FIXME: use this!
     }
 }
 

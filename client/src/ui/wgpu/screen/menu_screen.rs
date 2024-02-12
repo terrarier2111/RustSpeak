@@ -49,7 +49,7 @@ impl Screen for Menu {
                 coloring: Coloring::Color([DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI]),
                 texts: vec![GlyphBuilder::new("Menu", (BOX_SCREEN_OFFSET_X, BOX_SCREEN_OFFSET_Y), (BOX_WIDTH, BOX_HEIGHT)).in_bounds_off((0.03, 0.03)).build()],
             },
-            data: None,
+            data: (),
             on_click: Arc::new(Box::new(|button, client| {})),
         }))));
         let pos = (BOX_SCREEN_OFFSET_X + BOX_WIDTH + BOX_BORDER, BOX_SCREEN_OFFSET_Y);
@@ -61,7 +61,7 @@ impl Screen for Menu {
                 coloring: Coloring::Color([DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI]),
                 texts: vec![GlyphBuilder::new("Profiles", pos, (BOX_WIDTH, BOX_HEIGHT)).in_bounds_off((0.03, 0.03)).build()],
             },
-            data: None,
+            data: (),
             on_click: Arc::new(Box::new(|button, client| {})),
         }))));
         let pos = (pos.0 + BOX_WIDTH + BOX_BORDER, pos.1);
@@ -73,7 +73,7 @@ impl Screen for Menu {
                 coloring: Coloring::Color([DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI, DARK_GRAY_UI]),
                 texts: vec![GlyphBuilder::new("Servers", pos, (BOX_WIDTH, BOX_HEIGHT)).in_bounds_off((0.03, 0.03)).build()],
             },
-            data: None,
+            data: (),
             on_click: Arc::new(Box::new(|button, client| {
                 ctx().screen_sys.push_screen(Box::new(server_list::ServerList::new()));
                 // FIXME: refresh screen, disable glyphs for current screen
