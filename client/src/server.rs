@@ -102,13 +102,6 @@ impl Server {
                         security_proofs: profile.security_proofs,
                         signed_data: vec![], // FIXME: sign current time!
                     };
-                    /*let auth_packet = ClientPacket::AuthRequest {
-                        protocol_version: PROTOCOL_VERSION,
-                        pub_key: vec![],
-                        name: "TESTING".to_string(),
-                        security_proofs: vec![],
-                        signed_data: vec![], // FIXME: sign current time!
-                    };*/
                     let mut buf = auth_packet.encode().unwrap();
                     let tmp_server = server
                         .connection.get();
@@ -117,6 +110,8 @@ impl Server {
                         .await
                         .unwrap();
                     let tmp_server = server.clone();
+
+                    // setup packet reader
                     tokio::spawn(async move {
                         let server = tmp_server;
                         'end: loop {
@@ -153,8 +148,7 @@ impl Server {
                     });
                 }
                 Err(_) => {
-                    // client.screen_sys.push_screen(Box::new(ConnectionFailureScreen::new(&client, server_name.to_string())));
-                    client.inter_ui_msg_queue.send(InterUiMessage::Error(format!("Failed connecting with \"{}\"", &server_name)));
+                    client.inter_ui_msg_queue.send(InterUiMessage::Error(server.clone(), format!("Failed connecting with \"{}\"", &server_name)));
                 }
             }
 
@@ -183,79 +177,9 @@ impl Server {
 
         let tmp_server = self.clone();
         let tmp_client = client.clone();
-        /*tokio::spawn(async move { // FIXME: is this okay perf-wise?
-            let server = tmp_server;
-            let client = tmp_client;
-            loop {
-                let tmp_server = server.connection.get();
-                match tmp_server.unwrap().read_unreliable().await {
-                    Ok(data) => {
-                        println!("received voice traffic {}", data.len());
-                        let mut data_vec = data.to_vec();
-                        let len = data_vec.len();
-                        let data = if data_vec.as_ptr().is_aligned_to(2) {
-                            data_vec.deref_mut()
-                        } else {
-                            // realloc to make the allocation aligned to 2 bytes
-                            let mut new_alloc = unsafe { alloc(Layout::array::<u16>(len).unwrap()) }; // FIXME: dealloc this again later on.
-                            if !new_alloc.is_null() {
-                                unsafe {
-                                    ptr::copy_nonoverlapping(data_vec.as_ptr(), new_alloc, len);
-                                }
-                                unsafe { slice::from_raw_parts_mut(new_alloc, len) }
-                            } else {
-                                unreachable!()
-                            }
-                        };
-                        // let data = unsafe { slice_from_raw_parts_mut::<i16>(data.cast::<i16>(), len / 2).as_mut().unwrap() };
-                        client.audio.load_full().buffer.push(data);
-                        // thread::sleep(Duration::from_millis(60));
-                        tokio::time::sleep(Duration::from_millis(60)).await;
-                        // let mut data = bytemuck::cast_slice_mut::<u8, i16>(data);
 
-        /*
-        let handler = |buf: &mut [i16], info| {
-            if buf.len() != data.len() {
-                panic!("data length {} doesn't match buf length {}", data.len(), buf.len());
-            }
-            for i in 0..(buf.len()) {
-                buf[i] = data[i];
-            }
-        };*/
-                    }
-                    Err(err) => {
-                        if server.state.try_set_disconnected() {
-                            // FIXME: somehow give feedback to server
-                            tmp_server.as_ref().unwrap().close().await;
-                            client.println(format!("An error occurred in the connection with {}: {}", server.name, err).as_str());
-                        }
-                    }
-                }
-            }
-        });
-        let client = client.clone();
-        thread::spawn(move || {
-            let client = client.clone();
-            loop {
-                let audio = client.audio.load();
-                if let Some(raw_data) = audio.buffer.pop_front() {
-                    let tmp_client = client.clone();
-                    audio.as_ref().play_back(move |buf, info| {
-                        let client = &tmp_client;
-                        let data = bytemuck::cast_slice::<u8, i16>(raw_data.as_ref());
-                        if buf.len() < data.as_ref().len() {
-                            client.audio.load().buffer.push(&raw_data.as_ref()[(buf.len() * 2)..]);
-                        }
-                        for i in 0..(data.as_ref().len().min(buf.len())) {
-                            buf[i] = data[i];
-                        }
-                    }).unwrap();
-                }
-                thread::sleep(Duration::from_millis(60));
-                // tokio::time::sleep(Duration::from_millis(60)).await;
-            }
-        });*/
-        tokio::spawn(async move { // FIXME: is this okay perf-wise?
+        // set up receiver task
+        tokio::spawn(async move {
             let server = tmp_server;
             let client = tmp_client;
             let mut buffer = [0; 2048];
@@ -264,7 +188,7 @@ impl Server {
                 let tmp_server = server.connection.get();
                 match tmp_server.unwrap().read_unreliable().await {
                     Ok(data) => {
-                        // println!("received voice traffic {}", data.len());
+                        println!("received voice traffic {}", data.len());
                         if data.len() + buf_len * 2 > buffer.len() * 2 {
                             panic!("Buffer too small ({}) present but ({}) required", buffer.len(), data.len() / 2 + buf_len);
                         }
@@ -274,7 +198,8 @@ impl Server {
                         buf_len += data.len() / 2;
                         // let mut data = bytemuck::cast_slice_mut::<u8, i16>(data);
 
-                        /*
+                        /*gith
+                        
                         let handler = |buf: &mut [i16], info| {
                             if buf.len() != data.len() {
                                 panic!("data length {} doesn't match buf length {}", data.len(), buf.len());
@@ -300,7 +225,6 @@ impl Server {
                                 buf_len = 0;
                             }
                         }
-                        // thread::sleep(Duration::from_millis(60));
                         tokio::time::sleep(Duration::from_millis(10)).await;
                     }
                     Err(err) => {
@@ -319,14 +243,6 @@ impl Server {
 
 pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, server: &Arc<Server>) {
     match packet {
-        /*ClientPacket::AuthRequest { .. } => unreachable!(),
-        ClientPacket::Disconnect => {
-            server.online_users.remove(client.uuid.load().as_ref().unwrap()); // FIXME: verify that this can't be received before AuthRequest is handled!
-        }
-        ClientPacket::KeepAlive { .. } => {
-
-        }
-        ClientPacket::UpdateClientServerGroups { .. } => {}*/
         ServerPacket::AuthResponse(response) => {
             match response {
                 AuthResponse::Success { channels, default_channel_id, server_groups, own_groups } => {
@@ -359,7 +275,7 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
                     client.inter_ui_msg_queue.send(InterUiMessage::ServerConnected(server.clone()));
                 }
                 AuthResponse::Failure(failure) => {
-                    client.inter_ui_msg_queue.send(InterUiMessage::Error(match failure {
+                    client.inter_ui_msg_queue.send(InterUiMessage::Error(server.clone(), match failure {
                         crate::packet::AuthFailure::Banned { reason, duration } => format!("You are banned reason: {} for {}", reason, match duration {
                             crate::packet::BanDuration::Permanent => String::from("permanent"),
                             crate::packet::BanDuration::Temporary(time) => {
@@ -434,11 +350,11 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
                                         server_groups: profile.server_groups,
                                     };
                                     server.channels.load().as_ref().get(&channel).unwrap().clients.insert(user, profile.clone());
-                                    client.inter_ui_msg_queue.send(InterUiMessage::ChannelAddUser(channel, profile));
+                                    client.inter_ui_msg_queue.send(InterUiMessage::ChannelAddUser(server.clone(), channel, profile));
                                 }
                                 ChannelSubClientUpdate::Remove(user) => {
                                     server.channels.load().as_ref().get(&channel).unwrap().clients.remove(&user).unwrap().1;
-                                    client.inter_ui_msg_queue.send(InterUiMessage::ChannelRemoveUser(channel, user));
+                                    client.inter_ui_msg_queue.send(InterUiMessage::ChannelRemoveUser(server.clone(), channel, user));
                                 }
                             }
                         }
@@ -461,12 +377,12 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
                 server_groups: profile.server_groups.clone(),
                 channel: default_channel.clone(),
             });
-            client.inter_ui_msg_queue.send(InterUiMessage::ChannelAddUser(default_channel, profile));
+            client.inter_ui_msg_queue.send(InterUiMessage::ChannelAddUser(server.clone(), default_channel, profile));
         }
         ServerPacket::ClientDisconnected(profile) => {
             let client_profile = server.clients.remove(&profile.uuid).unwrap().1;
             server.channels.load().get(&client_profile.channel).unwrap().clients.insert(profile.uuid.clone(), profile);
-            client.inter_ui_msg_queue.send(InterUiMessage::ChannelRemoveUser(client_profile.channel, client_profile.uuid));
+            client.inter_ui_msg_queue.send(InterUiMessage::ChannelRemoveUser(server.clone(), client_profile.channel, client_profile.uuid));
         }
         ServerPacket::ClientUpdateServerGroups { client, update } => {
             // server.clients.get(&client).unwrap().server_groups

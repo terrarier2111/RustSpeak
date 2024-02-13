@@ -36,20 +36,20 @@ pub fn start_ui(client: Arc<Client>, ui: UiImpl) -> anyhow::Result<()> {
 
 #[derive(Clone)]
 pub enum InterUiMessage {
-    ChannelRemoveUser(Uuid, UserUuid),
-    ChannelAddUser(Uuid, RemoteProfile),
+    ChannelRemoveUser(Arc<Server>, Uuid, UserUuid),
+    ChannelAddUser(Arc<Server>, Uuid, RemoteProfile),
     UpdateProfiles,
-    Error(String),
+    Error(Arc<Server>, String),
     ServerConnected(Arc<Server>),
 }
 
 impl Debug for InterUiMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::ChannelRemoveUser(channel_uuid, user_uuid) => f.debug_tuple("ChannelRemoveUser").field(channel_uuid).field(user_uuid).finish(),
-            Self::ChannelAddUser(channel_uuid, profile) => f.debug_tuple("ChannelAddUser").field(channel_uuid).field(profile).finish(),
+            Self::ChannelRemoveUser(_, channel_uuid, user_uuid) => f.debug_tuple("ChannelRemoveUser").field(channel_uuid).field(user_uuid).finish(),
+            Self::ChannelAddUser(_, channel_uuid, profile) => f.debug_tuple("ChannelAddUser").field(channel_uuid).field(profile).finish(),
             Self::UpdateProfiles => write!(f, "UpdateProfiles"),
-            Self::Error(err) => f.debug_tuple("Error").field(err).finish(),
+            Self::Error(_, err) => f.debug_tuple("Error").field(err).finish(),
             Self::ServerConnected(_) => write!(f, "ServerConnected"),
         }
     }

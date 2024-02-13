@@ -152,14 +152,14 @@ pub fn run(client: Arc<Client>) -> anyhow::Result<()> {
         Event::DeviceEvent { .. } => {},
         Event::UserEvent(event) => {
             match event {
-                InterUiMessage::ChannelRemoveUser(_, _) => {
+                InterUiMessage::ChannelRemoveUser(_, _, _) => {
                     redraw();
                 },
-                InterUiMessage::ChannelAddUser(_, _) => {
+                InterUiMessage::ChannelAddUser(_, _, _) => {
                     redraw();
                 },
                 InterUiMessage::UpdateProfiles => todo!(),
-                InterUiMessage::Error(error) => {
+                InterUiMessage::Error(_, error) => {
                     screen_sys.push_screen(Box::new(ErrorScreen::new(&client, error)));
                     redraw();
                 },

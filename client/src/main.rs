@@ -93,7 +93,7 @@ async fn main() -> anyhow::Result<()> {
             client.cli.await_input(&client).unwrap(); // FIXME: handle errors properly!
         }
     });
-    // start the sound thread
+    // start the voice sending thread
     let tmp = client.clone();
     thread::spawn(move || {
         let client = tmp;
