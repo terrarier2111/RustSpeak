@@ -1,5 +1,6 @@
 use crate::{AddressMode, certificate, Client, Profile, Server};
 use std::sync::{Arc, RwLock};
+use pollster::FutureExt;
 use rand::Rng;
 use crate::ui::wgpu::{ctx, DARK_GRAY_UI};
 use crate::ui::wgpu::render::GlyphBuilder;
@@ -65,7 +66,7 @@ impl Screen for ServerList {
                                                                        certificate::insecure_local::config(),
                                                                        addr,
                                                                        server_name.clone());
-                    client.server.store(Some(server));
+                    client.servers.write().block_on().push(server);
                 }))
             }))));
         }

@@ -1,5 +1,7 @@
+use std::fmt::Debug;
 use std::sync::Arc;
 use uuid::Uuid;
+use crate::server::Server;
 use crate::Client;
 use crate::packet::RemoteProfile;
 use crate::protocol::UserUuid;
@@ -32,13 +34,25 @@ pub fn start_ui(client: Arc<Client>, ui: UiImpl) -> anyhow::Result<()> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum InterUiMessage {
     ChannelRemoveUser(Uuid, UserUuid),
     ChannelAddUser(Uuid, RemoteProfile),
     UpdateProfiles,
     Error(String),
-    ServerConnected,
+    ServerConnected(Arc<Server>),
+}
+
+impl Debug for InterUiMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ChannelRemoveUser(channel_uuid, user_uuid) => f.debug_tuple("ChannelRemoveUser").field(channel_uuid).field(user_uuid).finish(),
+            Self::ChannelAddUser(channel_uuid, profile) => f.debug_tuple("ChannelAddUser").field(channel_uuid).field(profile).finish(),
+            Self::UpdateProfiles => write!(f, "UpdateProfiles"),
+            Self::Error(err) => f.debug_tuple("Error").field(err).finish(),
+            Self::ServerConnected(_) => write!(f, "ServerConnected"),
+        }
+    }
 }
 
 pub(crate) type UiQueueSender = Box<dyn Fn(InterUiMessage) + Send + Sync + 'static>;

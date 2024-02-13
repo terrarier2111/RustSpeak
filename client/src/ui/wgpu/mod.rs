@@ -163,8 +163,8 @@ pub fn run(client: Arc<Client>) -> anyhow::Result<()> {
                     screen_sys.push_screen(Box::new(ErrorScreen::new(&client, error)));
                     redraw();
                 },
-                InterUiMessage::ServerConnected => {
-                    screen_sys.push_screen(Box::new(ServerChannelsScreen::new()));
+                InterUiMessage::ServerConnected(server) => {
+                    screen_sys.push_screen(Box::new(ServerChannelsScreen::new(server)));
                     redraw();
                 },
             }

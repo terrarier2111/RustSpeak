@@ -356,7 +356,7 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
                         }));
                     }
                     server.finish_auth(client.clone()).await;
-                    client.inter_ui_msg_queue.send(InterUiMessage::ServerConnected);
+                    client.inter_ui_msg_queue.send(InterUiMessage::ServerConnected(server.clone()));
                 }
                 AuthResponse::Failure(failure) => {
                     client.inter_ui_msg_queue.send(InterUiMessage::Error(match failure {
@@ -393,38 +393,38 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
         ServerPacket::ChannelUpdate(update) => {
             match update {
                 ChannelUpdate::Create(channel) => {
-                    let mut channels = client.server.load().as_ref().unwrap().channels.load().as_ref().clone();
+                    let mut channels = server.channels.load().as_ref().clone();
                     channels.insert(channel.id, channel);
-                    client.server.load().as_ref().unwrap().channels.store(Arc::new(channels));
+                    server.channels.store(Arc::new(channels));
                     // FIXME: update screen
                 }
                 ChannelUpdate::SubUpdate { channel, update } => {
                     match update {
                         ChannelSubUpdate::Name(name) => {
-                            let mut channels = client.server.load().as_ref().unwrap().channels.load().as_ref().clone();
+                            let mut channels = server.channels.load().as_ref().clone();
                             let mut prev_channel = channels.get(&channel).unwrap().clone();
                             prev_channel.name = name.to_string();
                             channels.insert(channel, prev_channel);
-                            client.server.load().as_ref().unwrap().channels.store(Arc::new(channels));
+                            server.channels.store(Arc::new(channels));
                         }
                         ChannelSubUpdate::Desc(desc) => {
-                            let mut channels = client.server.load().as_ref().unwrap().channels.load().as_ref().clone();
+                            let mut channels = server.channels.load().as_ref().clone();
                             let mut prev_channel = channels.get(&channel).unwrap().clone();
                             prev_channel.desc = desc.to_string();
                             channels.insert(channel, prev_channel);
-                            client.server.load().as_ref().unwrap().channels.store(Arc::new(channels));
+                            server.channels.store(Arc::new(channels));
                         }
                         ChannelSubUpdate::Perms(perms) => {
-                            let mut channels = client.server.load().as_ref().unwrap().channels.load().as_ref().clone();
+                            let mut channels = server.channels.load().as_ref().clone();
                             let mut prev_channel = channels.get(&channel).unwrap().clone();
                             prev_channel.perms = perms;
                             channels.insert(channel, prev_channel);
-                            client.server.load().as_ref().unwrap().channels.store(Arc::new(channels));
+                            server.channels.store(Arc::new(channels));
                         }
                         ChannelSubUpdate::Client(update) => {
                             match update {
                                 ChannelSubClientUpdate::Add(user) => {
-                                    let profile = client.server.load().as_ref().unwrap().clients.get_mut(&user).map(|mut val| {
+                                    let profile = server.clients.get_mut(&user).map(|mut val| {
                                         val.value_mut().channel = channel;
                                         val
                                     }).unwrap().clone();
@@ -433,11 +433,11 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
                                         uuid: profile.uuid,
                                         server_groups: profile.server_groups,
                                     };
-                                    client.server.load().as_ref().unwrap().channels.load().as_ref().get(&channel).unwrap().clients.insert(user, profile.clone());
+                                    server.channels.load().as_ref().get(&channel).unwrap().clients.insert(user, profile.clone());
                                     client.inter_ui_msg_queue.send(InterUiMessage::ChannelAddUser(channel, profile));
                                 }
                                 ChannelSubClientUpdate::Remove(user) => {
-                                    client.server.load().as_ref().unwrap().channels.load().as_ref().get(&channel).unwrap().clients.remove(&user).unwrap().1;
+                                    server.channels.load().as_ref().get(&channel).unwrap().clients.remove(&user).unwrap().1;
                                     client.inter_ui_msg_queue.send(InterUiMessage::ChannelRemoveUser(channel, user));
                                 }
                             }
@@ -445,9 +445,9 @@ pub async fn handle_packet(packet: ServerPacket<'_>, client: &Arc<Client>, serve
                     }
                 }
                 ChannelUpdate::Delete(channel) => {
-                    let mut channels = client.server.load().as_ref().unwrap().channels.load().as_ref().clone();
+                    let mut channels = server.channels.load().as_ref().clone();
                     channels.remove(&channel);
-                    client.server.load().as_ref().unwrap().channels.store(Arc::new(channels));
+                    server.channels.store(Arc::new(channels));
                     // FIXME: update screen
                 }
             }

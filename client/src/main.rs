@@ -16,6 +16,7 @@ use bytes::{Bytes, BytesMut};
 use clitty::core::{CLICore, CmdParamStrConstraints, CommandBuilder, CommandParam, CommandParamTy, UsageBuilder};
 use clitty::ui::{CLIBuilder, CmdLineInterface, PrintFallback};
 use quinn::ClientConfig;
+use tokio::sync::RwLock;
 use ui::UiQueue;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -83,14 +84,7 @@ async fn main() -> anyhow::Result<()> {
             ty: CommandParamTy::String(CmdParamStrConstraints::None),
         }))).build();
     let cli = Arc::new(CmdLineInterface::new(cli));
-    let client = Arc::new(Client {
-        config: cfg.clone(),
-        profile_db: profile_db.clone(),
-        cli,
-        server: SwapArcOption::empty(),
-        audio: SwapArcOption::new(AudioConfig::new()?.map(|cfg| Audio::from_cfg(&cfg).unwrap()).flatten().map(|audio| Arc::new(audio))),
-        inter_ui_msg_queue: ui::ui_queue(UI),
-    });
+    let client = Arc::new(Client {config:cfg.clone(),profile_db:profile_db.clone(),cli,audio:SwapArcOption::new(AudioConfig::new()?.map(|cfg|Audio::from_cfg(&cfg).unwrap()).flatten().map(|audio|Arc::new(audio))),inter_ui_msg_queue:ui::ui_queue(UI), servers: RwLock::new(vec![]), voice_server: SwapArcOption::empty() });
 
     let tmp = client.clone();
     thread::spawn(move || {
@@ -99,12 +93,13 @@ async fn main() -> anyhow::Result<()> {
             client.cli.await_input(&client).unwrap(); // FIXME: handle errors properly!
         }
     });
+    // start the sound thread
     let tmp = client.clone();
     thread::spawn(move || {
         let client = tmp;
         loop {
             let client = client.clone();
-            let server = client.server.load();
+            let server = client.voice_server.load();
             if let Some(server) = server.as_ref() { // FIXME: check for channel
                 if !server.state.is_connected() {
                     sleep(Duration::from_millis(1));
@@ -137,7 +132,7 @@ async fn main() -> anyhow::Result<()> {
                                     if glob_buf.len() >= MIN_BUF_SIZE {
                                         let mut buffer = vec![0; 2048];
                                         // println!("max diff: {}", max_diff);
-                                        let tmp = client.server.load();
+                                        let tmp = client.voice_server.load();
                                         let tmp_conn = tmp.as_ref().unwrap().connection.get();
                                         let data = server.audio.as_ref().unwrap().encode(&glob_buf.as_slice()[0..MIN_BUF_SIZE], &mut buffer);
                                         glob_buf.drain(0..MIN_BUF_SIZE);
@@ -224,7 +219,8 @@ pub struct Client {
     // pub screen_sys: Arc<ScreenSystem>,
     // pub atlas: Arc<Atlas>,
     pub cli: Arc<CmdLineInterface<Arc<Client>>>,
-    pub server: SwapArcOption<Server>, // FIXME: support multiple servers at once!
+    pub servers: RwLock<Vec<Arc<Server>>>,
+    pub voice_server: SwapArcOption<Server>, // the currently active voice server
     pub audio: SwapArcOption<Audio>,
     pub inter_ui_msg_queue: Box<dyn UiQueue>,
 }
